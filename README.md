@@ -1,4 +1,4 @@
-# Twomes software repository template
+# Twomes-Twutility digital twin heat balance models and inverse grey-box analysis tools
 This repository contains source code for the Twomes and Twutility digital twin heat balance models and inverse-grey-box analysis tools that support automated estimation of crucial parameters of buildings, installations and comfort needs in individual homes and utility buildings based on time-series monitoring data.
 
 ## Table of contents
