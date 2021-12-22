@@ -1,5 +1,5 @@
 # Twomes software repository template
-A template repository for the Twomes project.
+This repository contains source code for the Twomes and Twutility digital twin heat balance models and inverse-grey-box analysis tools that support automated estimation of crucial parameters of buildings, installations and comfort needs in individual homes and utility buildings based on time-series monitoring data.
 
 ## Table of contents
 * [General info](#general-info)
@@ -45,29 +45,32 @@ To-do:
 * wow improvement to be done 2.
 
 ## Status
-Project is: _in progress_, _finished_, _no longer continued_ and why?
+Project is: _in progress_
 
 ## License
 This software is available under the [Apache 2.0 license](./LICENSE), Copyright 2021 [Research group Energy Transition, Windesheim University of Applied Sciences](https://windesheim.nl/energietransitie) 
 
 ## Credits
 This software is a collaborative effort of:
-* <contributor name 1> · [@Github_handle_1](https://github.com/<github_handle_1>) · Twitter [@Twitter_handle_1](https://twitter.com/<twitter_handle_1>)
-* <contributor name 2> · [@Github_handle_2](https://github.com/<github_handle_2>) · Twitter [@Twitter_handle_2](https://twitter.com/<twitter_handle_2>)
-* <contributor name 3> · [@Github_handle_3](https://github.com/<github_handle_3>) · Twitter [@Twitter_handle_3](https://twitter.com/<twitter_handle_3>)
-* etc. 
-* 
+* Hossein Rahmani · [@HosseinRahmani64](https://github.com/HosseinRahmani64)
+* Henri ter Hofte · [@henriterhofte](https://github.com/henriterhofte) · Twitter [@HeNRGi](https://twitter.com/HeNRGi)
+
+It is partially based on earlier work by the following students:
+* Casper Bloemendaal · [@Bloemendaal](https://github.com/Bloemendaal)
+* Briyan Kleijn · [@BriyanKleijn](https://github.com/BriyanKleijn)
+* Nathan Snippe · [@nsrid](https://github.com/nsrid)
+* Jeroen Matser · [@Spudra](https://github.com/Spudra)
+* Steven de Ronde · [@SteviosSDR](https://github.com/SteviosSDR)
+* Joery Grolleman · [@joerygrolleman](https://github.com/joerygrolleman)
+
 Thanks also go to:
-* <thanks name 1> · [@Github_handle_1](https://github.com/<github_handle_1>) · Twitter [@Twitter_handle_1](https://twitter.com/<twitter_handle_1>)
-* <thanks name 2> · [@Github_handle_2](https://github.com/<github_handle_2>) · Twitter [@Twitter_handle_2](https://twitter.com/<twitter_handle_2>)
-* <thanks name 3> · [@Github_handle_3](https://github.com/<github_handle_3>) · Twitter [@Twitter_handle_3](https://twitter.com/<twitter_handle_3>)
-* etc. 
+* Stephan Peters · [@stephanpcpeters](https://github.com/stephanpcpeters) 
 
 Product owner:
 * Henri ter Hofte · [@henriterhofte](https://github.com/henriterhofte) · Twitter [@HeNRGi](https://twitter.com/HeNRGi)
 
 We use and gratefully aknowlegde the efforts of the makers of the following source code and libraries:
-* [library name 1 and version](library 1 URL), by <copyright holder name 1>, licensed under [license 1 name](license1 URL)
+* [GEKKO Python](https://github.com/BYU-PRISM/GEKKO), by Advanced Process Solutions, LLC., licensed under [an MIT-style licence](https://github.com/BYU-PRISM/GEKKO/blob/master/LICENSE)
 * [library name 2 and version](library 2 URL), by <copyright holder name 2>, licensed under [license 2 name](license2 URL)
 * [library name 3 and version](library 3 URL), by <copyright holder name 3>, licensed under [license 3 name](license3 URL)
 * etc. 
