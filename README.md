@@ -22,7 +22,6 @@ Following packages are required to run the code locally:
 	```shell
 	pip install gekko
 	```
-
 [numpy](https://numpy.org/install/) (min version 1.20.3) which can be installed by following commands:<br/>
 pip:<br/>
 	```shell
