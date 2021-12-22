@@ -15,7 +15,30 @@ This repository contains source code for the Twomes and Twutility digital twin h
 Add more general information about the repo. What is purpose of the code in the repo? Motivation?
 
 ## Prerequisites
-Describe which (hardware and) software you need before you can deploy the software or develop with the source code. If the prerequisites are different for deploying users and developing users, you may want to move the prerequisites section as a subsection of each of those sections.
+Following packages are required to run the code locally:
+[Python](https://www.python.org/downloads/) (min version 3.8)
+
+[Gekko](https://gekko.readthedocs.io/en/latest/) which can be installed using following command:
+pip install gekko
+
+[numpy](https://numpy.org/install/) (min version 1.20.3) which can be installed by following commands:
+pip: 
+pip install numpy
+conda:
+conda install -c anaconda numpy
+
+[pandas](https://pandas.pydata.org/docs/getting_started/install.html) (min version 1.3.2) which can be installed by following commands:
+pip: 
+pip install pandas
+conda:
+conda install -c anaconda pandas
+
+[matplotlib](https://matplotlib.org/stable/users/installing/index.html) (min version 3.4.2) which can be installed by following commands:
+pip: 
+pip install matplotlib 
+conda:
+conda install -c conda-forge matplotlib
+
 
 ## Deploying
 Describe how the reader can download and install the lastest installable version(s). If appropriate, link to the latest binary release or package you published in the repo. If needed, describe this for different platforms.
