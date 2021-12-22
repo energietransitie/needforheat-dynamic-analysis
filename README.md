@@ -18,7 +18,12 @@ Add more general information about the repo. What is purpose of the code in the 
 Following packages are required to run the code locally:
 [Python](https://www.python.org/downloads/) (min version 3.8)
 
-[Gekko](https://gekko.readthedocs.io/en/latest/) which can be installed using following command:<br/>
+[Gekko](https://gekko.readthedocs.io/en/latest/) which can be installed using following command:
+
+	```shell
+	py -m pip install -r requirements.txt
+	```
+	
 	```shell
 	pip install gekko
 	```
