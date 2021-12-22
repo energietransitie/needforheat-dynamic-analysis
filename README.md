@@ -14,42 +14,6 @@ This repository contains source code for the Twomes and Twutility digital twin h
 ## General info
 Add more general information about the repo. What is purpose of the code in the repo? Motivation?
 
-## Prerequisites
-Following packages are required to run the code locally:  
-[Python](https://www.python.org/downloads/) (min version 3.8)  
-[Gekko](https://gekko.readthedocs.io/en/latest/) which can be installed using following command:
-- pip: 
-	```shell
-	pip install gekko
-	```  
-[numpy](https://numpy.org/install/) (min version 1.20.3) which can be installed by following commands:<br/>
-- pip:<br/>
-	```shell
-	pip install numpy
-	```
-- conda:<br/>
-	```shell
-	conda install -c anaconda numpy
-	```
-[pandas](https://pandas.pydata.org/docs/getting_started/install.html) (min version 1.3.2) which can be installed by following commands:<br/>
-- pip:
-	```shell
-	pip install pandas
-	```
-	
-- conda:<br/>
-	```shell
-	conda install -c anaconda pandas
-	```
-[matplotlib](https://matplotlib.org/stable/users/installing/index.html) (min version 3.4.2) which can be installed by following commands:<br/>
-- pip:<br/>
-	```shell
-	pip install matplotlib
-	``` 
-- conda:<br/>
-	```shell
-	conda install -c conda-forge matplotlib
-	```
 ## Deploying
 Describe how the reader can download and install the lastest installable version(s). If appropriate, link to the latest binary release or package you published in the repo. If needed, describe this for different platforms.
 Use steps if the procedure is non-trivial:
@@ -67,6 +31,39 @@ netsh wlan show profile SSID key=clear
 ## Developing
 Describe how the reader can use / adapt/ compile the souce code. 
 
+### Prerequisites
+
+To change or contribute to the code, you need:  
+- [Pycharm](https://www.jetbrains.com/pycharm/download/#section=windows) (Recommended)  
+	- All student and staff are able to use Proffesional version of Pycharm simply by using the university email address.
+
+Following packages are required to run the code locally:  
+- [Python](https://www.python.org/downloads/) (min version 3.8)  
+- [Gekko](https://gekko.readthedocs.io/en/latest/) which can be installed using following command:
+	```shell
+	pip install gekko
+	```  
+- [numpy](https://numpy.org/install/) (min version 1.20.3) which can be installed by following commands:<br/>
+	```shell
+	pip install numpy
+	```
+	```shell
+	conda install -c anaconda numpy
+	```
+- [pandas](https://pandas.pydata.org/docs/getting_started/install.html) (min version 1.3.2) which can be installed by following commands:<br/>
+	```shell
+	pip install pandas
+	```
+	```shell
+	conda install -c anaconda pandas
+	```
+- [matplotlib](https://matplotlib.org/stable/users/installing/index.html) (min version 3.4.2) which can be installed by following commands:<br/>
+	```shell
+	pip install matplotlib
+	``` 
+	```shell
+	conda install -c conda-forge matplotlib
+	```
 ## Features
 List of features ready and TODOs for future development. Ready:
 * awesome feature 1;
