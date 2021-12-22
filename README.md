@@ -22,6 +22,14 @@ Following packages are required to run the code locally:
 	```shell
 	py -m pip install -r requirements.txt
 	```  
+	
+salam	
+	
+line window with directory changed to the local git folder of this repository): 
+	```shell
+	py -m pip install -r requirements.txt
+	```
+- Created an `.env` file to configure the database connection, see [.env.example](/.env.example).
 [numpy](https://numpy.org/install/) (min version 1.20.3) which can be installed by following commands:<br/>
 pip:<br/>
 	```shell
