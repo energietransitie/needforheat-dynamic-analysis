@@ -21,7 +21,7 @@ Following packages are required to run the code locally:
 [Gekko](https://gekko.readthedocs.io/en/latest/) which can be installed using following command:  
 	```shell
 	py -m pip install -r requirements.txt
-	```
+	```  
 [numpy](https://numpy.org/install/) (min version 1.20.3) which can be installed by following commands:<br/>
 pip:<br/>
 	```shell
