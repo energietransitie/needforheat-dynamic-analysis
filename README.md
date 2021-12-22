@@ -29,41 +29,32 @@ netsh wlan show profile SSID key=clear
 ```
 
 ## Developing
-Describe how the reader can use / adapt/ compile the souce code. 
+This section describes how you can change the source code using a development environment and compile the source code into a service that can be deployed via the method described in the section [Deploying](#deploying).
 
 ### Prerequisites
-
-To change or contribute to the code, you need:  
-- [Pycharm](https://www.jetbrains.com/pycharm/download/#section=windows) (Recommended)  
-	- All student and staff are able to use Proffesional version of Pycharm simply by using the university email address.
-
+- [PyCharm](https://www.jetbrains.com/pycharm/download/#section=windows) Community or Professional Edition IDE installed (recommended)  
+	
 Following packages are required to run the code locally:  
 - [Python](https://www.python.org/downloads/) (min version 3.8)  
+
+Start PyCharm and install the following packages by entering the following commands in a Terminal window in PyCharm:
 - [Gekko](https://gekko.readthedocs.io/en/latest/) which can be installed using following command:
 	```shell
 	pip install gekko
 	```  
-- [numpy](https://numpy.org/install/) (min version 1.20.3) which can be installed by following commands:<br/>
+- [numpy](https://numpy.org/install/) (min version 1.20.3) which can be installed by either following commands:<br/>
 	```shell
 	pip install numpy
-	```
-	```shell
-	conda install -c anaconda numpy
 	```
 - [pandas](https://pandas.pydata.org/docs/getting_started/install.html) (min version 1.3.2) which can be installed by following commands:<br/>
 	```shell
 	pip install pandas
 	```
-	```shell
-	conda install -c anaconda pandas
-	```
 - [matplotlib](https://matplotlib.org/stable/users/installing/index.html) (min version 3.4.2) which can be installed by following commands:<br/>
 	```shell
 	pip install matplotlib
 	``` 
-	```shell
-	conda install -c conda-forge matplotlib
-	```
+
 ## Features
 List of features ready and TODOs for future development. Ready:
 * awesome feature 1;
