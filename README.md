@@ -15,18 +15,10 @@ This repository contains source code for the Twomes and Twutility digital twin h
 Add more general information about the repo. What is purpose of the code in the repo? Motivation?
 
 ## Deploying
-Describe how the reader can download and install the lastest installable version(s). If appropriate, link to the latest binary release or package you published in the repo. If needed, describe this for different platforms.
-Use steps if the procedure is non-trivial:
-1. first step;
-2. second step;
-3. final step.
-
-Format any scripts or commands in a way that makes them  easy to copy, like the following example. 
-
-Forgotten your Wi-Fi password? No problem with the follwing command, replacing `SSID` with the Wi-Fi name of your own Wi-Fi network: 
-```shell
-netsh wlan show profile SSID key=clear
-```
+After cloning this this respository, install requirements: open a terminal windows (in JypyterLabs availabe via the Lunacher which itself is always avalable via the `+` tab), navigate to the root folder of this repository and enter this command: 
+  ```shell
+  pip install -r requirements.txt
+  ```  
 
 ## Developing
 This section describes how you can change the source code using a development environment and compile the source code into a service that can be deployed via the method described in the section [Deploying](#deploying).
