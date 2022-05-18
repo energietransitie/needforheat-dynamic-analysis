@@ -1,0 +1,8 @@
+requests
+numpy
+pandas
+scipy
+mysql-connector-python
+# python-dotenv
+openpyxl
+-e git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather

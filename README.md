@@ -84,12 +84,11 @@ It is partially based on earlier work by the following students:
 * Steven de Ronde · [@SteviosSDR](https://github.com/SteviosSDR)
 * Joery Grolleman · [@joerygrolleman](https://github.com/joerygrolleman)
 
-Thanks also go to:
-* Stephan Peters · [@stephanpcpeters](https://github.com/stephanpcpeters) 
-
 Product owner:
 * Henri ter Hofte · [@henriterhofte](https://github.com/henriterhofte) · Twitter [@HeNRGi](https://twitter.com/HeNRGi)
 
 We use and gratefully aknowlegde the efforts of the makers of the following source code and libraries:
 * [GEKKO Python](https://github.com/BYU-PRISM/GEKKO), by Advanced Process Solutions, LLC., licensed under [an MIT-style licence](https://github.com/BYU-PRISM/GEKKO/blob/master/LICENSE)
 * [Twomes Analysis Pipeline, v1](https://github.com/energietransitie/twomes-analysis-pipeline), by Research group Energy Transition, Windesheim University of Applied Sciences, licensed under [Apache-2.0 License](https://github.com/energietransitie/twomes-analysis-pipeline/blob/main/LICENSE)
+* [HourlyHistoricWeather](https://github.com/stephanpcpeters/HourlyHistoricWeather), by [@stephanpcpeters](https://github.com/stephanpcpeters), licensed under [an MIT-style licence](https://raw.githubusercontent.com/stephanpcpeters/HourlyHistoricWeather/master/historicdutchweather/LICENSE)
+
