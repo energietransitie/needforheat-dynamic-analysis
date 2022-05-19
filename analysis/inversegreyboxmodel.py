@@ -44,8 +44,8 @@ class Learner():
         daterange_frequency = str(moving_horizon_duration_d) + 'D'
 
         print('Homes to analyse: ', homes_to_analyze)
-        print('start of analysis: ', start_analysis_period)
-        print('End of analysis: ', end_analysis_period)
+        print('Start of analyses: ', start_analysis_period)
+        print('End of analyses: ', end_analysis_period)
         print('Moving horizon: ', daterange_frequency)
 
         # create empty dataframe for results
@@ -54,7 +54,7 @@ class Learner():
         # iterate over homes
         for home_id in tqdm.tqdm(homes_to_analyze):
 
-            print('Home pseudonym: ', home_id)
+            # print('Home pseudonym: ', home_id)
 
             df_data_one_home = df_data_homes[df_data_homes['homepseudonym'] == home_id]
 
@@ -67,8 +67,8 @@ class Learner():
 
                 df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end]
 
-                print('Start datetime: ', moving_horizon_start)
-                print('End datetime: ', moving_horizon_end)
+                # print('Start datetime: ', moving_horizon_start)
+                # print('End datetime: ', moving_horizon_end)
 
                 delta_t = df_moving_horizon['timedelta_s'].mean()
 
@@ -104,28 +104,29 @@ class Learner():
                 
                 # print length of arrays and check uquality
 
-                print('#setpoint', len(setpoint))
-                print('#T_in_meas', len(T_in_meas))
-                print('#T_out_eff_arr', len(T_out_eff_arr))
-                print('#T_out', len(T_out))
-                print('#gas_total', len(gas_total))
-                print('#e_used_normal_val', len(e_used_normal_val))
-                print('#e_used_low_val', len(e_used_low_val))
-                print('#e_returned_normal_val', len(e_returned_normal_val))
-                print('#e_returned_low_val', len(e_returned_low_val))
-                print('#delta_E_supply_val', len(delta_E_supply_val))
-                print('#delta_E_ret_val', len(delta_E_ret_val))
-                print('#delta_E_int_val', len(delta_E_int_val))
-                print('#delta_Q_int_e_val', len(delta_Q_int_e_val))
-                print('#I_geo_eff_val', len(I_geo_eff_val))
+                # print('#setpoint', len(setpoint))
+                # print('#T_in_meas', len(T_in_meas))
+                # print('#T_out_eff_arr', len(T_out_eff_arr))
+                # print('#T_out', len(T_out))
+                # print('#gas_total', len(gas_total))
+                # print('#e_used_normal_val', len(e_used_normal_val))
+                # print('#e_used_low_val', len(e_used_low_val))
+                # print('#e_returned_normal_val', len(e_returned_normal_val))
+                # print('#e_returned_low_val', len(e_returned_low_val))
+                # print('#delta_E_supply_val', len(delta_E_supply_val))
+                # print('#delta_E_ret_val', len(delta_E_ret_val))
+                # print('#delta_E_int_val', len(delta_E_int_val))
+                # print('#delta_Q_int_e_val', len(delta_Q_int_e_val))
+                # print('#I_geo_eff_val', len(I_geo_eff_val))
 
                 # check for equal length
-                print(len(setpoint) == len(T_in_meas) == len(T_out_eff_arr) 
-                      == len(T_out) == len(gas_total) == len(e_used_normal_val) 
-                      == len(e_used_low_val) == len(e_returned_normal_val) 
-                      == len(e_returned_low_val) == len(delta_E_supply_val) 
-                      == len(delta_E_ret_val) == len(delta_E_int_val) 
-                      == len(delta_Q_int_e_val) == len(I_geo_eff_val))
+                
+                # print(len(setpoint) == len(T_in_meas) == len(T_out_eff_arr) 
+                #       == len(T_out) == len(gas_total) == len(e_used_normal_val) 
+                #       == len(e_used_low_val) == len(e_returned_normal_val) 
+                #       == len(e_returned_low_val) == len(delta_E_supply_val) 
+                #       == len(delta_E_ret_val) == len(delta_E_int_val) 
+                #       == len(delta_Q_int_e_val) == len(I_geo_eff_val))
 
                 ########################################################################################################################
                 #                                                   tau initial values input
@@ -309,10 +310,12 @@ class Learner():
                     {'pseudonym': [home_id],
                      'start_horizon': [moving_horizon_start],
                      'end_horizon': [moving_horizon_end],
+                     'error_K': [m.options.OBJFCNVAL/m.time], #TODO: check whether thisis the proper interpretation 
                      'H_W_per_K': [H.value[0]],
                      'tau_h': [tau.value[0] / 3600],
                      'eta_hs': [eta_hs_CH.value[0]],
-                     'A_m^2': [A_eff.value[0]]}
+                     'A_m^2': [A_eff.value[0]]
+                    }
                 )
                 df_results = pd.concat([df_results, df_result_row])
                 
