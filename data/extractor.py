@@ -12,7 +12,9 @@ import tqdm
 # before import use pip install git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather
 # or include the following line (without comment) in requirements.txt and run `pip install -r requirements.txt` in a terminal
 # -e git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather
-import historicdutchweather
+
+# the line below was working until 20-5-2022; then something changed which caused historicdutchweather to stop working
+# import historicdutchweather
 
 
 
@@ -936,7 +938,7 @@ class WeatherExtractor:
         # the .tz_localize(None).tz_localize(tz_home) at the and is needed to work around a bug in the historicdutchweather library 
         # TODO: post an issue in the historicdutchweather library and change the code to the line directly below when repaired.
         # weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q'])
-        # the line below was working until 20-5-2022; then something changed which caused the 
+        # the line below was working until 20-5-2022; then something changed which caused historicdutchweather to stop working
         # weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q']).tz_localize(None).tz_localize(timezone)
         
 
