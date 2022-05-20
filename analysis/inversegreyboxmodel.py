@@ -12,7 +12,7 @@ class Learner():
                                             moving_horizon_duration_d=7, 
                                             homes_to_analyze=None, 
                                             start_analysis_period:datetime=None, 
-                                            end_analysis_period:datetime=None) -> pd.DataFrame:
+                                            end_analysis_period:datetime=None, showdetails=False) -> pd.DataFrame:
         """
         Input:  
         - a dataframe with a timezone-aware datetime index and measurement values: with the following columns
@@ -51,24 +51,41 @@ class Learner():
         # create empty dataframe for results
         df_results = pd.DataFrame()
 
+        # # make home iterator
+        # if showdetails:
+        #     home_iterator = homes_to_analyze
+        # else:
+            # home_iterator = tqdm.tqdm(homes_to_analyze)
+            
+        home_iterator = tqdm.tqdm(homes_to_analyze)
+           
         # iterate over homes
-        for home_id in tqdm.tqdm(homes_to_analyze):
+        for home_id in home_iterator:
 
-            # print('Home pseudonym: ', home_id)
+            if showdetails:
+                print('Home pseudonym: ', home_id)
 
             df_data_one_home = df_data_homes[df_data_homes['homepseudonym'] == home_id]
 
             moving_horizon_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='left', freq=daterange_frequency)
 
+            # make moving horizon iterator
+            # if showdetails:
+            #     moving_horizon_iterator = moving_horizon_starts
+            # else:
+            #     moving_horizon_iterator = tqdm.tqdm(moving_horizon_starts)
+            moving_horizon_iterator = tqdm.tqdm(moving_horizon_starts)
+                
             # iterate over horizons
-            for moving_horizon_start in tqdm.tqdm(moving_horizon_starts):
+            for moving_horizon_start in moving_horizon_iterator:
 
                 moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d))
 
                 df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end]
 
-                # print('Start datetime: ', moving_horizon_start)
-                # print('End datetime: ', moving_horizon_end)
+                if showdetails:
+                    print('Start datetime: ', moving_horizon_start)
+                    print('End datetime: ', moving_horizon_end)
 
                 delta_t = df_moving_horizon['timedelta_s'].mean()
 
@@ -147,7 +164,13 @@ class Learner():
                 # initialize gekko
                 m = GEKKO(remote=False)
                 m.time = np.linspace(delta_t, len(T_in_meas) * delta_t, len(T_in_meas))  # [s]
-
+                
+                # line below added to avoid "Warning: shifting time horizon to start at zero; Current starting time value: 900.000000000000"
+                m.time = m.time - delta_t
+                # print('m.time: ', m.time)
+                # print ('len(T_in_meas): ', len(T_in_meas)) 
+                # print('m.time[-1]: ', m.time[-1])
+                
                 ########################################################################################################################
                 #                                                   Gekko Model - Variables
                 ########################################################################################################################
@@ -291,26 +314,31 @@ class Learner():
                 # m.options.CV_TYPE = 2
                 # add dead-band for measurement to avoid overfitting
                 # T_in_sim.MEAS_GAP = 0.25
-                m.solve(disp=False)
+                m.solve(disp=showdetails)
 
                 ########################################################################################################################
                 #                                                       Result
                 ########################################################################################################################
 
-                # print('tau [h]: ', round(tau.value[0] / 3600, 2))
-                # print('H [W/K]: ', round(H.value[0], 2))
-                # print('A_eff [m^2]: ', round(A_eff.value[0], 2))
-
-                # print('eta_hs [-]: ', round(eta_hs_CH.value[0], 2))
-                # print('COP_CH [-]: ', round(COP_CH.value[0], 2))
-
+                duration_s = m.time[-1]
+                error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
+                
+                if showdetails:
+                    print('duration [s]: ', duration_s)
+                    print('error [K]: ', round(error_K, 4))
+                    print('H [W/K]: ', round(H.value[0], 4))
+                    print('tau [h]: ', round(tau.value[0] / 3600, 2))
+                    print('A [m^2]: ', round(A_eff.value[0], 2))
+                    print('eta_hs [-]: ', round(eta_hs_CH.value[0], 2))
+                    # print('COP_CH [-]: ', round(COP_CH.value[0], 2))
 
                 # Create a results row
                 df_result_row = pd.DataFrame(
                     {'pseudonym': [home_id],
                      'start_horizon': [moving_horizon_start],
                      'end_horizon': [moving_horizon_end],
-                     'error_K': [m.options.OBJFCNVAL/m.time], #TODO: check whether thisis the proper interpretation 
+                     'duration_s': [duration_s],
+                     'error_K': [error_K],
                      'H_W_per_K': [H.value[0]],
                      'tau_h': [tau.value[0] / 3600],
                      'eta_hs': [eta_hs_CH.value[0]],

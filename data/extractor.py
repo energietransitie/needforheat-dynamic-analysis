@@ -936,9 +936,19 @@ class WeatherExtractor:
         # the .tz_localize(None).tz_localize(tz_home) at the and is needed to work around a bug in the historicdutchweather library 
         # TODO: post an issue in the historicdutchweather library and change the code to the line directly below when repaired.
         # weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q'])
-        weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q']).tz_localize(None).tz_localize(timezone)
+        # the line below was working until 20-5-2022; then something changed which caused the 
+        # weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q']).tz_localize(None).tz_localize(timezone)
+        
+
+        # stop gap measure: author of historicdutchweather created special export (which had erronaous tz info)
+        # then we made the times disabiguable
+        df = pd.read_csv('~/twomes-twutility-inverse-grey-box-analysis/data/weather-assendorp-interpolated-disabiguable.csv', index_col=0)
+        df.index = pd.to_datetime(df.index)
+        weather = df.tz_localize(None).tz_localize(None).tz_localize(timezone, ambiguous='infer')[starttime:endtime]
         
         print('Resampling weather data...' )
+        
+        
         outdoor_temp_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(weather, 'T', 'outdoor_temp_degC', 
                                                                     upsample, interpolation_interval, starttime, endtime, timezone)
 
@@ -975,8 +985,8 @@ class WeatherExtractor:
         # tempting, but do NOT drop duplicates since this ignores index column
         # timeseriesdata.drop_duplicates(inplace=True)
 
-        # Converting str to float not needed
-        # timeseriesdata[parameter] = timeseriesdata[parameter].astype(float)
+        # Converting str to float needed
+        timeseriesdata[parameter] = timeseriesdata[parameter].astype(float)
 
         timeseriesdata_minute = timeseriesdata.resample(upsample_to).first()
         timeseriesdata_minute.interpolate(method='time', inplace=True)
