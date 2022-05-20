@@ -7,6 +7,7 @@ import numpy as np
 from period import Period
 from database import Database
 
+import tqdm
 
 # before import use pip install git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather
 # or include the following line (without comment) in requirements.txt and run `pip install -r requirements.txt` in a terminal
@@ -613,7 +614,7 @@ class Extractor(Database):
         return result
 
     def get_home_parameter_timeseries_sum(self, parameter: str, seriesname: str, 
-                                 differentiate: bool, upsample_to: str, downsample_to: str,
+                                 differentiate: bool, upsample_to: str, interpolation_interval: str,
                                  start: datetime, end: datetime, tz_name_home: str) -> pd.DataFrame:
         tz_system = 'UTC'
         timeseriesdata = self.get(parameter)
@@ -645,15 +646,15 @@ class Extractor(Database):
         timeseriesdata_minute['target_value'] = timeseriesdata_minute['value']
         timeseriesdata_minute.rename(columns={'target_value':seriesname}, inplace=True)
         timeseriesdata_minute.drop(['index', 'timestamp', 'value'], axis=1, inplace=True)
-        timeseriesdata_by_day = timeseriesdata_minute[seriesname].resample(downsample_to).sum()
+        timeseriesdata_interpolated = timeseriesdata_minute[seriesname].resample(interpolation_interval).sum()
 
         # print(seriesname)
-        # print(timeseriesdata_by_day.describe())
+        # print(timeseriesdata_interpolated.describe())
 
-        return timeseriesdata_by_day
+        return timeseriesdata_interpolated
 
     def get_meter_parameter_timeseries_sum(self, parameter: str, seriesname: str, 
-                                 differentiate: bool, upsample_to: str, downsample_to: str,
+                                 differentiate: bool, upsample_to: str, interpolation_interval: str,
                                  start: datetime, end: datetime, tz_name_home: str) -> pd.DataFrame:
         tz_system = 'UTC'
         timeseriesdata = self.get(parameter)
@@ -691,15 +692,15 @@ class Extractor(Database):
         timeseriesdata_minute['target_value'] = timeseriesdata_minute['value']
         timeseriesdata_minute.rename(columns={'target_value':seriesname}, inplace=True)
         timeseriesdata_minute.drop(['index', 'timestamp', 'value'], axis=1, inplace=True)
-        timeseriesdata_by_day = timeseriesdata_minute.resample(downsample_to).sum()
+        timeseriesdata_interpolated = timeseriesdata_minute.resample(interpolation_interval).sum()
 
         # print(seriesname)
-        # print(timeseriesdata_by_day.describe())
+        # print(timeseriesdata_interpolated.describe())
 
-        return timeseriesdata_by_day
+        return timeseriesdata_interpolated
 
     def get_home_parameter_timeseries_count(self, parameter: str, seriesname: str, 
-                                 differentiate: bool, upsample_to: str, downsample_to: str,
+                                 differentiate: bool, upsample_to: str, interpolation_interval: str,
                                  start: datetime, end: datetime, tz_name_home: str) -> pd.DataFrame:
         tz_system = 'UTC'
         timeseriesdata = self.get(parameter)
@@ -724,15 +725,15 @@ class Extractor(Database):
         timeseriesdata_minute['target_value'] = timeseriesdata_minute['value']
         timeseriesdata_minute.rename(columns={'target_value':seriesname}, inplace=True)
         timeseriesdata_minute.drop(['index', 'timestamp', 'value'], axis=1, inplace=True)
-        timeseriesdata_by_day = timeseriesdata_minute.resample(downsample_to).count()
+        timeseriesdata_interpolated = timeseriesdata_minute.resample(interpolation_interval).count()
 
         # print(seriesname)
-        # print(timeseriesdata_by_day.describe())
+        # print(timeseriesdata_interpolated.describe())
 
-        return timeseriesdata_by_day
+        return timeseriesdata_interpolated
 
     def get_home_parameter_timeseries_mean(self, parameter: str, seriesname: str, 
-                                 upsample_to: str, downsample_to: str,
+                                 upsample_to: str, interpolation_interval: str,
                                  start: datetime, end: datetime, tz_name_home: str) -> pd.DataFrame:
         tz_system = 'UTC'
         timeseriesdata = self.get(parameter)
@@ -759,16 +760,16 @@ class Extractor(Database):
         timeseriesdata_minute['target_value'] = timeseriesdata_minute['value']
         timeseriesdata_minute.rename(columns={'target_value':seriesname}, inplace=True)
         timeseriesdata_minute.drop(['index', 'timestamp', 'value'], axis=1, inplace=True)
-        timeseriesdata_by_day = timeseriesdata_minute.resample(downsample_to).mean()
+        timeseriesdata_interpolated = timeseriesdata_minute.resample(interpolation_interval).mean()
 
         # print(seriesname)
-        # print(timeseriesdata_by_day.describe())
+        # print(timeseriesdata_interpolated.describe())
 
-        return timeseriesdata_by_day
+        return timeseriesdata_interpolated
 
 
     def get_indoor_setpoint_timeseries_mean(self, parameter: str, seriesname: str,  
-                                 upsample_to: str, downsample_to: str,
+                                 upsample_to: str, interpolation_interval: str,
                                  start: datetime, end: datetime, tz_name_home: str) -> pd.DataFrame:
         tz_system = 'UTC'
         timeseriesdata = self.get(parameter)
@@ -796,12 +797,12 @@ class Extractor(Database):
         timeseriesdata_minute.rename(columns={'target_value':seriesname}, inplace=True)
         timeseriesdata_minute.drop(['index', 'timestamp', 'value'], axis=1, inplace=True)
 
-        timeseriesdata_by_day = timeseriesdata_minute.resample(downsample_to).mean()
+        timeseriesdata_interpolated = timeseriesdata_minute.resample(interpolation_interval).mean()
 
         # print(seriesname)
-        # print(timeseriesdata_by_day.describe())
+        # print(timeseriesdata_interpolated.describe())
 
-        return timeseriesdata_by_day
+        return timeseriesdata_interpolated
 
     @staticmethod
     def remove_measurement_outliers(df: pd.DataFrame, n_std) -> pd.DataFrame:
@@ -810,9 +811,106 @@ class Extractor(Database):
         Where outliers are those values more than n_std standard deviations away from the average of the 'value' column in a dataframe
         """
 
-        df[(df['value']-df['value'].mean()).abs() > (n_std*df['value'].std())] = np.nan
+        col='value'
+        mean = df[col].mean()
+        std = df[col].std()
+        df[(df[col]-mean).abs() > (n_std*std)] = np.nan
 
         return df
+    
+
+    @staticmethod
+    def get_interpolated_twomes_data(homes, starttime:datetime, endtime:datetime, tz_home:str, interpolation_interval:str, weather_interpolated: pd.DataFrame) -> pd.DataFrame:
+        """
+        Obtain data from twomes database 
+        convert timestamps to the tz_home timezone 
+        with outlier removal, outliers are those values more than 3 standard deviations away from the average of the 'value' column in a dataframe
+        interpolated with the interpolation_interval
+        rendered as a dataframe with a timezone-aware datetime index
+        [
+            'homepseudonym', 'heartbeat',
+            'outdoor_temp_degC','windspeed_m_per_s', 'effective_outdoor_temp_degC', 'hor_irradiation_J_per_h_per_cm^2', 'hor_irradiation_W_per_m^2',  
+            'indoor_temp_degC', 'indoor_temp_degC_CO2', 'indoor_setpoint_temp_degC',
+            'gas_m^3', 'e_used_normal_kWh', 'e_used_low_kWh', 'e_returned_normal_kWh', 'e_returned_low_kWh', 'e_used_net_kWh', 'e_remaining_heat_kWh', 
+            'timedelta', 'timedelta_s', 'daycompleteness'
+        ]
+        """
+
+        print('Retrieving data for pseudonyms...' )
+        data_interpolated_all_homes = pd.DataFrame()
+
+        upsample = '5min'
+
+        for pseudonym in tqdm.tqdm(homes):
+            # print(pseudonym)
+            extractor = Extractor(pseudonym, Period(starttime, endtime))
+            # print('...getting heartbeat')
+            heartbeats_interpolated = extractor.get_home_parameter_timeseries_count('heartbeat', 'heartbeat', False, upsample, interpolation_interval, starttime, endtime, tz_home)
+
+            # print('...getting indoor_temp_degC')
+            indoor_temp_interpolated = extractor.get_home_parameter_timeseries_mean('roomTemp', 'indoor_temp_degC', 
+                                                                    upsample, interpolation_interval, starttime, endtime, tz_home)
+
+            # print('...getting indoor_temp_degC_CO2')
+            indoor_temp_interpolated_CO2 = extractor.get_home_parameter_timeseries_mean('roomTempCO2', 'indoor_temp_degC_CO2', 
+                                                                    upsample, interpolation_interval, starttime, endtime, tz_home)  
+            # print('...getting indoor_setpoint_temp_degC')
+            indoor_setpoint_interpolated = extractor.get_indoor_setpoint_timeseries_mean('roomSetpointTemp', 'indoor_setpoint_temp_degC',
+                                                                    upsample, interpolation_interval, starttime, endtime, tz_home)
+            # print(len(indoor_temp_interpolated.index))
+            if len(indoor_temp_interpolated.index)>=1:
+                # print('...getting gas_m^3')
+                gas_m3_interpolated = extractor.get_meter_parameter_timeseries_sum('gMeterReadingSupply', 'gas_m^3', 
+                                                 True, upsample, interpolation_interval, starttime, endtime, tz_home)
+                # print('...getting e_used_normal_kWh')
+                e_used_normal_kWh_interpolated = extractor.get_meter_parameter_timeseries_sum('eMeterReadingSupplyHigh', 'e_used_normal_kWh', 
+                                                 True, upsample, interpolation_interval, starttime, endtime, tz_home)
+                # print('...getting e_used_low_kWh')
+                e_used_low_kWh_interpolated = extractor.get_meter_parameter_timeseries_sum('eMeterReadingSupplyLow', 'e_used_low_kWh', 
+                                                 True, upsample, interpolation_interval, starttime, endtime, tz_home)
+                # print('...getting e_returned_normal_kWh')
+                e_returned_normal_kWh_interpolated = extractor.get_meter_parameter_timeseries_sum('eMeterReadingReturnHigh', 'e_returned_normal_kWh', 
+                                                 True, upsample, interpolation_interval, starttime, endtime, tz_home)
+                # print('...getting e_returned_low_kWh')
+                e_returned_low_kWh_interpolated = extractor.get_meter_parameter_timeseries_sum('eMeterReadingReturnLow', 'e_returned_low_kWh', 
+                                                 True, upsample, interpolation_interval, starttime, endtime, tz_home)
+                home_interpolated = pd.concat([heartbeats_interpolated, weather_interpolated, indoor_temp_interpolated, indoor_temp_interpolated_CO2, 
+                                         indoor_setpoint_interpolated,
+                                         gas_m3_interpolated,
+                                         e_used_normal_kWh_interpolated, e_used_low_kWh_interpolated,
+                                         e_returned_normal_kWh_interpolated, e_returned_low_kWh_interpolated
+                                        ], axis=1, join='outer')    
+                home_interpolated['homepseudonym'] = pseudonym
+                data_interpolated = home_interpolated.reindex(columns= ['homepseudonym', 'heartbeat',
+                                                            'outdoor_temp_degC','windspeed_m_per_s', 'effective_outdoor_temp_degC', 'hor_irradiation_J_per_h_per_cm^2', 'hor_irradiation_W_per_m^2',  
+                                                            'indoor_temp_degC', 'indoor_temp_degC_CO2', 'indoor_setpoint_temp_degC',
+                                                            'gas_m^3',  
+                                                            'e_used_normal_kWh', 'e_used_low_kWh', 
+                                                            'e_returned_normal_kWh', 'e_returned_low_kWh'
+                                                           ])
+                data_interpolated['timedelta'] = data_interpolated.index.to_series().diff().shift(-1)
+                data_interpolated['timedelta_s'] = data_interpolated['timedelta'].apply(lambda x: x.total_seconds())
+
+                # print('add to results from other homes')
+                data_interpolated_all_homes = pd.concat([data_interpolated_all_homes, data_interpolated], axis=0)
+
+                # print('finalizing calculations')
+                data_interpolated_all_homes['e_used_net_kWh'] = (data_interpolated_all_homes['e_used_normal_kWh']
+                                                                 + data_interpolated_all_homes['e_used_low_kWh'] 
+                                                                 - data_interpolated_all_homes['e_returned_normal_kWh']
+                                                                 - data_interpolated_all_homes['e_returned_low_kWh'])
+
+                data_interpolated_all_homes['e_remaining_heat_kWh'] = (data_interpolated_all_homes['e_used_net_kWh'])
+
+                data_interpolated_all_homes['daycompleteness'] = (data_interpolated_all_homes['heartbeat'] / data_interpolated_all_homes['timedelta_s'] * 60 * 5)
+
+                #         filename = './'+str(pseudonym)+'.xlsx'
+                #         #strip timezone info before exporting to (Excel doet not support timezone)
+                #         data_interpolated.tz_localize(None).to_excel(filename)
+
+                #         data_interpolated_all_homes.tz_localize(None, level=0).to_excel('./allhomes.xlsx')
+
+        return data_interpolated_all_homes
 
     
 class WeatherExtractor:
@@ -821,24 +919,57 @@ class WeatherExtractor:
     """
 
     @staticmethod
-    def get_linear_geospatial_interpolation_weather_nl(starttime:datetime, endtime:datetime, lat:float, lon:float, timezone:str) -> pd.DataFrame:
+    def get_interpolated_weather_nl(starttime:datetime, endtime:datetime, lat:float, lon:float, timezone:str, interpolation_interval:str) -> pd.DataFrame:
         """
         get weather data using a linear geospatial interpolation 
         based on three nearby KNMI weather stations 
         using the GitHub repo https://github.com/stephanpcpeters/HourlyHistoricWeather 
-        for metrics=['T', 'FH', 'Q'] 
+        for KNMI metrics=['T', 'FH', 'Q'] 
+        with NO outlier removal (assuming that KNMI already did this)
+        interpolated with the interpolation_interval
         rendered as a dataframe with a timezone-aware datetime index
+        columns ['outdoor_temp_degC', 'windspeed_m_per_s', 'hor_irradiation_J_per_h_per_cm^2', 'hor_irradiation_W_per_m^2', 'effective_outdoor_temp_degC']
         """
+        
+        upsample = '5min'
         
         # the .tz_localize(None).tz_localize(tz_home) at the and is needed to work around a bug in the historicdutchweather library 
         # TODO: post an issue in the historicdutchweather library and change the code to the line directly below when repaired.
         # weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q'])
-        df = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q']).tz_localize(None).tz_localize(timezone)
-        return df
+        # the line below was working until 20-5-2022; then something changed which caused the 
+        # weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q']).tz_localize(None).tz_localize(timezone)
+        
+
+        # stop gap measure: author of historicdutchweather created special export (which had erronaous tz info)
+        # then we made the times disabiguable
+        df = pd.read_csv('~/twomes-twutility-inverse-grey-box-analysis/data/weather-assendorp-interpolated-disabiguable.csv', index_col=0)
+        df.index = pd.to_datetime(df.index)
+        weather = df.tz_localize(None).tz_localize(None).tz_localize(timezone, ambiguous='infer')[starttime:endtime]
+        
+        print('Resampling weather data...' )
+        
+        
+        outdoor_temp_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(weather, 'T', 'outdoor_temp_degC', 
+                                                                    upsample, interpolation_interval, starttime, endtime, timezone)
+
+        windspeed_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(weather, 'FH', 'windspeed_m_per_s', 
+                                                                    upsample, interpolation_interval, starttime, endtime, timezone)
+        irradiation_interpolated = WeatherExtractor. get_weather_parameter_timeseries_mean(weather, 'Q', 'hor_irradiation_J_per_h_per_cm^2', 
+                                                                    upsample, interpolation_interval, starttime, endtime, timezone)
+
+        # merge weather data in a single dataframe
+        weather_interpolated = pd.concat([outdoor_temp_interpolated, windspeed_interpolated, irradiation_interpolated], axis=1, join='outer') 
+        
+        weather_interpolated['hor_irradiation_W_per_m^2'] = weather_interpolated['hor_irradiation_J_per_h_per_cm^2']  * (100 * 100) / (60 * 60)
+
+        #calculate effective outdoor temperature based on KNMI formula
+        weather_interpolated['effective_outdoor_temp_degC'] = weather_interpolated['outdoor_temp_degC'] - 2/3 * weather_interpolated['windspeed_m_per_s'] 
+        
+        return weather_interpolated
 
     @staticmethod
     def get_weather_parameter_timeseries_mean(weather: pd.DataFrame, parameter: str, seriesname: str, 
-                                 upsample_to: str, downsample_to: str,
+                                 upsample_to: str, interpolation_interval: str,
                                  start: datetime, end: datetime, tz_name_home: str) -> pd.DataFrame:
 
         tz_system = 'UTC'
@@ -854,19 +985,19 @@ class WeatherExtractor:
         # tempting, but do NOT drop duplicates since this ignores index column
         # timeseriesdata.drop_duplicates(inplace=True)
 
-        # Converting str to float not needed
-        # timeseriesdata[parameter] = timeseriesdata[parameter].astype(float)
+        # Converting str to float needed
+        timeseriesdata[parameter] = timeseriesdata[parameter].astype(float)
 
         timeseriesdata_minute = timeseriesdata.resample(upsample_to).first()
         timeseriesdata_minute.interpolate(method='time', inplace=True)
 
         timeseriesdata_minute.rename(columns={parameter:seriesname}, inplace=True)
-        timeseriesdata_by_day = timeseriesdata_minute.resample(downsample_to).mean()
+        timeseriesdata_interpolated = timeseriesdata_minute.resample(interpolation_interval).mean()
 
         # print(seriesname)
-        # print(timeseriesdata_by_day.describe())
+        # print(timeseriesdata_interpolated.describe())
 
-        return timeseriesdata_by_day
+        return timeseriesdata_interpolated
     
     @staticmethod
     def remove_weather_outliers(weather: pd.DataFrame, columns, n_std) -> pd.DataFrame:
