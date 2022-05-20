@@ -975,8 +975,8 @@ class WeatherExtractor:
         # tempting, but do NOT drop duplicates since this ignores index column
         # timeseriesdata.drop_duplicates(inplace=True)
 
-        # Converting str to float not needed
-        # timeseriesdata[parameter] = timeseriesdata[parameter].astype(float)
+        # Converting str to float needed
+        timeseriesdata[parameter] = timeseriesdata[parameter].astype(float)
 
         timeseriesdata_minute = timeseriesdata.resample(upsample_to).first()
         timeseriesdata_minute.interpolate(method='time', inplace=True)
