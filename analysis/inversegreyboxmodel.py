@@ -2,7 +2,8 @@ from datetime import datetime, timedelta
 import pandas as pd
 import numpy as np
 from gekko import GEKKO
-import tqdm
+from tqdm import tqdm_notebook
+
 
 
 class Learner():
@@ -48,19 +49,22 @@ class Learner():
         print('End of analyses: ', end_analysis_period)
         print('Moving horizon: ', daterange_frequency)
 
-        # create empty dataframe for results
+        # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
 
         # # make home iterator
         # if showdetails:
         #     home_iterator = homes_to_analyze
         # else:
-            # home_iterator = tqdm.tqdm(homes_to_analyze)
+            # home_iterator = tqdm_notebook(homes_to_analyze)
             
-        home_iterator = tqdm.tqdm(homes_to_analyze)
+        home_iterator = tqdm_notebook(homes_to_analyze)
            
         # iterate over homes
         for home_id in home_iterator:
+
+            # create empty dataframe for results of all homes
+            df_results_home = pd.DataFrame()
 
             if showdetails:
                 print('Home pseudonym: ', home_id)
@@ -73,8 +77,8 @@ class Learner():
             # if showdetails:
             #     moving_horizon_iterator = moving_horizon_starts
             # else:
-            #     moving_horizon_iterator = tqdm.tqdm(moving_horizon_starts)
-            moving_horizon_iterator = tqdm.tqdm(moving_horizon_starts)
+            #     moving_horizon_iterator = tqdm_notebook(moving_horizon_starts)
+            moving_horizon_iterator = tqdm_notebook(moving_horizon_starts)
                 
             # iterate over horizons
             for moving_horizon_start in moving_horizon_iterator:
@@ -362,9 +366,18 @@ class Learner():
                     )
                     pass
                 
-                df_results = pd.concat([df_results, df_result_row])
+                df_results_home = pd.concat([df_results_home, df_result_row])
 
                 
             #after all moving horizons
-        # and after all homes
+            
+            df = df_results_home
+            filename = str('{0}-results.xlsx'.format(home_id))
+            for col in df.select_dtypes(['datetimetz']).columns:
+                df[col] = df[col].dt.tz_localize(None)
+            df.to_excel(filename)
+
+            df_results = pd.concat([df_results, df_results_home])
+
+            # and after all homes
         return df_results
