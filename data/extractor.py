@@ -7,7 +7,7 @@ import numpy as np
 from period import Period
 from database import Database
 
-import tqdm
+from tqdm import tqdm_notebook
 
 # before import use pip install git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather
 # or include the following line (without comment) in requirements.txt and run `pip install -r requirements.txt` in a terminal
@@ -843,7 +843,7 @@ class Extractor(Database):
 
         upsample = '5min'
 
-        for pseudonym in tqdm.tqdm(homes):
+        for pseudonym in tqdm_notebook(homes):
             # print(pseudonym)
             extractor = Extractor(pseudonym, Period(starttime, endtime))
             # print('...getting heartbeat')
