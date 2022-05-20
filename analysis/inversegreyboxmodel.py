@@ -321,9 +321,11 @@ class Learner():
                 ########################################################################################################################
 
                 duration_s = m.time[-1]
+                error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
+                
                 if showdetails:
                     print('duration [s]: ', duration_s)
-                    print('error [K]: ', round(m.options.OBJFCNVAL/duration_s, 4))
+                    print('error [K]: ', round(error_K, 4))
                     print('H [W/K]: ', round(H.value[0], 4))
                     print('tau [h]: ', round(tau.value[0] / 3600, 2))
                     print('A [m^2]: ', round(A_eff.value[0], 2))
@@ -336,7 +338,7 @@ class Learner():
                      'start_horizon': [moving_horizon_start],
                      'end_horizon': [moving_horizon_end],
                      'duration_s': [duration_s],
-                     'error_K': [m.options.OBJFCNVAL/duration_s],
+                     'error_K': [error_K],
                      'H_W_per_K': [H.value[0]],
                      'tau_h': [tau.value[0] / 3600],
                      'eta_hs': [eta_hs_CH.value[0]],
