@@ -373,7 +373,7 @@ class Learner():
                 except Exception as e:
                     # do write an empty line for this iteration, to indicate it is fully processed and do know know tht GEKKO could not learn parameters for this homeweek 
                     if showdetails:
-                        print("Exception {e} for home {0} in period from {1} to {2}; skipping...".format(e, home_id,moving_horizon_start,moving_horizon_end))
+                        print("Exception {0} for home {1} in period from {2} to {3}; skipping...".format(e, home_id,moving_horizon_start,moving_horizon_end))
                     df_result_row = pd.DataFrame(
                         {'pseudonym': [home_id],
                          'start_horizon': [moving_horizon_start],

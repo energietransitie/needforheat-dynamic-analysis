@@ -8,4 +8,8 @@ class ExcelWriter:
         df = df_source
         for col in (df.select_dtypes(['datetimetz']).columns):
             df[col] = df[col].dt.tz_localize(None)
-        df.tz_localize(None, level=0).to_excel(filename)        
+        if (isinstance(df.index, pd.DatetimeIndex)):
+            df.tz_localize(None, level=0).to_excel(filename)
+        else:
+            df.to_excel(filename)
+            
