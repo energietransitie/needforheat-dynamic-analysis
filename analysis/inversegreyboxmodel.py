@@ -3,8 +3,7 @@ import pandas as pd
 import numpy as np
 from gekko import GEKKO
 from tqdm import tqdm_notebook
-
-
+from filewriter import ExcelWriter as ex
 
 class Learner():
     
@@ -28,7 +27,14 @@ class Learner():
         - the number of days to use as moving horizon duration in the analysis
         - start datetime for the analysis (defaults to earliest datatime in the index column)
         - end datatime for the analysis (defaults to latest datatime in the index column)
+        
+        Output:
+        - a dataframe with results
+        - excel files with intermediate results per home and all homes
         """
+        
+        # get starting time of this analysis; to be used as prefix for filenames
+        filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
 
         # set default values for parameters not set
         
@@ -349,9 +355,24 @@ class Learner():
                          'A_m^2': [A_eff.value[0]]
                         }
                     )
-                except:
+
+                except KeyboardInterrupt:    
+                    print(str('KeyboardInterrupt; home analysis {0} not complete; saving results so far then will exit...'.format(home_id)))
+                    
+                    # do NOT write an empty line for this iteration, to indicate it is not fully processed and we don't know 
+                    ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
+                    
+                    # but DO include the incomplete home results in the final export
+                    df_results = pd.concat([df_results, df_results_home])
+                    ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
+
+                    # only then exit the function and return to caller
+                    return
+
+                except Exception as e:
+                    # do write an empty line for this iteration, to indicate it is fully processed and do know know tht GEKKO could not learn parameters for this homeweek 
                     if showdetails:
-                        print("Exception for home {0} in period from {1} to {2}; skipping...".format(home_id,moving_horizon_start,moving_horizon_end))
+                        print("Exception {e} for home {0} in period from {1} to {2}; skipping...".format(e, home_id,moving_horizon_start,moving_horizon_end))
                     df_result_row = pd.DataFrame(
                         {'pseudonym': [home_id],
                          'start_horizon': [moving_horizon_start],
@@ -366,18 +387,35 @@ class Learner():
                     )
                     pass
                 
-                df_results_home = pd.concat([df_results_home, df_result_row])
+                try:
+                    df_results_home = pd.concat([df_results_home, df_result_row])
+                except KeyboardInterrupt:    
+                    print(str('KeyboardInterrupt; home analysis {0} not complete; saving results so far then will exit...'.format(home_id)))
+                    
+                    # do write full line for this iteration, to indicate it is fully processed and we do know 
+                    df_results_home = pd.concat([df_results_home, df_result_row])
+                    ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
+                    
+                    # and include the incomplete home results in the final export
+                    df_results = pd.concat([df_results, df_results_home])
+                    ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
+
+                    # only then exit the function and return to caller
+                    return
 
                 
-            #after all moving horizons
-            
-            df = df_results_home
-            filename = str('{0}-results.xlsx'.format(home_id))
-            for col in df.select_dtypes(['datetimetz']).columns:
-                df[col] = df[col].dt.tz_localize(None)
-            df.to_excel(filename)
+            #after all moving horizons of a single home
+            try:
+                df_results = pd.concat([df_results, df_results_home])
+                ex.write(df_results_home, str(filename_prefix+'-results-{0}.xlsx'.format(home_id)))
+            except KeyboardInterrupt:    
+                print(str('KeyboardInterrupt; home analysis {0} complete; saving results so far then will exit...'.format(home_id)))
+                ex.write(df_results, (filename_prefix+'-results-aborted.xlsx'))
 
-            df_results = pd.concat([df_results, df_results_home])
-
-            # and after all homes
+        # and after all homes
+        try:
+            ex.write(df_results, (filename_prefix+'-results.xlsx'))
+        except KeyboardInterrupt:    
+            print(str('KeyboardInterrupt; all home analyses complete; will continue saving results and then exit...'.format(home_id)))
+            ex.write(df_results, (filename_prefix+'-results.xlsx'))
         return df_results

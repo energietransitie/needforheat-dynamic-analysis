@@ -1,4 +1,5 @@
 import datetime
+import pytz
 from typing import Optional, List, Literal, Dict, Iterable, Union, Callable
 
 import pandas as pd
@@ -906,14 +907,8 @@ class Extractor(Database):
 
                 data_interpolated_all_homes['daycompleteness'] = (data_interpolated_all_homes['heartbeat'] / data_interpolated_all_homes['timedelta_s'] * 60 * 5)
 
-                #         filename = './'+str(pseudonym)+'.xlsx'
-                #         #strip timezone info before exporting to (Excel doet not support timezone)
-                #         data_interpolated.tz_localize(None).to_excel(filename)
-
-                #         data_interpolated_all_homes.tz_localize(None, level=0).to_excel('./allhomes.xlsx')
-
         return data_interpolated_all_homes
-
+    
     
 class WeatherExtractor:
     """
