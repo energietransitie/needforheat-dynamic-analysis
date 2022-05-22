@@ -12,11 +12,11 @@ class Learner():
     @staticmethod
     def learn_home_parameter_moving_horizon(df_data_homes:pd.DataFrame, 
                                             n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, 
-                                            moving_horizon_duration_d=7, 
+                                            moving_horizon_duration_d=7, sanity_lb:float=0.5,
                                             homes_to_analyze=None, 
                                             start_analysis_period:datetime=None, 
                                             end_analysis_period:datetime=None, 
-                                            showdetails=False, A_m2=None) -> pd.DataFrame:
+                                            showdetails=False, A_m2_hint=None, eta_hs_CH_hint=0.9) -> pd.DataFrame:
         """
         Input:  
         - a dataframe with a timezone-aware datetime index and measurement values: with the following columns
@@ -25,7 +25,7 @@ class Learner():
                 'outdoor_temp_degC','windspeed_m_per_s', 'effective_outdoor_temp_degC', 'hor_irradiation_J_per_h_per_cm^2', 'hor_irradiation_W_per_m^2',  
                 'indoor_temp_degC', 'indoor_temp_degC_CO2', 'indoor_setpoint_temp_degC',
                 'gas_m^3', 'e_used_normal_kWh', 'e_used_low_kWh', 'e_returned_normal_kWh', 'e_returned_low_kWh', 'e_used_net_kWh', 'e_remaining_heat_kWh', 
-                'timedelta', 'timedelta_s', 'daycompleteness'
+                'timedelta', 'timedelta_s', 'sanity_fraction'
             ]
         and optionally,
         - the number of days to use as moving horizon duration in the analysis
@@ -37,8 +37,8 @@ class Learner():
         - excel files with intermediate results per home and all homes
         """
         
-        if not ((A_m2 is None) or isinstance(A_m2, numbers.Number)):
-            raise TypeError('A_m2 parameter must be a number or None')
+        if not ((A_m2_hint is None) or isinstance(A_m2_hint, numbers.Number)):
+            raise TypeError('A_m2_hint parameter must be a number or None')
         # get starting time of this analysis; to be used as prefix for filenames
         filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
 
@@ -64,6 +64,8 @@ class Learner():
         print('Upsampling_interval: ', up_intv)
         print('#upsampling intervals bridged during interpolation (max): ', gap_n_intv)
         print('Interpolation interval: ', int_intv)
+        print('Hint for effective window are A [m^2]: ', A_m2_hint)
+        print('Hint for superior heating efficiency eta [-]: ', eta_hs_CH_hint)
 
         # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
@@ -107,7 +109,18 @@ class Learner():
                     print('Start datetime: ', moving_horizon_start)
                     print('End datetime: ', moving_horizon_end)
 
-
+                # first check whether sanity of the data is sufficient, if not then skip this homeweek, move on to next
+                sanity_moving_horizon = df_moving_horizon['sanity_fraction'].mean()
+                if (sanity_moving_horizon < sanity_lb):
+                    if showdetails:
+                        print(str('Sanity {0:.2f} for home {1} in period from {2} to {3} lower than {4:.2f}; skipping...'
+                                  .format(sanity_moving_horizon, home_id, moving_horizon_start, moving_horizon_end, sanity_lb)))
+                    continue
+                else:
+                    if showdetails:
+                        print(str('Sanity {0:.2f} for home {1} in period from {2} to {3} higher than {4:.2f}; sufficient for analysis...'
+                                  .format(sanity_moving_horizon, home_id, moving_horizon_start, moving_horizon_end, sanity_lb)))
+                
                 delta_t = df_moving_horizon['timedelta_s'].mean()
 
                 # load data from dataframe into np.arrays
@@ -173,7 +186,7 @@ class Learner():
                 #       == len(delta_E_ret_val) == len(delta_E_int_val) 
                 #       == len(delta_Q_int_e_val) == len(I_geo_eff_val))
                 
-                if (A_m2 is None):
+                if (A_m2_hint is None):
                     if showdetails:
                         print('home {0} from {1} to {2} only run learning loop once with A as learnable model parameter'
                               .format(home_id,moving_horizon_start,moving_horizon_end))
@@ -181,8 +194,8 @@ class Learner():
                 else:
                     if showdetails:
                         print('home {0} from {1} to {2} run learning loop twice: once with A={3} and once as as learnable model parameter'
-                              .format(home_id,moving_horizon_start,moving_horizon_end, A_m2))
-                    innerloop=[A_m2, np.NaN]
+                              .format(home_id,moving_horizon_start,moving_horizon_end, A_m2_hint))
+                    innerloop=[A_m2_hint, np.NaN]
 
                 for A_value in innerloop:
 
@@ -258,7 +271,7 @@ class Learner():
                         h_sup = m.Param(value=35170000.0)  # [J/Nm^3] "superior calorific value of natural gas from the Groningen field"
                         eta_hs_noCH = m.Param(value=0.34)  # eq48. and PowerPoint Slide 24 (Effective upper home for indirect heating eff.)
 
-                        eta_hs_CH = m.Param(value=0.9)
+                        eta_hs_CH = m.Param(value=eta_hs_CH_hint)
 
                         delta_G_noCH = m.Param(value=339.0 / (365.25 * 24 * 60 * 60))  # [Nm^3/s]
                         delta_Q_int_gas_noCH = m.Param(value=delta_G_noCH * eta_hs_noCH * h_sup)  # [W]=[J/s]
@@ -327,7 +340,7 @@ class Learner():
                         delta_G_CH.STATUS = 0;
                         delta_G_CH.FSTATUS = 1
 
-                        delta_Q_CH = m.Intermediate((delta_G_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
+                        delta_Q_CH = m.Intermediate(delta_G_CH * eta_hs_CH * h_sup) # [J/s]
                         # delta_Q_CH = m.Intermediate((delta_Q_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
                         ########################################################################################################################
                         #                                                   Equation - delta_Q_int
@@ -374,6 +387,7 @@ class Learner():
 
                         if showdetails:
                             print('duration [s]: ', duration_s)
+                            print('sanity: {0:.2f}'.format(sanity_moving_horizon))
                             print('error [K]: ', round(error_K, 4))
                             print('H [W/K]: ', round(H.value[0], 4))
                             print('tau [h]: ', round(tau.value[0] / 3600, 2))
@@ -392,6 +406,7 @@ class Learner():
                             'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
                             'interpolation_interval': [int_intv],
                             'duration_s': [duration_s],
+                            'sanity_fraction': [sanity_moving_horizon],
                             'error_K': [error_K],
                             'H_W_per_K': [H.value[0]],
                             'tau_h': [tau.value[0] / 3600],
@@ -430,6 +445,7 @@ class Learner():
                             'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
                             'interpolation_interval': [int_intv],
                             'duration_s': [np.nan],
+                            'sanity_fraction': [sanity_moving_horizon],
                             'error_K': [np.nan],
                             'H_W_per_K': [np.nan],
                             'tau_h': [np.nan],

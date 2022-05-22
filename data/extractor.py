@@ -771,8 +771,8 @@ class Extractor(Database):
 
         # after all homes are done
         # perform sanity check; not any required column may be missing a value
-        df_all_homes.loc[:,'sanity'] = ~np.isnan(df_all_homes[req_col]).any(axis="columns")
-        df_all_homes['sanity'] = df_all_homes['sanity'].map({True: 1.0, False: 0.0})
+        df_all_homes.loc[:,'sanity_fraction'] = ~np.isnan(df_all_homes[req_col]).any(axis="columns")
+        df_all_homes['sanity_fraction'] = df_all_homes['sanity_fraction'].map({True: 1.0, False: 0.0})
 
                                   
         return df_all_homes
