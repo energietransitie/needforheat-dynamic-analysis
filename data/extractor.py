@@ -697,7 +697,9 @@ class Extractor(Database):
 
     @staticmethod
     def get_preprocessed_homes_data(homes, starttime:datetime, endtime:datetime, 
-                                    n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, tz_home:str, weather_interpolated:pd.DataFrame) -> pd.DataFrame:
+                                    n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, 
+                                    req_col:list,
+                                    tz_home:str, weather_interpolated:pd.DataFrame) -> pd.DataFrame:
         """
         Obtain data from twomes database 
         convert timestamps to the tz_home timezone 
@@ -756,8 +758,7 @@ class Extractor(Database):
                 # calculating derived columns
                 df['e_used_net_kWh'] = (df['e_used_normal_kWh'] + df['e_used_low_kWh'] - df['e_returned_normal_kWh'] - df['e_returned_low_kWh'])
                 df['e_remaining_heat_kWh'] = (df['e_used_net_kWh'])
-                                
-
+                
                 # calculate timedelta for each interval (code is suitable for unevenly spaced measurementes)
                 df['timedelta'] = df.index.to_series().diff().shift(-1)
                 df['timedelta_s'] = df['timedelta'].apply(lambda x: x.total_seconds())
@@ -768,7 +769,11 @@ class Extractor(Database):
                 
             # if no indoortemp then don's add data for this home
 
-        #after all hoes are done
+        # after all homes are done
+        # perform sanity check; not any required column may be missing a value
+        df_all_homes.loc[:,'sanity'] = ~np.isnan(df_all_homes[req_col]).any(axis="columns")
+        df_all_homes['sanity'] = df_all_homes['sanity'].map({True: 1.0, False: 0.0})
+
                                   
         return df_all_homes
     
