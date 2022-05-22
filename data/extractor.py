@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timedelta
 import pytz
 from typing import Optional, List, Literal, Dict, Iterable, Union, Callable
 
@@ -71,14 +71,14 @@ class Extractor(Database):
         else:
             self.__period = period
 
-    def set_start(self, date: Optional[datetime.datetime] = None):
+    def set_start(self, date: Optional[datetime] = None):
         """
         Set the start datetime for the current extraction.
         """
 
         self.__period.start = date
 
-    def set_end(self, date: Optional[datetime.datetime] = None):
+    def set_end(self, date: Optional[datetime] = None):
         """
         Set the end datetime for the current extraction.
         """
@@ -204,12 +204,12 @@ class Extractor(Database):
 
         return self.__get_periods_from_dataframe(data, operator, value, singles)
 
-    def get_custom_periods(self, data: Union[str, pd.DataFrame], delegate: Union[Callable[[float, float], bool], Callable[[float, float, datetime.datetime, datetime.datetime], bool]]) -> List[Period]:
+    def get_custom_periods(self, data: Union[str, pd.DataFrame], delegate: Union[Callable[[float, float], bool], Callable[[float, float, datetime, datetime], bool]]) -> List[Period]:
         """
         Filter data with a custom function and obtain the periods that match the conditions.
         Use a delegate with before and after values as float and optionally add the before and after methods.
         Example:
-        def delegate(before: float, after: float, before_datetime: datetime.datetime, after_datetime: datetime.datetime) -> bool:
+        def delegate(before: float, after: float, before_datetime: datetime, after_datetime: datetime) -> bool:
             return before > after
         """
 
@@ -395,7 +395,7 @@ class Extractor(Database):
         for row in rows:
             result.append(Period(row[0], row[1]))
 
-        return self.close_period_gaps(result, datetime.timedelta())
+        return self.close_period_gaps(result, timedelta())
 
     def __get_periods_from_dataframe(self, data: pd.DataFrame, operator: Operator, value: Optional[float] = None, singles: bool = False) -> List[Period]:
 
@@ -446,7 +446,7 @@ class Extractor(Database):
             period.end = lastdate
             result.append(period)
 
-        return self.close_period_gaps(result, datetime.timedelta())
+        return self.close_period_gaps(result, timedelta())
 
     def get_houses(self) -> pd.DataFrame:
         """
@@ -508,7 +508,7 @@ class Extractor(Database):
 
         return pd.DataFrame(rows, columns=['id', 'name', 'unit'])
 
-    def __is_valid_date(self, date: datetime.datetime) -> bool:
+    def __is_valid_date(self, date: datetime) -> bool:
         return (self.__period.start is None or self.__period.start <= date) and (self.__period.end is None or date <= self.__period.end)
 
     @staticmethod
@@ -598,7 +598,7 @@ class Extractor(Database):
         return merged_periods
 
     @staticmethod
-    def close_period_gaps(periods: List[Period], timedelta: datetime.timedelta) -> List[Period]:
+    def close_period_gaps(periods: List[Period], timedelta: timedelta) -> List[Period]:
         """
         Close the gaps between the periods in the list if the gap is less than or equal to the given timedelta.
         """
@@ -718,7 +718,8 @@ class Extractor(Database):
 
         for home_id in tqdm_notebook(homes):
 
-            extractor = Extractor(home_id, Period((starttime - timedelta(days=1)), (endtime + timedelta(days=1)))
+            extractor = Extractor(home_id, Period((starttime - timedelta(days=1)), (endtime + timedelta(days=1))))
+                                  
             df_indoortemp = extractor.get_property_preprocessed('roomTemp', 'indoor_temp_degC', False, Summarizer.mean, 
                                                      n_std, up_intv, gap_n_intv, int_intv, tz_home)
             if len(df_indoortemp.index)>=1:
