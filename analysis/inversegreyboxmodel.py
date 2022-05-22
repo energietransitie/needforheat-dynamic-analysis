@@ -138,8 +138,15 @@ class Learner():
                     (delta_E_supply_val + delta_E_PV_val - delta_E_ret_val - delta_EV_charge_val - delta_E_CH_val) / delta_t)   # [kWh/s]
                 delta_Q_int_e_val = np.asarray(delta_E_int_val * 1000 * 60 * 60)    # [W]
                 I_geo_eff_val = np.asarray(df_moving_horizon['hor_irradiation_W_per_m^2'])
-
-
+                
+                
+                # replace negative value with zero in delta_G_CH
+                delta_G_val = gas_total / delta_t
+                delta_G_noCH_val = 339.0 / (365.25 * 24 * 60 * 60)
+                delta_G_CH_val = delta_G_val - delta_G_noCH_val
+                delta_G_CH_val[delta_G_CH_val < 0] = 0
+                
+                
                 # print length of arrays and check uquality
 
                 # print('#setpoint', len(setpoint))
@@ -278,9 +285,12 @@ class Learner():
                         delta_E_CH = m.MV(value=delta_E_CH_val / delta_t);
                         delta_E_CH.STATUS = 0;
                         delta_E_CH.FSTATUS = 1  # [kWh/s]
-                        delta_G = m.MV(value=gas_total / delta_t);
-                        delta_G.STATUS = 0;
-                        delta_G.FSTATUS = 1  # [Nm^3/s]
+                        # delta_G = m.MV(value=gas_total / delta_t);
+                        # delta_G.STATUS = 0;
+                        # delta_G.FSTATUS = 1  # [Nm^3/s]
+
+                        delta_G = m.MV(value=delta_G_val); delta_G.STATUS = 0; delta_G.FSTATUS = 1  # [Nm^3/s]
+
                         I_geo_eff = m.MV(value=I_geo_eff_val);
                         I_geo_eff.STATUS = 0;
                         I_geo_eff.FSTATUS = 1
@@ -313,8 +323,11 @@ class Learner():
                         delta_G_CH [Nm3/s] = delta_G [Nm3/s]- delta_G_noCH [Nm3/s]
                         """
 
-                        delta_G_CH = m.Intermediate(delta_G - delta_G_noCH)  # [Nm3/s]
-                        delta_Q_CH = m.Intermediate((delta_G_CH * eta_hs_CH * h_sup)) # [J/s]
+                        delta_G_CH = m.MV(value=delta_G_CH_val)  # [Nm3/s]
+                        delta_G_CH.STATUS = 0;
+                        delta_G_CH.FSTATUS = 1
+
+                        delta_Q_CH = m.Intermediate((delta_G_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
                         # delta_Q_CH = m.Intermediate((delta_Q_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
                         ########################################################################################################################
                         #                                                   Equation - delta_Q_int
