@@ -5,15 +5,18 @@ import numpy as np
 from gekko import GEKKO
 from tqdm import tqdm_notebook
 from filewriter import ExcelWriter as ex
+import numbers
 
 class Learner():
     
     @staticmethod
     def learn_home_parameter_moving_horizon(df_data_homes:pd.DataFrame, 
+                                            n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, 
                                             moving_horizon_duration_d=7, 
                                             homes_to_analyze=None, 
                                             start_analysis_period:datetime=None, 
-                                            end_analysis_period:datetime=None, showdetails=False, A_m2=None) -> pd.DataFrame:
+                                            end_analysis_period:datetime=None, 
+                                            showdetails=False, A_m2=None) -> pd.DataFrame:
         """
         Input:  
         - a dataframe with a timezone-aware datetime index and measurement values: with the following columns
@@ -34,6 +37,8 @@ class Learner():
         - excel files with intermediate results per home and all homes
         """
         
+        if not ((A_m2 is None) or isinstance(A_m2, numbers.Number)):
+            raise TypeError('A_m2 parameter must be a number or None')
         # get starting time of this analysis; to be used as prefix for filenames
         filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
 
@@ -55,6 +60,10 @@ class Learner():
         print('Start of analyses: ', start_analysis_period)
         print('End of analyses: ', end_analysis_period)
         print('Moving horizon: ', daterange_frequency)
+        print('#standard deviations for outlier removal: ', n_std)
+        print('Upsampling_interval: ', up_intv)
+        print('#upsampling intervals bridged during interpolation (max): ', gap_n_intv)
+        print('Interpolation interval: ', int_intv)
 
         # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
@@ -70,103 +79,107 @@ class Learner():
         # iterate over homes
         for home_id in home_iterator:
             
-            if (A_m2 is None):
+            # create empty dataframe for results of all homes
+            df_results_home = pd.DataFrame()
+
+            if showdetails:
+                print('Home pseudonym: ', home_id)
+
+            df_data_one_home = df_data_homes[df_data_homes['homepseudonym'] == home_id]
+
+            moving_horizon_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='left', freq=daterange_frequency)
+
+            # make moving horizon iterator
+            # if showdetails:
+            #     moving_horizon_iterator = moving_horizon_starts
+            # else:
+            #     moving_horizon_iterator = tqdm_notebook(moving_horizon_starts)
+            moving_horizon_iterator = tqdm_notebook(moving_horizon_starts)
+
+            # iterate over horizons
+            for moving_horizon_start in moving_horizon_iterator:
+
+                moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d))
+
+                df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end]
+
                 if showdetails:
-                    print('only run learning loop once with A as learnable model parameter')
-                innerloop=[np.NaN]
-            else:
-                if showdetails:
-                    print('run learning loop twice; once with fixed value, once to learn A as learnable model parameter')
-                innerloop=[A_m2, np.NaN]
+                    print('Start datetime: ', moving_horizon_start)
+                    print('End datetime: ', moving_horizon_end)
+
+
+                delta_t = df_moving_horizon['timedelta_s'].mean()
+
+                # load data from dataframe into np.arrays
+
+                setpoint = np.asarray(df_moving_horizon['indoor_setpoint_temp_degC'])
+                T_in_meas = np.asarray(df_moving_horizon['indoor_temp_degC'])
+                T_out_eff_arr = np.asarray(df_moving_horizon['effective_outdoor_temp_degC'])
+                T_out = np.asarray(df_moving_horizon['outdoor_temp_degC'])
+
+                gas_total = np.asarray(df_moving_horizon['gas_m^3'])
+
+                e_used_normal_val = np.asarray(df_moving_horizon['e_used_normal_kWh'])
+                e_used_low_val = np.asarray(df_moving_horizon['e_used_low_kWh'])
+                e_returned_normal_val = np.asarray(df_moving_horizon['e_returned_normal_kWh'])
+                e_returned_low_val = np.asarray(df_moving_horizon['e_returned_low_kWh'])
+
+                delta_E_supply_val = np.asarray(e_used_normal_val + e_used_low_val)
+
+                delta_E_PV_val = 0
+
+                delta_E_ret_val = np.asarray(e_returned_normal_val + e_returned_low_val)
+                delta_EV_charge_val = 0
+
+                delta_E_CH_val = 0
+
+
+                delta_E_int_val = np.asarray(
+                    (delta_E_supply_val + delta_E_PV_val - delta_E_ret_val - delta_EV_charge_val - delta_E_CH_val) / delta_t)   # [kWh/s]
+                delta_Q_int_e_val = np.asarray(delta_E_int_val * 1000 * 60 * 60)    # [W]
+                I_geo_eff_val = np.asarray(df_moving_horizon['hor_irradiation_W_per_m^2'])
+
+
+                # print length of arrays and check uquality
+
+                # print('#setpoint', len(setpoint))
+                # print('#T_in_meas', len(T_in_meas))
+                # print('#T_out_eff_arr', len(T_out_eff_arr))
+                # print('#T_out', len(T_out))
+                # print('#gas_total', len(gas_total))
+                # print('#e_used_normal_val', len(e_used_normal_val))
+                # print('#e_used_low_val', len(e_used_low_val))
+                # print('#e_returned_normal_val', len(e_returned_normal_val))
+                # print('#e_returned_low_val', len(e_returned_low_val))
+                # print('#delta_E_supply_val', len(delta_E_supply_val))
+                # print('#delta_E_ret_val', len(delta_E_ret_val))
+                # print('#delta_E_int_val', len(delta_E_int_val))
+                # print('#delta_Q_int_e_val', len(delta_Q_int_e_val))
+                # print('#I_geo_eff_val', len(I_geo_eff_val))
+
+                # check for equal length
+
+                # print(len(setpoint) == len(T_in_meas) == len(T_out_eff_arr) 
+                #       == len(T_out) == len(gas_total) == len(e_used_normal_val) 
+                #       == len(e_used_low_val) == len(e_returned_normal_val) 
+                #       == len(e_returned_low_val) == len(delta_E_supply_val) 
+                #       == len(delta_E_ret_val) == len(delta_E_int_val) 
+                #       == len(delta_Q_int_e_val) == len(I_geo_eff_val))
                 
-            for A_value in innerloop:
+                if (A_m2 is None):
+                    if showdetails:
+                        print('home {0} from {1} to {2} only run learning loop once with A as learnable model parameter'
+                              .format(home_id,moving_horizon_start,moving_horizon_end))
+                    innerloop=[np.NaN]
+                else:
+                    if showdetails:
+                        print('home {0} from {1} to {2} run learning loop twice: once with A={3} and once as as learnable model parameter'
+                              .format(home_id,moving_horizon_start,moving_horizon_end, A_m2))
+                    innerloop=[A_m2, np.NaN]
 
-                # create empty dataframe for results of all homes
-                df_results_home = pd.DataFrame()
-
-                if showdetails:
-                    print('Home pseudonym: ', home_id)
-
-                df_data_one_home = df_data_homes[df_data_homes['homepseudonym'] == home_id]
-
-                moving_horizon_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='left', freq=daterange_frequency)
-
-                # make moving horizon iterator
-                # if showdetails:
-                #     moving_horizon_iterator = moving_horizon_starts
-                # else:
-                #     moving_horizon_iterator = tqdm_notebook(moving_horizon_starts)
-                moving_horizon_iterator = tqdm_notebook(moving_horizon_starts)
-
-                # iterate over horizons
-                for moving_horizon_start in moving_horizon_iterator:
+                for A_value in innerloop:
 
                     try:
-                        moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d))
-
-                        df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end]
-
-                        if showdetails:
-                            print('Start datetime: ', moving_horizon_start)
-                            print('End datetime: ', moving_horizon_end)
-
-                        delta_t = df_moving_horizon['timedelta_s'].mean()
-
-                        # load data from dataframe into np.arrays
-
-                        setpoint = np.asarray(df_moving_horizon['indoor_setpoint_temp_degC'])
-                        T_in_meas = np.asarray(df_moving_horizon['indoor_temp_degC'])
-                        T_out_eff_arr = np.asarray(df_moving_horizon['effective_outdoor_temp_degC'])
-                        T_out = np.asarray(df_moving_horizon['outdoor_temp_degC'])
-
-                        gas_total = np.asarray(df_moving_horizon['gas_m^3'])
-
-                        e_used_normal_val = np.asarray(df_moving_horizon['e_used_normal_kWh'])
-                        e_used_low_val = np.asarray(df_moving_horizon['e_used_low_kWh'])
-                        e_returned_normal_val = np.asarray(df_moving_horizon['e_returned_normal_kWh'])
-                        e_returned_low_val = np.asarray(df_moving_horizon['e_returned_low_kWh'])
-
-                        delta_E_supply_val = np.asarray(e_used_normal_val + e_used_low_val)
-
-                        delta_E_PV_val = 0
-
-                        delta_E_ret_val = np.asarray(e_returned_normal_val + e_returned_low_val)
-                        delta_EV_charge_val = 0
-
-                        delta_E_CH_val = 0
-
-
-                        delta_E_int_val = np.asarray(
-                            (delta_E_supply_val + delta_E_PV_val - delta_E_ret_val - delta_EV_charge_val - delta_E_CH_val) / delta_t)   # [kWh/s]
-                        delta_Q_int_e_val = np.asarray(delta_E_int_val * 1000 * 60 * 60)    # [W]
-                        I_geo_eff_val = np.asarray(df_moving_horizon['hor_irradiation_W_per_m^2'])
-
-
-                        # print length of arrays and check uquality
-
-                        # print('#setpoint', len(setpoint))
-                        # print('#T_in_meas', len(T_in_meas))
-                        # print('#T_out_eff_arr', len(T_out_eff_arr))
-                        # print('#T_out', len(T_out))
-                        # print('#gas_total', len(gas_total))
-                        # print('#e_used_normal_val', len(e_used_normal_val))
-                        # print('#e_used_low_val', len(e_used_low_val))
-                        # print('#e_returned_normal_val', len(e_returned_normal_val))
-                        # print('#e_returned_low_val', len(e_returned_low_val))
-                        # print('#delta_E_supply_val', len(delta_E_supply_val))
-                        # print('#delta_E_ret_val', len(delta_E_ret_val))
-                        # print('#delta_E_int_val', len(delta_E_int_val))
-                        # print('#delta_Q_int_e_val', len(delta_Q_int_e_val))
-                        # print('#I_geo_eff_val', len(I_geo_eff_val))
-
-                        # check for equal length
-
-                        # print(len(setpoint) == len(T_in_meas) == len(T_out_eff_arr) 
-                        #       == len(T_out) == len(gas_total) == len(e_used_normal_val) 
-                        #       == len(e_used_low_val) == len(e_returned_normal_val) 
-                        #       == len(e_returned_low_val) == len(delta_E_supply_val) 
-                        #       == len(delta_E_ret_val) == len(delta_E_int_val) 
-                        #       == len(delta_Q_int_e_val) == len(I_geo_eff_val))
 
                         ########################################################################################################################
                         #                                                   tau initial values input
@@ -213,7 +226,7 @@ class Learner():
                         H.FSTATUS = 0;  # H.DMAX=50                #[W/K]
                         # eta_hs_CH = m.FV(value=0.8, lb=0, ub=1.0); eta_hs_CH.STATUS = 1; eta_hs_CH.FSTATUS = 0;  # eta_hs_CH.DMAX = 0.25
                         # COP_CH = m.FV(value=1, lb=0.1, ub=7) ; COP_CH.STATUS = 1 ; COP_CH.FSTATUS = 0 ; #COP_CH.DMAX=1
-                        if (A_value is None):
+                        if np.isnan(A_value):
                             A_eff = m.FV(value=5, lb=1, ub=100) ; A_eff.STATUS = 1 ; A_eff.FSTATUS = 0            #[m^2]
                         else:
                             A_eff = m.Param(value=A_value)
@@ -352,25 +365,28 @@ class Learner():
                             print('H [W/K]: ', round(H.value[0], 4))
                             print('tau [h]: ', round(tau.value[0] / 3600, 2))
                             print('A [m^2]: ', round(A_eff.value[0], 2))
-                            print('A value fixed: ', (A_value is None))
+                            print('A value fixed: ', not np.isnan(A_value))
                             print('eta_hs [-]: ', round(eta_hs_CH.value[0], 2))
                             print('eta_hs value fixed: ', True)
 
                         # Create a results row
-                        df_result_row = pd.DataFrame(
-                            {'pseudonym': [home_id],
-                             'start_horizon': [moving_horizon_start],
-                             'end_horizon': [moving_horizon_end],
-                             'duration_s': [duration_s],
-                             'error_K': [error_K],
-                             'H_W_per_K': [H.value[0]],
-                             'tau_h': [tau.value[0] / 3600],
-                             'A_m^2': [A_eff.value[0]],
-                             'A_m^2_fixed': [(A_value is None)],
-                             'eta_hs': [eta_hs_CH.value[0]],
-                             'eta_hs_fixed': [True]
-                            }
-                        )
+                        df_result_row = pd.DataFrame({
+                            'start_horizon': [moving_horizon_start],
+                            'end_horizon': [moving_horizon_end],
+                            'pseudonym': [home_id],
+                            'n_std_outlier_removal': [n_std], 
+                            'upsampling_interval': [up_intv], 
+                            'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
+                            'interpolation_interval': [int_intv],
+                            'duration_s': [duration_s],
+                            'error_K': [error_K],
+                            'H_W_per_K': [H.value[0]],
+                            'tau_h': [tau.value[0] / 3600],
+                            'A_m^2': [A_eff.value[0]],
+                            'A_m^2_fixed': [not np.isnan(A_value)],
+                            'eta_hs': [eta_hs_CH.value[0]],
+                            'eta_hs_fixed': [True]})
+                        df_result_row.set_index(['start_horizon'], inplace=True)
 
                     except KeyboardInterrupt:    
                         print(str('KeyboardInterrupt; home analysis {0} not complete; saving results so far then will exit...'.format(home_id)))
@@ -386,23 +402,32 @@ class Learner():
                         return
 
                     except Exception as e:
-                        # do write an empty line for this iteration, to indicate it is fully processed and do know know tht GEKKO could not learn parameters for this homeweek 
+                        # do write an empty line for this iteration, to indicate it is fully processed 
+                        # and to indicate that we do know know  GEKKO could not learn parameters for this moving horizon for this home 
+                        
                         if showdetails:
-                            print("Exception {0} for home {1} in period from {2} to {3}; skipping...".format(e, home_id,moving_horizon_start,moving_horizon_end))
-                        df_result_row = pd.DataFrame(
-                            {'pseudonym': [home_id],
-                             'start_horizon': [moving_horizon_start],
-                             'end_horizon': [moving_horizon_end],
-                             'duration_s': [np.nan],
-                             'error_K': [np.nan],
-                             'H_W_per_K': [np.nan],
-                             'tau_h': [np.nan],
-                             'eta_hs': [np.nan],
-                             'A_m^2': [np.nan]
-                            }
-                        )
+                            print(str('Exception {0} for home {1} in period from {2} to {3}; skipping...'
+                                      .format(e, home_id,moving_horizon_start,moving_horizon_end)))
+                        df_result_row = pd.DataFrame({
+                            'start_horizon': [moving_horizon_start],
+                            'end_horizon': [moving_horizon_end],
+                            'pseudonym': [home_id],
+                            'n_std_outlier_removal': [n_std], 
+                            'upsampling_interval': [up_intv], 
+                            'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
+                            'interpolation_interval': [int_intv],
+                            'duration_s': [np.nan],
+                            'error_K': [np.nan],
+                            'H_W_per_K': [np.nan],
+                            'tau_h': [np.nan],
+                            'A_m^2': [np.nan],
+                            'A_m^2_fixed': [not (np.isnan(A_value))],
+                            'eta_hs': [np.nan],
+                            'eta_hs_fixed': [True]})
+                        df_result_row.set_index(['start_horizon'], inplace=True)
                         pass
 
+                    #after allafter a single innerloop for A fixed or learnable
                     try:
                         df_results_home = pd.concat([df_results_home, df_result_row])
                     except KeyboardInterrupt:    
@@ -419,16 +444,24 @@ class Learner():
                         # only then exit the function and return to caller
                         return
 
+                #after a single innerloop for A fixed or learnable
+                if showdetails:
+                    print(str('Analysis of all moving horizons for a single inner loop for home {0} complete.'.format(home_id)))
 
-                #after all moving horizons of a single home
-                try:
-                    df_results = pd.concat([df_results, df_results_home])
-                    ex.write(df_results_home, str(filename_prefix+'-results-{0}.xlsx'.format(home_id)))
-                except KeyboardInterrupt:    
-                    print(str('KeyboardInterrupt; home analysis {0} complete; saving results so far then will exit...'.format(home_id)))
-                    ex.write(df_results, (filename_prefix+'-results-aborted.xlsx'))
+            #after all moving horizons of a single home; after a single innerloop for A fixed or learnable
+            if showdetails:
+                print(str('Analysis of all moving horizons for home {0} complete.'.format(home_id)))
+            try:
+                df_results = pd.concat([df_results, df_results_home])
+                ex.write(df_results_home, str(filename_prefix+'-results-{0}.xlsx'.format(home_id)))
+            except KeyboardInterrupt:    
+                print(str('KeyboardInterrupt; home analysis {0} complete; saving results so far then will exit...'.format(home_id)))
+                ex.write(df_results, (filename_prefix+'-results-aborted.xlsx'))
+
 
         # and after all homes
+        if showdetails:
+            print('DONE: Analysis of all homes complete.')
         try:
             ex.write(df_results, (filename_prefix+'-results.xlsx'))
         except KeyboardInterrupt:    

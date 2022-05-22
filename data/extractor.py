@@ -718,7 +718,7 @@ class Extractor(Database):
 
         for home_id in tqdm_notebook(homes):
 
-            extractor = Extractor(home_id, Period((starttime - timedelta(days=1)), (endtime + timedelta(days=1))))
+            extractor = Extractor(home_id, Period(starttime, endtime))
                                   
             df_indoortemp = extractor.get_property_preprocessed('roomTemp', 'indoor_temp_degC', False, Summarizer.mean, 
                                                      n_std, up_intv, gap_n_intv, int_intv, tz_home)
@@ -770,7 +770,7 @@ class Extractor(Database):
 
         #after all hoes are done
                                   
-        return df_all_homes[starttime:endtime]
+        return df_all_homes
     
     
 class WeatherExtractor:
