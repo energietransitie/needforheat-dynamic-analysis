@@ -119,6 +119,13 @@ class Learner():
                 I_geo_eff_val = np.asarray(df_moving_horizon['hor_irradiation_W_per_m^2'])
                 
                 
+                # replace negative value with zero in delta_G_CH
+                delta_G_val = gas_total / delta_t
+                delta_G_noCH_val = 339.0 / (365.25 * 24 * 60 * 60)
+                delta_G_CH_val = delta_G_val - delta_G_noCH_val
+                delta_G_CH_val[delta_G_CH_val < 0] = 0
+                
+                
                 # print length of arrays and check uquality
 
                 # print('#setpoint', len(setpoint))
@@ -190,7 +197,7 @@ class Learner():
                 H.FSTATUS = 0;  # H.DMAX=50                #[W/K]
                 # eta_hs_CH = m.FV(value=0.8, lb=0, ub=1.0); eta_hs_CH.STATUS = 1; eta_hs_CH.FSTATUS = 0;  # eta_hs_CH.DMAX = 0.25
                 # COP_CH = m.FV(value=1, lb=0.1, ub=7) ; COP_CH.STATUS = 1 ; COP_CH.FSTATUS = 0 ; #COP_CH.DMAX=1
-                A_eff = m.FV(value=5, lb=1, ub=100) ; A_eff.STATUS = 1 ; A_eff.FSTATUS = 0            #[m^2]
+                # A_eff = m.FV(value=5, lb=1, ub=100) ; A_eff.STATUS = 1 ; A_eff.FSTATUS = 0            #[m^2]
 
                 """"
                 Constant parameter:
@@ -214,10 +221,10 @@ class Learner():
 
                 eta_hs_CH = m.Param(value=0.9)
                 COP_CH = m.Param(value=4)
-                # A_eff = m.Param(value=6)
+                A_eff = m.Param(value=6)
 
-                delta_G_noCH = m.Param(value=339.0 / (365.25 * 24 * 60 * 60))  # [Nm^3/s]
-                delta_Q_int_gas_noCH = m.Param(value=delta_G_noCH * eta_hs_noCH * h_sup)  # [W]=[J/s]
+                # delta_G_noCH = m.Param(value=339.0 / (365.25 * 24 * 60 * 60))  # [Nm^3/s]
+                delta_Q_int_gas_noCH = m.Param(value=delta_G_noCH_val * eta_hs_noCH * h_sup)  # [W]=[J/s]
 
                 Np = m.Param(value=2.2)  # average number of people in Dutch household
                 Q_int_person_avg = m.Param(value=61)  # [J/s] average heat gain for each average person with average behaviour
@@ -241,9 +248,12 @@ class Learner():
                 delta_E_CH = m.MV(value=delta_E_CH_val / delta_t);
                 delta_E_CH.STATUS = 0;
                 delta_E_CH.FSTATUS = 1  # [kWh/s]
-                delta_G = m.MV(value=gas_total / delta_t);
-                delta_G.STATUS = 0;
-                delta_G.FSTATUS = 1  # [Nm^3/s]
+                # delta_G = m.MV(value=gas_total / delta_t);
+                # delta_G.STATUS = 0;
+                # delta_G.FSTATUS = 1  # [Nm^3/s]
+                
+                delta_G = m.MV(value=delta_G_val); delta_G.STATUS = 0; delta_G.FSTATUS = 1  # [Nm^3/s]
+                
                 I_geo_eff = m.MV(value=I_geo_eff_val);
                 I_geo_eff.STATUS = 0;
                 I_geo_eff.FSTATUS = 1
@@ -276,7 +286,10 @@ class Learner():
                 delta_G_CH [Nm3/s] = delta_G [Nm3/s]- delta_G_noCH [Nm3/s]
                 """
 
-                delta_G_CH = m.Intermediate(delta_G - delta_G_noCH)  # [Nm3/s]
+                delta_G_CH = m.MV(value=delta_G_CH_val)  # [Nm3/s]
+                delta_G_CH.STATUS = 0;
+                delta_G_CH.FSTATUS = 1
+                
                 delta_Q_CH = m.Intermediate((delta_G_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
                 # delta_Q_CH = m.Intermediate((delta_Q_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
                 ########################################################################################################################
