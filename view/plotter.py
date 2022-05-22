@@ -4,7 +4,7 @@ import pandas as pd
 class Plot:
 
     @staticmethod
-    def weather_and_other_temperatures(title:str, df: pd.DataFrame, properties = []):
+    def weather_and_other_temperatures(title:str, df: pd.DataFrame, propertycolors = []):
         """
         Temperature data plot of weather data and a list of other temperature properties
         """
@@ -24,8 +24,8 @@ class Plot:
         ax.plot(df.index, df['windspeed_m_per_s'], '.', label='wind speed', color='c')  
         ax.plot(df.index, df['effective_outdoor_temp_degC'], '.', label='effective outdoor temperature', color='b')
 
-        for property in properties:
-            ax.plot(df.index, df[property], '.', label=property, color='r')
+        for property in propertycolors:
+            ax.plot(df.index, df[property[0]], '.', label=property[0], color=property[1])
 
         ax.legend(loc=0);  # Add a legend.
 
