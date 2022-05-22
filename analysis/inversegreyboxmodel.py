@@ -5,15 +5,18 @@ import numpy as np
 from gekko import GEKKO
 from tqdm import tqdm_notebook
 from filewriter import ExcelWriter as ex
+import numbers
 
 class Learner():
     
     @staticmethod
     def learn_home_parameter_moving_horizon(df_data_homes:pd.DataFrame, 
+                                            n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, 
                                             moving_horizon_duration_d=7, 
                                             homes_to_analyze=None, 
                                             start_analysis_period:datetime=None, 
-                                            end_analysis_period:datetime=None, showdetails=False) -> pd.DataFrame:
+                                            end_analysis_period:datetime=None, 
+                                            showdetails=False, A_m2=None) -> pd.DataFrame:
         """
         Input:  
         - a dataframe with a timezone-aware datetime index and measurement values: with the following columns
@@ -34,6 +37,8 @@ class Learner():
         - excel files with intermediate results per home and all homes
         """
         
+        if not ((A_m2 is None) or isinstance(A_m2, numbers.Number)):
+            raise TypeError('A_m2 parameter must be a number or None')
         # get starting time of this analysis; to be used as prefix for filenames
         filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
 
@@ -55,6 +60,10 @@ class Learner():
         print('Start of analyses: ', start_analysis_period)
         print('End of analyses: ', end_analysis_period)
         print('Moving horizon: ', daterange_frequency)
+        print('#standard deviations for outlier removal: ', n_std)
+        print('Upsampling_interval: ', up_intv)
+        print('#upsampling intervals bridged during interpolation (max): ', gap_n_intv)
+        print('Interpolation interval: ', int_intv)
 
         # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
@@ -69,7 +78,7 @@ class Learner():
            
         # iterate over homes
         for home_id in home_iterator:
-
+            
             # create empty dataframe for results of all homes
             df_results_home = pd.DataFrame()
 
@@ -86,326 +95,362 @@ class Learner():
             # else:
             #     moving_horizon_iterator = tqdm_notebook(moving_horizon_starts)
             moving_horizon_iterator = tqdm_notebook(moving_horizon_starts)
-                
+
             # iterate over horizons
             for moving_horizon_start in moving_horizon_iterator:
 
-                try:
-                    moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d))
+                moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d))
 
-                    df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end]
+                df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end]
 
-                    if showdetails:
-                        print('Start datetime: ', moving_horizon_start)
-                        print('End datetime: ', moving_horizon_end)
-
-                    delta_t = df_moving_horizon['timedelta_s'].mean()
-
-                    # load data from dataframe into np.arrays
-
-                    setpoint = np.asarray(df_moving_horizon['indoor_setpoint_temp_degC'])
-                    T_in_meas = np.asarray(df_moving_horizon['indoor_temp_degC'])
-                    T_out_eff_arr = np.asarray(df_moving_horizon['effective_outdoor_temp_degC'])
-                    T_out = np.asarray(df_moving_horizon['outdoor_temp_degC'])
-
-                    gas_total = np.asarray(df_moving_horizon['gas_m^3'])
-
-                    e_used_normal_val = np.asarray(df_moving_horizon['e_used_normal_kWh'])
-                    e_used_low_val = np.asarray(df_moving_horizon['e_used_low_kWh'])
-                    e_returned_normal_val = np.asarray(df_moving_horizon['e_returned_normal_kWh'])
-                    e_returned_low_val = np.asarray(df_moving_horizon['e_returned_low_kWh'])
-
-                    delta_E_supply_val = np.asarray(e_used_normal_val + e_used_low_val)
-
-                    delta_E_PV_val = 0
-
-                    delta_E_ret_val = np.asarray(e_returned_normal_val + e_returned_low_val)
-                    delta_EV_charge_val = 0
-
-                    delta_E_CH_val = 0
+                if showdetails:
+                    print('Start datetime: ', moving_horizon_start)
+                    print('End datetime: ', moving_horizon_end)
 
 
-                    delta_E_int_val = np.asarray(
-                        (delta_E_supply_val + delta_E_PV_val - delta_E_ret_val - delta_EV_charge_val - delta_E_CH_val) / delta_t)   # [kWh/s]
-                    delta_Q_int_e_val = np.asarray(delta_E_int_val * 1000 * 60 * 60)    # [W]
-                    I_geo_eff_val = np.asarray(df_moving_horizon['hor_irradiation_W_per_m^2'])
+                delta_t = df_moving_horizon['timedelta_s'].mean()
+
+                # load data from dataframe into np.arrays
+
+                setpoint = np.asarray(df_moving_horizon['indoor_setpoint_temp_degC'])
+                T_in_meas = np.asarray(df_moving_horizon['indoor_temp_degC'])
+                T_out_eff_arr = np.asarray(df_moving_horizon['effective_outdoor_temp_degC'])
+                T_out = np.asarray(df_moving_horizon['outdoor_temp_degC'])
+
+                gas_total = np.asarray(df_moving_horizon['gas_m^3'])
+
+                e_used_normal_val = np.asarray(df_moving_horizon['e_used_normal_kWh'])
+                e_used_low_val = np.asarray(df_moving_horizon['e_used_low_kWh'])
+                e_returned_normal_val = np.asarray(df_moving_horizon['e_returned_normal_kWh'])
+                e_returned_low_val = np.asarray(df_moving_horizon['e_returned_low_kWh'])
+
+                delta_E_supply_val = np.asarray(e_used_normal_val + e_used_low_val)
+
+                delta_E_PV_val = 0
+
+                delta_E_ret_val = np.asarray(e_returned_normal_val + e_returned_low_val)
+                delta_EV_charge_val = 0
+
+                delta_E_CH_val = 0
 
 
-                    # print length of arrays and check uquality
+                delta_E_int_val = np.asarray(
+                    (delta_E_supply_val + delta_E_PV_val - delta_E_ret_val - delta_EV_charge_val - delta_E_CH_val) / delta_t)   # [kWh/s]
+                delta_Q_int_e_val = np.asarray(delta_E_int_val * 1000 * 60 * 60)    # [W]
+                I_geo_eff_val = np.asarray(df_moving_horizon['hor_irradiation_W_per_m^2'])
 
-                    # print('#setpoint', len(setpoint))
-                    # print('#T_in_meas', len(T_in_meas))
-                    # print('#T_out_eff_arr', len(T_out_eff_arr))
-                    # print('#T_out', len(T_out))
-                    # print('#gas_total', len(gas_total))
-                    # print('#e_used_normal_val', len(e_used_normal_val))
-                    # print('#e_used_low_val', len(e_used_low_val))
-                    # print('#e_returned_normal_val', len(e_returned_normal_val))
-                    # print('#e_returned_low_val', len(e_returned_low_val))
-                    # print('#delta_E_supply_val', len(delta_E_supply_val))
-                    # print('#delta_E_ret_val', len(delta_E_ret_val))
-                    # print('#delta_E_int_val', len(delta_E_int_val))
-                    # print('#delta_Q_int_e_val', len(delta_Q_int_e_val))
-                    # print('#I_geo_eff_val', len(I_geo_eff_val))
 
-                    # check for equal length
+                # print length of arrays and check uquality
 
-                    # print(len(setpoint) == len(T_in_meas) == len(T_out_eff_arr) 
-                    #       == len(T_out) == len(gas_total) == len(e_used_normal_val) 
-                    #       == len(e_used_low_val) == len(e_returned_normal_val) 
-                    #       == len(e_returned_low_val) == len(delta_E_supply_val) 
-                    #       == len(delta_E_ret_val) == len(delta_E_int_val) 
-                    #       == len(delta_Q_int_e_val) == len(I_geo_eff_val))
+                # print('#setpoint', len(setpoint))
+                # print('#T_in_meas', len(T_in_meas))
+                # print('#T_out_eff_arr', len(T_out_eff_arr))
+                # print('#T_out', len(T_out))
+                # print('#gas_total', len(gas_total))
+                # print('#e_used_normal_val', len(e_used_normal_val))
+                # print('#e_used_low_val', len(e_used_low_val))
+                # print('#e_returned_normal_val', len(e_returned_normal_val))
+                # print('#e_returned_low_val', len(e_returned_low_val))
+                # print('#delta_E_supply_val', len(delta_E_supply_val))
+                # print('#delta_E_ret_val', len(delta_E_ret_val))
+                # print('#delta_E_int_val', len(delta_E_int_val))
+                # print('#delta_Q_int_e_val', len(delta_Q_int_e_val))
+                # print('#I_geo_eff_val', len(I_geo_eff_val))
 
-                    ########################################################################################################################
-                    #                                                   tau initial values input
-                    ########################################################################################################################
-                    # tau Input: the following value should be based on hour for tau [hr]
-                    tau_init_val_hr = 100
-                    tau_lb_hr = 10
-                    tau_ub_hr = 1000
+                # check for equal length
 
-                    # Internal conversion (do not change this part)
-                    tau_init_val = tau_init_val_hr * 3600
-                    tau_lb = tau_lb_hr * 3600
-                    tau_ub = tau_ub_hr * 3600
-
-                    ########################################################################################################################
-                    #                                                   Gekko Model - Initialize
-                    ########################################################################################################################
-                    # initialize gekko
-                    m = GEKKO(remote=False)
-                    m.time = np.linspace(delta_t, len(T_in_meas) * delta_t, len(T_in_meas))  # [s]
-
-                    # line below added to avoid "Warning: shifting time horizon to start at zero; Current starting time value: 900.000000000000"
-                    m.time = m.time - delta_t
-                    # print('m.time: ', m.time)
-                    # print ('len(T_in_meas): ', len(T_in_meas)) 
-                    # print('m.time[-1]: ', m.time[-1])
-
-                    ########################################################################################################################
-                    #                                                   Gekko Model - Variables
-                    ########################################################################################################################
-                    """"
-                    Model parameter:
-                    tau [hr]: effective thermal inertia
-                    eta_hs_CH [-]: upper heating efficiency of the central heating system
-                    COP_CH [-]: Coef. of Performance for heat pump
-                    H [W/K]: specific heat loss
-                    A_eff [m^2]: Effective area of the imaginary solar aperture in the horizontal plane
-                    """
-                    tau = m.FV(value=tau_init_val, lb=tau_lb, ub=tau_ub);
-                    tau.STATUS = 1;
-                    tau.FSTATUS = 0;  # tau.DMAX = 10
-                    H = m.FV(value=300.0, lb=0, ub=1000);
-                    H.STATUS = 1;
-                    H.FSTATUS = 0;  # H.DMAX=50                #[W/K]
-                    # eta_hs_CH = m.FV(value=0.8, lb=0, ub=1.0); eta_hs_CH.STATUS = 1; eta_hs_CH.FSTATUS = 0;  # eta_hs_CH.DMAX = 0.25
-                    # COP_CH = m.FV(value=1, lb=0.1, ub=7) ; COP_CH.STATUS = 1 ; COP_CH.FSTATUS = 0 ; #COP_CH.DMAX=1
-                    A_eff = m.FV(value=5, lb=1, ub=100) ; A_eff.STATUS = 1 ; A_eff.FSTATUS = 0            #[m^2]
-
-                    """"
-                    Constant parameter:
-                    h_E [J/kWh]: Convertion factor ( [kWh] to [J] ) = 1000 * 60 * 60
-
-                    h_sup [J/Nm^3]: superior calorific value of natural gas from the Groningen field = 35,170,000.00
-                    eta_hs_noCH [-]: upper efficiency of heating the home indirectly using gas, for other primary purposes than heating the home
-
-                    delta_Q_sol [J/s]: heat gain from solar irradiation
-                    delta_G_noCH [Nm^3/s]: the natural gas used for other purposes than central heating
-                    delta_Q_int_gas_noCH [J/s]: natural gas used for central heating
-
-                    delta_Q_int_occup [W]: internal heat gain from occupants
-                    delta_Q_int_occup [W] = Np * Q_int_person_avg [W]
-                    Np [-]: number of persons in the household living in the home
-                    Q_int_person_avg [W]: internal heat gain from persons
-                    """
-                    h_E = m.Param(value=60 * 60 * 1000)  # [J/kWh"], the conversion factor [kWh] to [J]
-                    h_sup = m.Param(value=35170000.0)  # [J/Nm^3] "superior calorific value of natural gas from the Groningen field"
-                    eta_hs_noCH = m.Param(value=0.34)  # eq48. and PowerPoint Slide 24 (Effective upper home for indirect heating eff.)
-
-                    eta_hs_CH = m.Param(value=0.9)
-                    COP_CH = m.Param(value=4)
-                    # A_eff = m.Param(value=6)
-
-                    delta_G_noCH = m.Param(value=339.0 / (365.25 * 24 * 60 * 60))  # [Nm^3/s]
-                    delta_Q_int_gas_noCH = m.Param(value=delta_G_noCH * eta_hs_noCH * h_sup)  # [W]=[J/s]
-
-                    Np = m.Param(value=2.2)  # average number of people in Dutch household
-                    Q_int_person_avg = m.Param(value=61)  # [J/s] average heat gain for each average person with average behaviour
-                    delta_Q_int_occup = m.Param(value=Np * Q_int_person_avg)  # [J/s]
-
-                    """"
-                    Manipulated parameter:
-                    delta_Q_int_e [J/s]: internal heat gain from internally used electricity
-                    delta_Q_int_e [J/s] = delta_E_int [kWh/s] * hE [J/kWh]
-                    T_out_eff [K]: effective outdoor temperature
-                    delta_E_CH [kWh]: Electricity used for heat pump
-                    delta_G [Nm3/s] = Natural gas supplied to the home via the natural gas net
-                    I_geo_eff [W/m^2] = geospatially interpolated global horizontal irradiation
-                    """
-                    delta_Q_int_e = m.MV(value=delta_Q_int_e_val);
-                    delta_Q_int_e.STATUS = 0;
-                    delta_Q_int_e.FSTATUS = 1  # [J/s]
-                    T_out_eff = m.MV(value=T_out_eff_arr);
-                    T_out_eff.STATUS = 0;
-                    T_out_eff.FSTATUS = 1  # [K]
-                    delta_E_CH = m.MV(value=delta_E_CH_val / delta_t);
-                    delta_E_CH.STATUS = 0;
-                    delta_E_CH.FSTATUS = 1  # [kWh/s]
-                    delta_G = m.MV(value=gas_total / delta_t);
-                    delta_G.STATUS = 0;
-                    delta_G.FSTATUS = 1  # [Nm^3/s]
-                    I_geo_eff = m.MV(value=I_geo_eff_val);
-                    I_geo_eff.STATUS = 0;
-                    I_geo_eff.FSTATUS = 1
-
-                    """"
-                    Control variable:
-                    T_in_sim [K]: Indoor temperature
-                    """
-                    T_in_sim = m.CV(value=T_in_meas);
-                    T_in_sim.STATUS = 1;
-                    T_in_sim.FSTATUS = 1;  # T_in_sim.MEAS_GAP= 0.25
-
-                    ########################################################################################################################
-                    #                                               Gekko - Equations
-                    ########################################################################################################################
-                    """
-                    delta_Q_gain [J/s]= delta_Q_CH [J/s] + delta_Q_int [J/s] + delta_Q_sol [J/s]
-                    delta_Q_gain [J/s]= Heat gain
-                    delta_Q_CH [J/s]= Heat gain from central hearting
-                    delta_Q_int [J/s]= Heat gain from internal devices
-                    delta_Q_sol [J/s]= delta_Q_int from solar irradiation
-                    """
-
-                    ########################################################################################################################
-                    #                                               Equation - delta_Q_CH
-                    ########################################################################################################################
-                    """"
-                    delta_Q_CH [J/s] = (delta_G_CH [Nm3/s] * eta_hs_ch [-] * h_sup [J/Nm3]) + (delta_E_CH [kWh/s] * COP_CH [-] * hE [J/kWh])
-                    delta_G_CH [Nm3/s] = Natural gas used for central heating
-                    delta_G_CH [Nm3/s] = delta_G [Nm3/s]- delta_G_noCH [Nm3/s]
-                    """
-
-                    delta_G_CH = m.Intermediate(delta_G - delta_G_noCH)  # [Nm3/s]
-                    delta_Q_CH = m.Intermediate((delta_G_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
-                    # delta_Q_CH = m.Intermediate((delta_Q_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
-                    ########################################################################################################################
-                    #                                                   Equation - delta_Q_int
-                    ########################################################################################################################
-                    """"
-                    delta_Q_int [J/s]: total internal heat
-                    delta_Q_int [J/s]= delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH
-                    delta_E_int [kWh/s] = delta_E_supply [kWh/s] + delta_E_PV [kWh/s] - delta_E_ret [kWh/s] - delta_E_EVcharge [kWh/s]
-                    """
-                    delta_Q_int = m.Intermediate(delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH)  # [J/s]
-
-                    ########################################################################################################################
-                    #                                                   Equation - delta_Q_sol
-                    ########################################################################################################################
-                    delta_Q_sol = m.Intermediate(A_eff * I_geo_eff)  # [J/s]
-
-                    ########################################################################################################################
-                    #                                                    Equation - delta_Q_gain
-                    ########################################################################################################################
-                    delta_Q_gain = m.Intermediate(delta_Q_CH + delta_Q_sol + delta_Q_int)  # [J/s]
-
-                    ########################################################################################################################
-                    #                                                   Final Equations
-                    ########################################################################################################################
-                    C_eff = m.Intermediate(H * tau)
-                    m.Equation(T_in_sim.dt() == (delta_Q_gain - (H * (T_in_sim - T_out_eff))) / C_eff)
-
-                    ########################################################################################################################
-                    #                                                    Solve Equations
-                    ########################################################################################################################
-                    m.options.IMODE = 5
-                    m.options.EV_TYPE = 1  # specific objective function (L1-norm vs L2-norm)
-                    m.options.NODES = 2
-                    # m.options.CV_TYPE = 2
-                    # add dead-band for measurement to avoid overfitting
-                    # T_in_sim.MEAS_GAP = 0.25
-                    m.solve(disp=showdetails)
-                    ########################################################################################################################
-                    #                                                       Result
-                    ########################################################################################################################
-
-                    duration_s = m.time[-1]
-                    error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
-
-                    if showdetails:
-                        print('duration [s]: ', duration_s)
-                        print('error [K]: ', round(error_K, 4))
-                        print('H [W/K]: ', round(H.value[0], 4))
-                        print('tau [h]: ', round(tau.value[0] / 3600, 2))
-                        print('A [m^2]: ', round(A_eff.value[0], 2))
-                        print('eta_hs [-]: ', round(eta_hs_CH.value[0], 2))
-                        # print('COP_CH [-]: ', round(COP_CH.value[0], 2))
-
-                    # Create a results row
-                    df_result_row = pd.DataFrame(
-                        {'pseudonym': [home_id],
-                         'start_horizon': [moving_horizon_start],
-                         'end_horizon': [moving_horizon_end],
-                         'duration_s': [duration_s],
-                         'error_K': [error_K],
-                         'H_W_per_K': [H.value[0]],
-                         'tau_h': [tau.value[0] / 3600],
-                         'eta_hs': [eta_hs_CH.value[0]],
-                         'A_m^2': [A_eff.value[0]]
-                        }
-                    )
-
-                except KeyboardInterrupt:    
-                    print(str('KeyboardInterrupt; home analysis {0} not complete; saving results so far then will exit...'.format(home_id)))
-                    
-                    # do NOT write an empty line for this iteration, to indicate it is not fully processed and we don't know 
-                    ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
-                    
-                    # but DO include the incomplete home results in the final export
-                    df_results = pd.concat([df_results, df_results_home])
-                    ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
-
-                    # only then exit the function and return to caller
-                    return
-
-                except Exception as e:
-                    # do write an empty line for this iteration, to indicate it is fully processed and do know know tht GEKKO could not learn parameters for this homeweek 
-                    if showdetails:
-                        print("Exception {0} for home {1} in period from {2} to {3}; skipping...".format(e, home_id,moving_horizon_start,moving_horizon_end))
-                    df_result_row = pd.DataFrame(
-                        {'pseudonym': [home_id],
-                         'start_horizon': [moving_horizon_start],
-                         'end_horizon': [moving_horizon_end],
-                         'duration_s': [np.nan],
-                         'error_K': [np.nan],
-                         'H_W_per_K': [np.nan],
-                         'tau_h': [np.nan],
-                         'eta_hs': [np.nan],
-                         'A_m^2': [np.nan]
-                        }
-                    )
-                    pass
+                # print(len(setpoint) == len(T_in_meas) == len(T_out_eff_arr) 
+                #       == len(T_out) == len(gas_total) == len(e_used_normal_val) 
+                #       == len(e_used_low_val) == len(e_returned_normal_val) 
+                #       == len(e_returned_low_val) == len(delta_E_supply_val) 
+                #       == len(delta_E_ret_val) == len(delta_E_int_val) 
+                #       == len(delta_Q_int_e_val) == len(I_geo_eff_val))
                 
-                try:
-                    df_results_home = pd.concat([df_results_home, df_result_row])
-                except KeyboardInterrupt:    
-                    print(str('KeyboardInterrupt; home analysis {0} not complete; saving results so far then will exit...'.format(home_id)))
-                    
-                    # do write full line for this iteration, to indicate it is fully processed and we do know 
-                    df_results_home = pd.concat([df_results_home, df_result_row])
-                    ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
-                    
-                    # and include the incomplete home results in the final export
-                    df_results = pd.concat([df_results, df_results_home])
-                    ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
+                if (A_m2 is None):
+                    if showdetails:
+                        print('home {0} from {1} to {2} only run learning loop once with A as learnable model parameter'
+                              .format(home_id,moving_horizon_start,moving_horizon_end))
+                    innerloop=[np.NaN]
+                else:
+                    if showdetails:
+                        print('home {0} from {1} to {2} run learning loop twice: once with A={3} and once as as learnable model parameter'
+                              .format(home_id,moving_horizon_start,moving_horizon_end, A_m2))
+                    innerloop=[A_m2, np.NaN]
 
-                    # only then exit the function and return to caller
-                    return
+                for A_value in innerloop:
 
-                
-            #after all moving horizons of a single home
+                    try:
+
+                        ########################################################################################################################
+                        #                                                   tau initial values input
+                        ########################################################################################################################
+                        # tau Input: the following value should be based on hour for tau [hr]
+                        tau_init_val_hr = 100
+                        tau_lb_hr = 10
+                        tau_ub_hr = 1000
+
+                        # Internal conversion (do not change this part)
+                        tau_init_val = tau_init_val_hr * 3600
+                        tau_lb = tau_lb_hr * 3600
+                        tau_ub = tau_ub_hr * 3600
+
+                        ########################################################################################################################
+                        #                                                   Gekko Model - Initialize
+                        ########################################################################################################################
+                        # initialize gekko
+                        m = GEKKO(remote=False)
+                        m.time = np.linspace(delta_t, len(T_in_meas) * delta_t, len(T_in_meas))  # [s]
+
+                        # line below added to avoid "Warning: shifting time horizon to start at zero; Current starting time value: 900.000000000000"
+                        m.time = m.time - delta_t
+                        # print('m.time: ', m.time)
+                        # print ('len(T_in_meas): ', len(T_in_meas)) 
+                        # print('m.time[-1]: ', m.time[-1])
+
+                        ########################################################################################################################
+                        #                                                   Gekko Model - Variables
+                        ########################################################################################################################
+                        """"
+                        Model parameter:
+                        tau [hr]: effective thermal inertia
+                        eta_hs_CH [-]: upper heating efficiency of the central heating system
+                        COP_CH [-]: Coef. of Performance for heat pump
+                        H [W/K]: specific heat loss
+                        A_eff [m^2]: Effective area of the imaginary solar aperture in the horizontal plane
+                        """
+                        tau = m.FV(value=tau_init_val, lb=tau_lb, ub=tau_ub);
+                        tau.STATUS = 1;
+                        tau.FSTATUS = 0;  # tau.DMAX = 10
+                        H = m.FV(value=300.0, lb=0, ub=1000);
+                        H.STATUS = 1;
+                        H.FSTATUS = 0;  # H.DMAX=50                #[W/K]
+                        # eta_hs_CH = m.FV(value=0.8, lb=0, ub=1.0); eta_hs_CH.STATUS = 1; eta_hs_CH.FSTATUS = 0;  # eta_hs_CH.DMAX = 0.25
+                        # COP_CH = m.FV(value=1, lb=0.1, ub=7) ; COP_CH.STATUS = 1 ; COP_CH.FSTATUS = 0 ; #COP_CH.DMAX=1
+                        if np.isnan(A_value):
+                            A_eff = m.FV(value=5, lb=1, ub=100) ; A_eff.STATUS = 1 ; A_eff.FSTATUS = 0            #[m^2]
+                        else:
+                            A_eff = m.Param(value=A_value)
+
+                        """"
+                        Constant parameter:
+                        h_E [J/kWh]: Convertion factor ( [kWh] to [J] ) = 1000 * 60 * 60
+
+                        h_sup [J/Nm^3]: superior calorific value of natural gas from the Groningen field = 35,170,000.00
+                        eta_hs_noCH [-]: upper efficiency of heating the home indirectly using gas, for other primary purposes than heating the home
+
+                        delta_Q_sol [J/s]: heat gain from solar irradiation
+                        delta_G_noCH [Nm^3/s]: the natural gas used for other purposes than central heating
+                        delta_Q_int_gas_noCH [J/s]: natural gas used for central heating
+
+                        delta_Q_int_occup [W]: internal heat gain from occupants
+                        delta_Q_int_occup [W] = Np * Q_int_person_avg [W]
+                        Np [-]: number of persons in the household living in the home
+                        Q_int_person_avg [W]: internal heat gain from persons
+                        """
+                        h_E = m.Param(value=60 * 60 * 1000)  # [J/kWh"], the conversion factor [kWh] to [J]
+                        h_sup = m.Param(value=35170000.0)  # [J/Nm^3] "superior calorific value of natural gas from the Groningen field"
+                        eta_hs_noCH = m.Param(value=0.34)  # eq48. and PowerPoint Slide 24 (Effective upper home for indirect heating eff.)
+
+                        eta_hs_CH = m.Param(value=0.9)
+
+                        delta_G_noCH = m.Param(value=339.0 / (365.25 * 24 * 60 * 60))  # [Nm^3/s]
+                        delta_Q_int_gas_noCH = m.Param(value=delta_G_noCH * eta_hs_noCH * h_sup)  # [W]=[J/s]
+
+                        Np = m.Param(value=2.2)  # average number of people in Dutch household
+                        Q_int_person_avg = m.Param(value=61)  # [J/s] average heat gain for each average person with average behaviour
+                        delta_Q_int_occup = m.Param(value=Np * Q_int_person_avg)  # [J/s]
+
+                        """"
+                        Manipulated parameter:
+                        delta_Q_int_e [J/s]: internal heat gain from internally used electricity
+                        delta_Q_int_e [J/s] = delta_E_int [kWh/s] * hE [J/kWh]
+                        T_out_eff [K]: effective outdoor temperature
+                        delta_E_CH [kWh]: Electricity used for heat pump
+                        delta_G [Nm3/s] = Natural gas supplied to the home via the natural gas net
+                        I_geo_eff [W/m^2] = geospatially interpolated global horizontal irradiation
+                        """
+                        delta_Q_int_e = m.MV(value=delta_Q_int_e_val);
+                        delta_Q_int_e.STATUS = 0;
+                        delta_Q_int_e.FSTATUS = 1  # [J/s]
+                        T_out_eff = m.MV(value=T_out_eff_arr);
+                        T_out_eff.STATUS = 0;
+                        T_out_eff.FSTATUS = 1  # [K]
+                        delta_E_CH = m.MV(value=delta_E_CH_val / delta_t);
+                        delta_E_CH.STATUS = 0;
+                        delta_E_CH.FSTATUS = 1  # [kWh/s]
+                        delta_G = m.MV(value=gas_total / delta_t);
+                        delta_G.STATUS = 0;
+                        delta_G.FSTATUS = 1  # [Nm^3/s]
+                        I_geo_eff = m.MV(value=I_geo_eff_val);
+                        I_geo_eff.STATUS = 0;
+                        I_geo_eff.FSTATUS = 1
+
+                        """"
+                        Control variable:
+                        T_in_sim [K]: Indoor temperature
+                        """
+                        T_in_sim = m.CV(value=T_in_meas);
+                        T_in_sim.STATUS = 1;
+                        T_in_sim.FSTATUS = 1;  # T_in_sim.MEAS_GAP= 0.25
+
+                        ########################################################################################################################
+                        #                                               Gekko - Equations
+                        ########################################################################################################################
+                        """
+                        delta_Q_gain [J/s]= delta_Q_CH [J/s] + delta_Q_int [J/s] + delta_Q_sol [J/s]
+                        delta_Q_gain [J/s]= Heat gain
+                        delta_Q_CH [J/s]= Heat gain from central hearting
+                        delta_Q_int [J/s]= Heat gain from internal devices
+                        delta_Q_sol [J/s]= delta_Q_int from solar irradiation
+                        """
+
+                        ########################################################################################################################
+                        #                                               Equation - delta_Q_CH
+                        ########################################################################################################################
+                        """"
+                        delta_Q_CH [J/s] = (delta_G_CH [Nm3/s] * eta_hs_ch [-] * h_sup [J/Nm3])
+                        delta_G_CH [Nm3/s] = Natural gas used for central heating
+                        delta_G_CH [Nm3/s] = delta_G [Nm3/s]- delta_G_noCH [Nm3/s]
+                        """
+
+                        delta_G_CH = m.Intermediate(delta_G - delta_G_noCH)  # [Nm3/s]
+                        delta_Q_CH = m.Intermediate((delta_G_CH * eta_hs_CH * h_sup)) # [J/s]
+                        # delta_Q_CH = m.Intermediate((delta_Q_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
+                        ########################################################################################################################
+                        #                                                   Equation - delta_Q_int
+                        ########################################################################################################################
+                        """"
+                        delta_Q_int [J/s]: total internal heat
+                        delta_Q_int [J/s]= delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH
+                        delta_E_int [kWh/s] = delta_E_supply [kWh/s] + delta_E_PV [kWh/s] - delta_E_ret [kWh/s] - delta_E_EVcharge [kWh/s]
+                        """
+                        delta_Q_int = m.Intermediate(delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH)  # [J/s]
+
+                        ########################################################################################################################
+                        #                                                   Equation - delta_Q_sol
+                        ########################################################################################################################
+                        delta_Q_sol = m.Intermediate(A_eff * I_geo_eff)  # [J/s]
+
+                        ########################################################################################################################
+                        #                                                    Equation - delta_Q_gain
+                        ########################################################################################################################
+                        delta_Q_gain = m.Intermediate(delta_Q_CH + delta_Q_sol + delta_Q_int)  # [J/s]
+
+                        ########################################################################################################################
+                        #                                                   Final Equations
+                        ########################################################################################################################
+                        C_eff = m.Intermediate(H * tau)
+                        m.Equation(T_in_sim.dt() == (delta_Q_gain - (H * (T_in_sim - T_out_eff))) / C_eff)
+
+                        ########################################################################################################################
+                        #                                                    Solve Equations
+                        ########################################################################################################################
+                        m.options.IMODE = 5
+                        m.options.EV_TYPE = 1  # specific objective function (L1-norm vs L2-norm)
+                        m.options.NODES = 2
+                        # m.options.CV_TYPE = 2
+                        # add dead-band for measurement to avoid overfitting
+                        # T_in_sim.MEAS_GAP = 0.25
+                        m.solve(disp=showdetails)
+                        ########################################################################################################################
+                        #                                                       Result
+                        ########################################################################################################################
+
+                        duration_s = m.time[-1]
+                        error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
+
+                        if showdetails:
+                            print('duration [s]: ', duration_s)
+                            print('error [K]: ', round(error_K, 4))
+                            print('H [W/K]: ', round(H.value[0], 4))
+                            print('tau [h]: ', round(tau.value[0] / 3600, 2))
+                            print('A [m^2]: ', round(A_eff.value[0], 2))
+                            print('A value fixed: ', not np.isnan(A_value))
+                            print('eta_hs [-]: ', round(eta_hs_CH.value[0], 2))
+                            print('eta_hs value fixed: ', True)
+
+                        # Create a results row
+                        df_result_row = pd.DataFrame({
+                            'start_horizon': [moving_horizon_start],
+                            'end_horizon': [moving_horizon_end],
+                            'pseudonym': [home_id],
+                            'n_std_outlier_removal': [n_std], 
+                            'upsampling_interval': [up_intv], 
+                            'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
+                            'interpolation_interval': [int_intv],
+                            'duration_s': [duration_s],
+                            'error_K': [error_K],
+                            'H_W_per_K': [H.value[0]],
+                            'tau_h': [tau.value[0] / 3600],
+                            'A_m^2': [A_eff.value[0]],
+                            'A_m^2_fixed': [not np.isnan(A_value)],
+                            'eta_hs': [eta_hs_CH.value[0]],
+                            'eta_hs_fixed': [True]})
+                        df_result_row.set_index(['start_horizon'], inplace=True)
+
+                    except KeyboardInterrupt:    
+                        print(str('KeyboardInterrupt; home analysis {0} not complete; saving results so far then will exit...'.format(home_id)))
+
+                        # do NOT write an empty line for this iteration, to indicate it is not fully processed and we don't know 
+                        ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
+
+                        # but DO include the incomplete home results in the final export
+                        df_results = pd.concat([df_results, df_results_home])
+                        ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
+
+                        # only then exit the function and return to caller
+                        return
+
+                    except Exception as e:
+                        # do write an empty line for this iteration, to indicate it is fully processed 
+                        # and to indicate that we do know know  GEKKO could not learn parameters for this moving horizon for this home 
+                        
+                        if showdetails:
+                            print(str('Exception {0} for home {1} in period from {2} to {3}; skipping...'
+                                      .format(e, home_id,moving_horizon_start,moving_horizon_end)))
+                        df_result_row = pd.DataFrame({
+                            'start_horizon': [moving_horizon_start],
+                            'end_horizon': [moving_horizon_end],
+                            'pseudonym': [home_id],
+                            'n_std_outlier_removal': [n_std], 
+                            'upsampling_interval': [up_intv], 
+                            'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
+                            'interpolation_interval': [int_intv],
+                            'duration_s': [np.nan],
+                            'error_K': [np.nan],
+                            'H_W_per_K': [np.nan],
+                            'tau_h': [np.nan],
+                            'A_m^2': [np.nan],
+                            'A_m^2_fixed': [not (np.isnan(A_value))],
+                            'eta_hs': [np.nan],
+                            'eta_hs_fixed': [True]})
+                        df_result_row.set_index(['start_horizon'], inplace=True)
+                        pass
+
+                    #after allafter a single innerloop for A fixed or learnable
+                    try:
+                        df_results_home = pd.concat([df_results_home, df_result_row])
+                    except KeyboardInterrupt:    
+                        print(str('KeyboardInterrupt; home analysis {0} not complete; saving results so far then will exit...'.format(home_id)))
+
+                        # do write full line for this iteration, to indicate it is fully processed and we do know 
+                        df_results_home = pd.concat([df_results_home, df_result_row])
+                        ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
+
+                        # and include the incomplete home results in the final export
+                        df_results = pd.concat([df_results, df_results_home])
+                        ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
+
+                        # only then exit the function and return to caller
+                        return
+
+                #after a single innerloop for A fixed or learnable
+                if showdetails:
+                    print(str('Analysis of all moving horizons for a single inner loop for home {0} complete.'.format(home_id)))
+
+            #after all moving horizons of a single home; after a single innerloop for A fixed or learnable
+            if showdetails:
+                print(str('Analysis of all moving horizons for home {0} complete.'.format(home_id)))
             try:
                 df_results = pd.concat([df_results, df_results_home])
                 ex.write(df_results_home, str(filename_prefix+'-results-{0}.xlsx'.format(home_id)))
@@ -413,7 +458,10 @@ class Learner():
                 print(str('KeyboardInterrupt; home analysis {0} complete; saving results so far then will exit...'.format(home_id)))
                 ex.write(df_results, (filename_prefix+'-results-aborted.xlsx'))
 
+
         # and after all homes
+        if showdetails:
+            print('DONE: Analysis of all homes complete.')
         try:
             ex.write(df_results, (filename_prefix+'-results.xlsx'))
         except KeyboardInterrupt:    
