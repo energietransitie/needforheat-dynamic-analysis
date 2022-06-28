@@ -87,7 +87,7 @@ class Learner():
             if showdetails:
                 print('Home pseudonym: ', home_id)
 
-            df_data_one_home = df_data_homes[df_data_homes['homepseudonym'] == home_id]
+            df_data_one_home = df_data_homes[df_data_homes['homepseudonym'] == home_id]    
 
             moving_horizon_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='left', freq=daterange_frequency)
 
@@ -270,7 +270,7 @@ class Learner():
                         h_E = m.Param(value=60 * 60 * 1000)  # [J/kWh"], the conversion factor [kWh] to [J]
                         h_sup = m.Param(value=35170000.0)  # [J/Nm^3] "superior calorific value of natural gas from the Groningen field"
                         eta_hs_noCH = m.Param(value=0.34)  # eq48. and PowerPoint Slide 24 (Effective upper home for indirect heating eff.)
-
+                        COP_CH = m.Param(value=4)
                         eta_hs_CH = m.Param(value=eta_hs_CH_hint)
 
                         delta_G_noCH = m.Param(value=339.0 / (365.25 * 24 * 60 * 60))  # [Nm^3/s]
@@ -339,8 +339,10 @@ class Learner():
                         delta_G_CH = m.MV(value=delta_G_CH_val)  # [Nm3/s]
                         delta_G_CH.STATUS = 0;
                         delta_G_CH.FSTATUS = 1
-
-                        delta_Q_CH = m.Intermediate(delta_G_CH * eta_hs_CH * h_sup) # [J/s]
+                        
+                        delta_Q_CH_val = (delta_G_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E)
+                        delta_Q_CH = m.MV(value=delta_Q_CH_val); delta_Q_CH_val.STATUS = 0; delta_Q_CH_val.FSTATUS=1
+                        # delta_Q_CH = m.Intermediate(delta_G_CH * eta_hs_CH * h_sup) # [J/s]
                         # delta_Q_CH = m.Intermediate((delta_Q_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
                         ########################################################################################################################
                         #                                                   Equation - delta_Q_int
@@ -350,7 +352,10 @@ class Learner():
                         delta_Q_int [J/s]= delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH
                         delta_E_int [kWh/s] = delta_E_supply [kWh/s] + delta_E_PV [kWh/s] - delta_E_ret [kWh/s] - delta_E_EVcharge [kWh/s]
                         """
-                        delta_Q_int = m.Intermediate(delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH)  # [J/s]
+                        
+                        delta_Q_int_val = delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH
+                        delta_Q_int = m.MV(value=delta_Q_int_val) ; delta_Q_int.STATUS=0; delta_Q_int.FSTATUS=1     #[J/s]
+                        # delta_Q_int = m.Intermediate(delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH)  #[J/s]
 
                         ########################################################################################################################
                         #                                                   Equation - delta_Q_sol
@@ -377,11 +382,16 @@ class Learner():
                         # m.options.CV_TYPE = 2
                         # add dead-band for measurement to avoid overfitting
                         # T_in_sim.MEAS_GAP = 0.25
-                        m.solve(disp=showdetails)
+                        # m.solve(disp=showdetails)
+                        m.solve(disp=False)
+
+                        
                         ########################################################################################################################
                         #                                                       Result
                         ########################################################################################################################
-
+                        
+                        df_data_one_home.loc[moving_horizon_start:moving_horizon_end, ['T_in_sim']] = list(T_in_sim.value)
+                        
                         duration_s = m.time[-1]
                         error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
 
