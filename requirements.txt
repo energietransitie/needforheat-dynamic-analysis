@@ -7,3 +7,6 @@ mysql-connector-python
 openpyxl
 -e git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather
 gekko
+matplotlib
+pytz
+ipympl
