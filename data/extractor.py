@@ -639,7 +639,7 @@ class Extractor(Database):
 
         df = self.get(parameter)
         
-        logging.info('df before localization:', df.head(25))
+        logging.info(seriesname, 'df before localization:', df.head(25))
 
         df.set_index('datetime', inplace=True)
         df.drop(['index', 'timestamp'], axis=1, inplace=True)
@@ -649,7 +649,7 @@ class Extractor(Database):
         else:
             df = df.tz_localize(tz_source).tz_convert(tz_home)
             
-        logging.info('df after localization, before concatenation:', df.head(25))
+        logging.info(seriesname, 'df after localization, before concatenation:', df.head(25))
         if (df is not None and len(df.index)>0):
             logging.info('df.index[0]: ', df.index[0])
             logging.info('df.index[0].tzinfo: ', df.index[0].tzinfo)
@@ -663,22 +663,42 @@ class Extractor(Database):
             else:
                 df_metertimestamp = df_metertimestamp.tz_localize(tz_source).tz_convert(tz_home)
 
-            logging.info('df_metertimestamp before parsing YYMMDDhhmmssX values:', df_metertimestamp.head(25))
-            logging.info('df_metertimestamp.index[0]: ', df_metertimestamp.index[0])
-            logging.info('df_metertimestamp.index[0].tzinfo: ', df_metertimestamp.index[0].tzinfo)
+            logging.info(seriesname, 'df_metertimestamp before parsing YYMMDDhhmmssX values:', df_metertimestamp.head(25))
+            logging.info(seriesname, 'df_metertimestamp.index[0]: ', df_metertimestamp.index[0])
+            logging.info(seriesname, 'df_metertimestamp.index[0].tzinfo: ', df_metertimestamp.index[0].tzinfo)
 
             # parse DSMR TST value format: YYMMDDhhmmssX
             # meaning according to DSMR 5.0.2 standard: 
             # "ASCII presentation of Time stamp with Year, Month, Day, Hour, Minute, Second, 
             # and an indication whether DST is active (X=S) or DST is not active (X=W)."
-            df_metertimestamp['value'].replace(to_replace='W$', value='+0100', regex=True, inplace=True)
-            logging.info('df_metertimestamp after replace W:', df_metertimestamp.head(25))
-            df_metertimestamp['value'].replace(to_replace='S$', value='+0200', regex=True, inplace=True)
-            logging.info('df_metertimestamp after replace S:', df_metertimestamp.head(25))
-            df_metertimestamp['meterdatetime'] = pd.to_datetime(df_metertimestamp['value'], 
-                                                                               format='%y%m%d%H%M%S%z', errors='coerce')
+            if df_metertimestamp['value'].str.contains('W|S', regex=True).any():
+                logging.info(seriesname, 'parsing DSMR>v2 $S $W timestamps')
+                df_metertimestamp['value'].replace(to_replace='W$', value='+0100', regex=True, inplace=True)
+                logging.info(seriesname, 'df_metertimestamp after replace W:', df_metertimestamp.head(25))
+                df_metertimestamp['value'].replace(to_replace='S$', value='+0200', regex=True, inplace=True)
+                logging.info(seriesname, 'df_metertimestamp after replace S, before parsing:', df_metertimestamp.head(25))
+                df_metertimestamp['meterdatetime'] = df_metertimestamp['value'].str.strip()
+                logging.info(seriesname, 'df_metertimestamp after stripping, before parsing:', df_metertimestamp.head(25))
+                df_metertimestamp['meterdatetime'] = pd.to_datetime(df_metertimestamp['meterdatetime'], format='%y%m%d%H%M%S%z', errors='coerce')
+                logging.info(seriesname, df_metertimestamp[df_metertimestamp.meterdatetime.isnull()])
+                df_metertimestamp['meterdatetime'] = df_metertimestamp['meterdatetime'].tz_convert(tz_home)
+            else:
+                logging.info(seriesname, 'parsing DSMR=v2 timestamps without $W $S indication')
+                if df_metertimestamp['value'].str.contains('[0-9]', regex=True).any():
+                    # for smart meters of type Kamstrup 162JxC - KA6U (DSMR2), there is no W or S at the end; timeoffset needs to be inferred
+                    logging.info(seriesname, 'df_metertimestamp before parsing:', df_metertimestamp.head(25))
+                    df_metertimestamp['meterdatetime'] = df_metertimestamp['value'].str.strip() 
+                    logging.info(seriesname, 'df_metertimestamp after stripping, before parsing:', df_metertimestamp.head(25))
+                    df_metertimestamp['meterdatetime'] = pd.to_datetime(df_metertimestamp['meterdatetime'], format='%y%m%d%H%M%S', errors='coerce')
+                    logging.info(seriesname, df_metertimestamp[df_metertimestamp.meterdatetime.isnull()])
+                    df_metertimestamp['meterdatetime'] = df_metertimestamp['meterdatetime'].tz_localize(None).tz_localize(tz_home, ambiguous='infer')
+                else: # DSMRv2 did not speficy eMeterReadingTimestamps
+                    df_metertimestamp['meterdatetime'] = df_metertimestamp.index 
+                    
+                logging.info(seriesname, 'df_metertimestamp after all parsing:', df_metertimestamp.head(25))
 
-            df_metertimestamp['meterdatetime'] = df_metertimestamp['meterdatetime'].tz_convert(tz_home)
+
+
             # dataframe contains NaT values  
             logging.info('before NaT replacement:', df_metertimestamp[df_metertimestamp.meterdatetime.isnull()])
 
@@ -744,9 +764,10 @@ class Extractor(Database):
 
             # now, cumulate again
             df[seriesname] = df[seriesname].shift(1).fillna(0).cumsum()
-            logging.info('after making series cumulative again before resampling and interpolation:', df.head(25))
+            logging.info(seriesname, 'after making series cumulative again before resampling and interpolation:', df.head(25))
             
-            # then interpolate the cumulative series 
+            # then interpolate the cumulative series
+            logging.info(df[df.index.isnull()])
             df = df.resample(up_intv).first()
             logging.info('after resample:', df.head(25))
             df.interpolate(method='time', inplace=True, limit=gap_n_intv)
@@ -823,7 +844,8 @@ class Extractor(Database):
             'home_id', 'heartbeat',
             'outdoor_temp_avg_C','wind_m_per_s_avg', 'outdoor_eff_temp_avg_C', 'irradiation_hor_avg_W_per_m2',  
             'indoor_temp_avg_C', 'setpoint_temp_first_C',
-            'gas_cum_m3', 'gas_sup_avg_W', 'gas_no_CH_sup_avg_W', 'gas_CH_sup_avg_W', 
+        XXX 'gas_cum_m3' XXX, 
+            'gas_sup_avg_W', 'gas_no_CH_sup_avg_W', 'gas_CH_sup_avg_W', 
             'e_remaining_heat_avg_W', 
             'interval_s'
         ]
@@ -840,7 +862,7 @@ class Extractor(Database):
 
         for home_id in tqdm_notebook(homes):
 
-            print(f'Retrieving data for home {home_id} from {extractor_starttime.isoformat()} to {extractor_endtime.isoformat()} ...')
+            logging.info(f'Retrieving data for home {home_id} from {extractor_starttime.isoformat()} to {extractor_endtime.isoformat()} ...')
             
             
             # temporary fix: request more data
@@ -882,13 +904,13 @@ class Extractor(Database):
                                                                             up_intv=up_intv, gap_n_intv=gap_n_intv,
                                                                             summ_intv=summ_intv, summ=Summarizer.first)
                                    ],axis=1, join='outer')
-                    df = pd.concat([df, extractor.get_property_preprocessed('gMeterReadingSupply', 'gas_m3_cum', 
-                                                                            metertimestamp='gMeterReadingTimestamp', tz_source=tz_source, tz_home=tz_home,
-                                                                            process_meter_reading=False, 
-                                                                            min_interval_value=None, max_interval_value=None, n_std=None,
-                                                                            up_intv=up_intv, gap_n_intv=gap_n_intv,
-                                                                            summ_intv=summ_intv, summ=Summarizer.first)
-                                   ], axis=1, join='outer')
+                    # df = pd.concat([df, extractor.get_property_preprocessed('gMeterReadingSupply', 'gas_m3_cum', 
+                    #                                                         metertimestamp='gMeterReadingTimestamp', tz_source=tz_source, tz_home=tz_home,
+                    #                                                         process_meter_reading=False, 
+                    #                                                         min_interval_value=None, max_interval_value=None, n_std=None,
+                    #                                                         up_intv=up_intv, gap_n_intv=gap_n_intv,
+                    #                                                         summ_intv=summ_intv, summ=Summarizer.first)
+                    #                ], axis=1, join='outer')
                     df = pd.concat([df, extractor.get_property_preprocessed('gMeterReadingSupply', 'gas_m3_per_interval', 
                                                                             metertimestamp='gMeterReadingTimestamp', tz_source=tz_source, tz_home=tz_home,
                                                                             process_meter_reading=True, 
@@ -1041,9 +1063,9 @@ class WeatherExtractor:
         
         largest_measurement_interval = timedelta(hours=1)
         extractor_starttime = (first_day - largest_measurement_interval).astimezone(pytz.timezone(tz_source))
-        print('weather_extractor_starttime: ', extractor_starttime)
+        logging.info('weather_extractor_starttime: ', extractor_starttime)
         extractor_endtime = (last_day + timedelta(days=1) + largest_measurement_interval).astimezone(pytz.timezone(tz_source))
-        print('weather_extractor_endtime: ', extractor_endtime)
+        logging.info('weather_extractor_endtime: ', extractor_endtime)
 
         
         # the .tz_localize(None).tz_localize(tz_home) at the and is needed to work around a bug in the historicdutchweather library 
