@@ -952,6 +952,11 @@ class Extractor(Database):
                     # calculate timedelta for each interval (code is suitable for unevenly spaced measurementes)
                     df['interval_s'] = df.index.to_series().diff().shift(-1).apply(lambda x: x.total_seconds())
 
+                    #remove intervals earlier than first_day or later than last_day
+                    logging.info('data from home before slicing: ', df)
+                    df = df[first_day:(last_day + timedelta(days=1)) - timedelta(seconds=1)]
+                    logging.info('data from home after slicing: ', df)
+
                     # Conversion factor s_per_h [s/h]  = 60 [min/h] * 60 [s/min] 
                     s_per_h = (60 * 60) 
 
@@ -981,7 +986,7 @@ class Extractor(Database):
                     df['gas_no_CH_sup_avg_W'] = gas_no_CH_sup_avg_W
                     df['gas_CH_sup_avg_W'] = df['gas_sup_avg_W'] - df['gas_no_CH_sup_avg_W']
 
-                    # Avoid negative values for heaing; simple fix: negative value with zero in gas_CH_sup_avg_W array
+                    # Avoid negative values for heating; simple fix: negative value with zero in gas_CH_sup_avg_W array
                     df.loc[df.gas_CH_sup_avg_W < 0, 'gas_CH_sup_avg_W'] = 0
 
                     # Compensate by scaling down gas_CH_sup_avg_W 
@@ -996,7 +1001,7 @@ class Extractor(Database):
                     print('uncorrected_gas_CH_sup_home_avg_W: ', uncorrected_gas_CH_sup_home_avg_W)
                     print('scaling_factor: ', scaling_factor)
                     print('corrected_gas_CH_sup_home_avg_W: ', corrected_gas_CH_sup_home_avg_W)
-                    print('gas_no_CH_sup_avg_W + corrected_gas_CH_sup_home_avg_W): ', gas_no_CH_sup_avg_W + corrected_gas_CH_sup_home_avg_W)
+                    print('gas_no_CH_sup_avg_W + corrected_gas_CH_sup_home_avg_W: ', gas_no_CH_sup_avg_W + corrected_gas_CH_sup_home_avg_W)
 
                     # calculating derived columns
                     df['e_used_avg_W'] = (df['e_used_normal_kWh_per_interval'] + df['e_used_low_kWh_per_interval']) * J_per_kWh / df['interval_s']
@@ -1010,12 +1015,6 @@ class Extractor(Database):
                     df = df.drop('e_returned_normal_kWh_per_interval', axis=1)
                     df = df.drop('e_returned_low_kWh_per_interval', axis=1)
                     
-                    logging.info('data from home before slicing: ', df)
-
-                    #remove intervals earlier than first_day or later than last_day
-                    df = df[first_day:(last_day + timedelta(days=1)) - timedelta(seconds=1)]
-
-                    logging.info('data from home after slicing: ', df)
                         
                     # finally: add to results from other homes
                     df_all_homes = pd.concat([df_all_homes, df], axis=0)
