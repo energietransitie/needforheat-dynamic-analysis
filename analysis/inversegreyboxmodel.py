@@ -56,16 +56,16 @@ class Learner():
 
         daterange_frequency = str(moving_horizon_duration_d) + 'D'
 
-        logging.info('Homes to analyse: ', homes_to_analyze)
-        logging.info('Start of analyses: ', start_analysis_period)
-        logging.info('End of analyses: ', end_analysis_period)
-        logging.info('Moving horizon: ', daterange_frequency)
-        logging.info('#standard deviations for outlier removal: ', n_std)
-        logging.info('Upsampling_interval: ', up_intv)
-        logging.info('#upsampling intervals bridged during interpolation (max): ', gap_n_intv)
-        logging.info('Interpolation interval: ', int_intv)
-        logging.info('Hint for effective window are A [m^2]: ', hint_A_m2)
-        logging.info('Hint for superior heating efficiency eta [-]: ', hint_eta_sup_CH_frac)
+        print('Homes to analyse: ', homes_to_analyze)
+        print('Start of analyses: ', start_analysis_period)
+        print('End of analyses: ', end_analysis_period)
+        print('Moving horizon: ', daterange_frequency)
+        print('#standard deviations for outlier removal: ', n_std)
+        print('Upsampling_interval: ', up_intv)
+        print('#upsampling intervals bridged during interpolation (max): ', gap_n_intv)
+        print('Interpolation interval: ', int_intv)
+        print('Hint for effective window are A [m^2]: ', hint_A_m2)
+        print('Hint for superior heating efficiency eta [-]: ', hint_eta_sup_CH_frac)
 
                 
         # Conversion factor s_per_h [s/h]  = 60 [min/h] * 60 [s/min] 
@@ -95,7 +95,7 @@ class Learner():
             # create empty dataframe for results of all homes
             df_results_home = pd.DataFrame()
 
-            logging.info('Home pseudonym: ', home_id)
+            print('Home pseudonym: ', home_id)
 
             df_data_one_home = df_data_homes.loc[home_id]
 
@@ -112,17 +112,17 @@ class Learner():
 
                 df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end]
 
-                logging.info('Start datetime: ', moving_horizon_start)
-                logging.info('End datetime: ', moving_horizon_end)
+                print('Start datetime: ', moving_horizon_start)
+                print('End datetime: ', moving_horizon_end)
 
                 # first check whether sanity of the data is sufficient, if not then skip this homeweek, move on to next
                 sanity_moving_horizon = df_moving_horizon['sanity_frac'].mean()
                 if (sanity_moving_horizon < sanity_lb):
-                    logging.info(str('Sanity {0:.2f} for home {1} in period from {2} to {3} lower than {4:.2f}; skipping...'
+                    print(str('Sanity {0:.2f} for home {1} in period from {2} to {3} lower than {4:.2f}; skipping...'
                               .format(sanity_moving_horizon, home_id, moving_horizon_start, moving_horizon_end, sanity_lb)))
                     continue
                 else:
-                    logging.info(str('Sanity {0:.2f} for home {1} in period from {2} to {3} higher than {4:.2f}; sufficient for analysis...'
+                    print(str('Sanity {0:.2f} for home {1} in period from {2} to {3} higher than {4:.2f}; sufficient for analysis...'
                               .format(sanity_moving_horizon, home_id, moving_horizon_start, moving_horizon_end, sanity_lb)))
                 
                 # setpoint_temp_first_C_array = np.asarray(df_moving_horizon['setpoint_temp_first_C'])
@@ -132,7 +132,7 @@ class Learner():
                 number_of_timesteps = len(indoor_temp_avg_C_array)
 
                 # load data from dataframe into np.arrays
-                logging.debug(df_moving_horizon)
+                # print(df_moving_horizon)
 
 
                 outdoor_eff_temp_avg_C_array = np.asarray(df_moving_horizon['outdoor_eff_temp_avg_C'])
@@ -143,25 +143,25 @@ class Learner():
                
                 # print length of arrays and check uquality
 
-                logging.debug('#indoor_temp_avg_C_array', len(indoor_temp_avg_C_array))
-                logging.debug('#outdoor_eff_temp_avg_C_array', len(outdoor_eff_temp_avg_C_array))
-                logging.debug('#irradiation_hor_avg_W_per_m2_array', len(irradiation_hor_avg_W_per_m2_array))
-                logging.debug('#gas_no_CH_sup_avg_W_array', len(gas_no_CH_sup_avg_W_array))
-                logging.debug('#gas_CH_sup_avg_W_array', len(gas_CH_sup_avg_W_array))
+                # print('#indoor_temp_avg_C_array', len(indoor_temp_avg_C_array))
+                # print('#outdoor_eff_temp_avg_C_array', len(outdoor_eff_temp_avg_C_array))
+                # print('#irradiation_hor_avg_W_per_m2_array', len(irradiation_hor_avg_W_per_m2_array))
+                # print('#gas_no_CH_sup_avg_W_array', len(gas_no_CH_sup_avg_W_array))
+                # print('#gas_CH_sup_avg_W_array', len(gas_CH_sup_avg_W_array))
 
                 # check for equal length
 
-                logging.debug(len(indoor_temp_avg_C_array) == len(irradiation_hor_avg_W_per_m2_array) 
-                      == len(outdoor_eff_temp_avg_C_array) == len(gas_no_CH_sup_avg_W_array) 
-                      == len(gas_CH_sup_avg_W_array) == len(e_remaining_heat_avg_W_array))
+                # print(len(indoor_temp_avg_C_array) == len(irradiation_hor_avg_W_per_m2_array) 
+                #       == len(outdoor_eff_temp_avg_C_array) == len(gas_no_CH_sup_avg_W_array) 
+                #       == len(gas_CH_sup_avg_W_array) == len(e_remaining_heat_avg_W_array))
             
             
                 if (hint_A_m2 is None):
-                    logging.info('home {0} from {1} to {2} only run learning loop once with A as learnable model parameter'
+                    print('home {0} from {1} to {2} only run learning loop once with A as learnable model parameter'
                           .format(home_id,moving_horizon_start,moving_horizon_end))
                     innerloop=[np.NaN]
                 else:
-                    logging.info('home {0} from {1} to {2} run learning loop twice: once with A={3} and once as as learnable model parameter'
+                    print('home {0} from {1} to {2} run learning loop twice: once with A={3} and once as as learnable model parameter'
                           .format(home_id,moving_horizon_start,moving_horizon_end, hint_A_m2))
                     innerloop=[hint_A_m2, np.NaN]
 
@@ -319,31 +319,31 @@ class Learner():
                         # m.options.CV_TYPE = 2
                         # add dead-band for measurement to avoid overfitting
                         # m.indoor_temp_avg_C.MEAS_GAP = 0.25
-                        showdetails = (logging.logger.getCutrrentLevel() == logging.DEBUG)
+                        showdetails = True #(logger.getCutrrentLevel() == logging.DEBUG)
                         m.solve(disp=showdetails)
                         ########################################################################################################################
                         #                                                       Result
                         ########################################################################################################################
 
                         #add simulated indoor temperature for optimized solution to sim_indoor_temp_avg_C column
-                        logging.debug(m.indoor_temp_avg_C)
-                        logging.debug(len(list(m.indoor_temp_avg_C.value)))
-                        logging.debug(list(m.indoor_temp_avg_C.value))
+                        print(m.indoor_temp_avg_C)
+                        print(len(list(m.indoor_temp_avg_C.value)))
+                        print(list(m.indoor_temp_avg_C.value))
 
                         # df_data_homes[(home_id,moving_horizon_start):(home_id,moving_horizon_end), ['sim_indoor_temp_avg_C']] = list(m.indoor_temp_avg_C.value)
                         duration_s = number_of_timesteps * timestep_s
                         error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
 
-                        logging.info('duration [s]: ', duration_s)
-                        logging.info('sanity: {0:.2f}'.format(sanity_moving_horizon))
-                        logging.info('error [K]: ', round(error_K, 4))
-                        logging.info('H [W/K]: ', round(m.H_W_per_K.value[0], 4))
-                        logging.info('tau [h]: ', round(m.tau_s.value[0] / s_per_h, 2))
-                        logging.info('A [m^2]: ', round(m.A_m2.value[0], 2))
-                        logging.info('A value fixed: ', not np.isnan(iterator_A_m2))
-                        logging.info('eta_sup [-]: ', round(m.eta_sup_CH_frac.value[0], 2))
-                        logging.info('eta_sup value fixed: ', True)
-                        logging.debug(list(m.indoor_temp_avg_C.value))
+                        print('duration [s]: ', duration_s)
+                        print('sanity: {0:.2f}'.format(sanity_moving_horizon))
+                        print('error [K]: ', round(error_K, 4))
+                        print('H [W/K]: ', round(m.H_W_per_K.value[0], 4))
+                        print('tau [h]: ', round(m.tau_s.value[0] / s_per_h, 2))
+                        print('A [m^2]: ', round(m.A_m2.value[0], 2))
+                        print('A value fixed: ', not np.isnan(iterator_A_m2))
+                        print('eta_sup [-]: ', round(m.eta_sup_CH_frac.value[0], 2))
+                        print('eta_sup value fixed: ', True)
+                        print(list(m.indoor_temp_avg_C.value))
 
                         # Create a results row
                         df_result_row = pd.DataFrame({
@@ -422,10 +422,10 @@ class Learner():
                         return
 
                 #after a single innerloop for A fixed or learnable
-                logging.info(str('Analysis of all moving horizons for a single inner loop for home {0} complete.'.format(home_id)))
+                print(str('Analysis of all moving horizons for a single inner loop for home {0} complete.'.format(home_id)))
 
             #after all moving horizons of a single home; after a single innerloop for A fixed or learnable
-            logging.info(str('Analysis of all moving horizons for home {0} complete.'.format(home_id)))
+            print(str('Analysis of all moving horizons for home {0} complete.'.format(home_id)))
             try:
                 df_results = pd.concat([df_results, df_results_home])
                 ex.write(df_results_home, str(filename_prefix+'-results-{0}.xlsx'.format(home_id)))
@@ -435,7 +435,7 @@ class Learner():
 
 
         # and after all homes
-        logging.info('DONE: Analysis of all homes complete.')
+        print('DONE: Analysis of all homes complete.')
         try:
             ex.write(df_results, (filename_prefix+'-results.xlsx'))
         except KeyboardInterrupt:    
