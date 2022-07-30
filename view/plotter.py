@@ -17,12 +17,12 @@ class Plot:
 
         ax2 = ax.twinx()  # instantiate a second axes that shares the same x-axis
         ax2.set_ylabel(r'$I\ [W/m^2]$')
-        ax2.plot(df.index, df['irradiation_hor_avg_W_per_m2'], '.', label='global horizontal irradiation', alpha=0.5, color='y')  
+        ax2.plot(df.index, df['irradiation_hor_avg_W_p_m2'], '.', label='global horizontal irradiation', alpha=0.5, color='y')  
         ax2.legend(loc=1)
 
-        ax.plot(df.index, df['outdoor_temp_avg_C'], '.', label='outdoor temperature', color='orange')
-        ax.plot(df.index, df['wind_m_per_s_avg'], '.', label='wind speed', color='c')  
-        ax.plot(df.index, df['outdoor_eff_temp_avg_C'], '.', label='effective outdoor temperature', color='b')
+        ax.plot(df.index, df['outdoor_T_avg_C'], '.', label='outdoor temperature', color='orange')
+        ax.plot(df.index, df['wind_m_p_s_avg'], '.', label='wind speed', color='c')  
+        ax.plot(df.index, df['T_out_e_avg_C'], '.', label='effective outdoor temperature', color='b')
 
         for property in propertycolors:
             ax.plot(df.index, df[property[0]], '.', label=property[0], color=property[1])
