@@ -23,7 +23,7 @@ class Learner():
         - a dataframe with a timezone-aware datetime index and measurement values: with at least the following columns
             [
                 'home_id', 
-                'wind_m_p_s_avg', 'T_out_e_avg_C', 'irradiation_hor_avg_W_p_m2',
+                'T_out_e_avg_C', 'irradiation_hor_avg_W_p_m2',
                 'T_in_avg_C', 'gas_sup_avg_W', 'e_remaining_heat_avg_W', 
                 'interval_s', 'sanity_frac'
             ]
@@ -74,6 +74,11 @@ class Learner():
         # Conversion factor J_p_kWh [J/kWh]  = 1000 [Wh/kWh] * s_p_h [s/h] * 1 [J/Ws]
         J_p_kWh = 1000 * s_p_h
 
+        # Conversion factor s_p_d [s/d]  = 24 [h/d] * s_p_h [s/h] 
+        s_p_d = (24 * s_p_h) 
+        # Conversion factor s_p_a [s/a]  = 365.25 [d/a] * s_p_d [s/d] 
+        s_p_a = (365.25 * s_p_d) 
+
         # Conversion factor h_sup_J_p_m3 superior calorific value of natural gas from the Groningen field = 35,170,000.00 [J/m^3]
         h_sup_J_p_m3 = value=35170000.0
 
@@ -92,14 +97,48 @@ class Learner():
         # iterate over homes
         for home_id in home_iterator:
             
-            # create empty dataframe for results of all homes
+            # create empty dataframe for results of a home
             df_results_home = pd.DataFrame()
+
+            # create empty dataframe for temperature simultion results of a homes
+            df_results_home_tempsim = pd.DataFrame()
 
             print('Home pseudonym: ', home_id)
 
             df_data_one_home = df_data_homes.loc[home_id]
+            
+            
+            # split gas over CH and no_CH per home based on the entire period 
+            
+            # currently, we use 339 [m^3/a] national average gas usage per year for cooking and DHW, i.e. not for CH
+            gas_no_CH_avg_m3_p_s = (339.0 / s_p_a)  
+            # in a future version we intend to use a value specific per home based on average usage of natural gas in the summer months (June - August) 
+           
+            gas_sup_no_CH_avg_W = gas_no_CH_avg_m3_p_s * h_sup_J_p_m3 
 
+            logging.info('gas_no_CH_avg_m3_p_s: {:.5E}'.format(gas_no_CH_avg_m3_p_s))
+            logging.info('gas_sup_no_CH_avg_W: ', gas_sup_no_CH_avg_W)
 
+            # using this average, distribute gas usage over central heating (CH) versus no Central Heating (no_CH)
+            df_data_one_home['gas_sup_no_CH_avg_W'] = gas_sup_no_CH_avg_W
+            df_data_one_home['gas_sup_CH_avg_W'] = df_data_one_home['gas_sup_avg_W'] - df_data_one_home['gas_sup_no_CH_avg_W']
+
+            # Avoid negative values for heating; simple fix: negative value with zero in gas_sup_CH_avg_W array
+            df_data_one_home.loc[df_data_one_home.gas_sup_CH_avg_W < 0, 'gas_sup_CH_avg_W'] = 0
+
+            # Compensate by scaling down gas_sup_CH_avg_W 
+            gas_sup_home_avg_W = df_data_one_home['gas_sup_avg_W'].mean()
+            uncorrected_gas_CH_sup_home_avg_W = df_data_one_home['gas_sup_CH_avg_W'].mean()
+            scaling_factor =   (gas_sup_home_avg_W - gas_sup_no_CH_avg_W) / uncorrected_gas_CH_sup_home_avg_W  
+            df_data_one_home['gas_sup_CH_avg_W'] = df_data_one_home['gas_sup_CH_avg_W'] * scaling_factor
+            corrected_gas_CH_sup_home_avg_W = df_data_one_home['gas_sup_CH_avg_W'].mean()
+
+            print('home_id: ', home_id)
+            print('gas_sup_home_avg_W: ', gas_sup_home_avg_W)
+            print('uncorrected_gas_CH_sup_home_avg_W: ', uncorrected_gas_CH_sup_home_avg_W)
+            print('scaling_factor: ', scaling_factor)
+            print('corrected_gas_CH_sup_home_avg_W: ', corrected_gas_CH_sup_home_avg_W)
+            print('gas_sup_no_CH_avg_W + corrected_gas_CH_sup_home_avg_W: ', gas_sup_no_CH_avg_W + corrected_gas_CH_sup_home_avg_W)
             
             moving_horizon_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='left', freq=daterange_frequency)
 
@@ -108,9 +147,11 @@ class Learner():
             # iterate over horizons
             for moving_horizon_start in moving_horizon_iterator:
 
-                moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d))
+                moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d) - timedelta(minutes=1))
 
                 df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end]
+                                  
+                moving_horizon_end = df_moving_horizon.index.max()
 
                 print('Start datetime: ', moving_horizon_start)
                 print('End datetime: ', moving_horizon_end)
@@ -125,8 +166,10 @@ class Learner():
                     print(str('Sanity {0:.2f} for home {1} in period from {2} to {3} higher than {4:.2f}; sufficient for analysis...'
                               .format(sanity_moving_horizon, home_id, moving_horizon_start, moving_horizon_end, sanity_lb)))
                 
-                # T_set_first_C_array = np.asarray(df_moving_horizon['T_set_first_C'])
-                T_in_avg_C_array = np.asarray(df_moving_horizon['T_in_avg_C'])
+                # T_set_first_C_array = df_moving_horizon['T_set_first_C'].to_numpy()
+                T_in_avg_C_array = df_moving_horizon['T_in_avg_C'].to_numpy()
+                # print(df_moving_horizon['T_in_avg_C'])
+                # print(list(T_in_avg_C_array))
 
                 step_s = df_moving_horizon['interval_s'].mean()
                 number_of_timesteps = len(T_in_avg_C_array)
@@ -135,25 +178,25 @@ class Learner():
                 # print(df_moving_horizon)
 
 
-                T_out_e_avg_C_array = np.asarray(df_moving_horizon['T_out_e_avg_C'])
-                irradiation_hor_avg_W_p_m2_array = np.asarray(df_moving_horizon['irradiation_hor_avg_W_p_m2'])
-                e_remaining_heat_avg_W_array = np.asarray(df_moving_horizon['e_remaining_heat_avg_W'])
-                gas_no_CH_sup_avg_W_array = np.asarray(df_moving_horizon['gas_no_CH_sup_avg_W'])
-                gas_CH_sup_avg_W_array = np.asarray(df_moving_horizon['gas_CH_sup_avg_W'])
+                T_out_e_avg_C_array = df_moving_horizon['T_out_e_avg_C'].to_numpy()
+                irradiation_hor_avg_W_p_m2_array = df_moving_horizon['irradiation_hor_avg_W_p_m2'].to_numpy()
+                e_remaining_heat_avg_W_array = df_moving_horizon['e_remaining_heat_avg_W'].to_numpy()
+                gas_sup_no_CH_avg_W_array = df_moving_horizon['gas_sup_no_CH_avg_W'].to_numpy()
+                gas_sup_CH_avg_W_array = df_moving_horizon['gas_sup_CH_avg_W'].to_numpy()
                
                 # print length of arrays and check uquality
 
                 # print('#T_in_avg_C_array', len(T_in_avg_C_array))
                 # print('#T_out_e_avg_C_array', len(T_out_e_avg_C_array))
                 # print('#irradiation_hor_avg_W_p_m2_array', len(irradiation_hor_avg_W_p_m2_array))
-                # print('#gas_no_CH_sup_avg_W_array', len(gas_no_CH_sup_avg_W_array))
-                # print('#gas_CH_sup_avg_W_array', len(gas_CH_sup_avg_W_array))
+                # print('#gas_sup_no_CH_avg_W_array', len(gas_sup_no_CH_avg_W_array))
+                # print('#gas_sup_CH_avg_W_array', len(gas_sup_CH_avg_W_array))
 
                 # check for equal length
 
                 # print(len(T_in_avg_C_array) == len(irradiation_hor_avg_W_p_m2_array) 
-                #       == len(T_out_e_avg_C_array) == len(gas_no_CH_sup_avg_W_array) 
-                #       == len(gas_CH_sup_avg_W_array) == len(e_remaining_heat_avg_W_array))
+                #       == len(T_out_e_avg_C_array) == len(gas_sup_no_CH_avg_W_array) 
+                #       == len(gas_sup_CH_avg_W_array) == len(e_remaining_heat_avg_W_array))
             
             
                 if (hint_A_m2 is None):
@@ -176,7 +219,8 @@ class Learner():
  
                         # initialize gekko
                         m = GEKKO(remote=False)
-                        m.time = np.linspace(0, (number_of_timesteps-1) * step_s, number_of_timesteps)
+                        # m.time = np.linspace(0, (number_of_timesteps-1) * step_s, number_of_timesteps)
+                        m.time = range(number_of_timesteps)
 
 
 
@@ -218,25 +262,26 @@ class Learner():
                         # Fix eta_sup_CH_frac when a hint is given 
                         m.eta_sup_CH_frac = m.Param(value=hint_eta_sup_CH_frac)
                         
-                        m.gas_CH_sup_avg_W = m.MV(value=gas_CH_sup_avg_W_array)
-                        m.gas_CH_sup_avg_W.STATUS = 0
-                        m.gas_CH_sup_avg_W.FSTATUS = 1
+                        m.gas_sup_CH_avg_W = m.MV(value=gas_sup_CH_avg_W_array)
+                        m.gas_sup_CH_avg_W.STATUS = 0
+                        m.gas_sup_CH_avg_W.FSTATUS = 1
 
-                        m.Q_gain_gas_CH_avg_W = m.Intermediate(m.gas_CH_sup_avg_W* m.eta_sup_CH_frac)
+                        m.Q_gain_gas_CH_avg_W = m.Intermediate(m.gas_sup_CH_avg_W * m.eta_sup_CH_frac)
                     
                     
                         ########################################################################################################################
                         # Equation - Q_gain_no_CH_avg_W: heat gain from natural gas used for central heating
                         ########################################################################################################################
 
-                        # eta_sup_no_CH_frac [-]: superior efficiency of heating the home indirectly using gas, for other primary purposes than heating the home, # eq48, PPT slide 24
+                        # eta_sup_no_CH_frac [-]: superior efficiency of heating the home indirectly using gas, 
+                        # for other primary purposes than heating the home, # eq48, PPT slide 24
                         m.eta_sup_no_CH_frac = m.Param(value=0.34)
                         
-                        m.gas_no_CH_sup_avg_W = m.MV(value=gas_no_CH_sup_avg_W_array)
-                        m.gas_no_CH_sup_avg_W.STATUS = 0
-                        m.gas_no_CH_sup_avg_W.FSTATUS = 1
+                        m.gas_sup_no_CH_avg_W = m.MV(value=gas_sup_no_CH_avg_W_array)
+                        m.gas_sup_no_CH_avg_W.STATUS = 0
+                        m.gas_sup_no_CH_avg_W.FSTATUS = 1
                         
-                        m.Q_gain_gas_no_CH_avg_W = m.Intermediate(m.gas_no_CH_sup_avg_W * m.eta_sup_no_CH_frac)
+                        m.Q_gain_gas_no_CH_avg_W = m.Intermediate(m.gas_sup_no_CH_avg_W * m.eta_sup_no_CH_frac)
 
                         ########################################################################################################################
                         # Equation - Q_gain_int_avg_W: Heat gain from internal sources
@@ -299,8 +344,8 @@ class Learner():
                         # Solve Equations
                         ########################################################################################################################
                         m.options.IMODE = 5
-                        m.options.EV_TYPE = 1  # specific objective function (L1-norm vs L2-norm)
-                        m.options.NODES = 2
+                        m.options.EV_TYPE = 2  # specific objective function (L1-norm vs L2-norm)
+                        # m.options.NODES = 2  # when commented, the default is active: m.options.NODES = 3
                         m.solve(True)      
 
                         ########################################################################################################################
@@ -308,11 +353,22 @@ class Learner():
                         ########################################################################################################################
 
                         #add simulated indoor temperature for optimized solution to sim_T_in_avg_C column
-                        print(m.T_in_avg_C)
-                        print(len(list(m.T_in_avg_C.value)))
-                        print(list(m.T_in_avg_C.value))
+                        # print(m.T_in_avg_C)
+                        # print(len(list(m.T_in_avg_C.value)))
+                        # print(list(m.T_in_avg_C.value))
+                        
+                        df_results_home_tempsim = df_moving_horizon.copy(deep=True)
 
-                        # df_data_homes[(home_id,moving_horizon_start):(home_id,moving_horizon_end), ['sim_T_in_avg_C']] = list(m.T_in_avg_C.value)
+                        df_results_home_tempsim['T_in_sim_avg_C'] = list(m.T_in_avg_C.value)
+                        # print(df_results_home_tempsim) 
+
+                        filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
+                        ex.write(df_results_home_tempsim, str('{0}-Alearnt-{1}-simdata_home-{2}-{3}-{4}.xlsx'.format(home_id,
+                                                                                                              np.isnan(iterator_A_m2),
+                                                                                                              filename_prefix, 
+                                                                                                              moving_horizon_start.isoformat(),
+                                                                                                              moving_horizon_end.isoformat())))
+                        
                         duration_s = number_of_timesteps * step_s
                         error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
 
@@ -325,7 +381,6 @@ class Learner():
                         print('A value fixed: ', not np.isnan(iterator_A_m2))
                         print('eta_sup [-]: ', round(m.eta_sup_CH_frac.value[0], 2))
                         print('eta_sup value fixed: ', True)
-                        print(list(m.T_in_avg_C.value))
 
                         # Create a results row
                         df_result_row = pd.DataFrame({

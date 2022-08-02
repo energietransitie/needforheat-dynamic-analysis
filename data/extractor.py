@@ -844,12 +844,18 @@ class Extractor(Database):
             'home_id', 'heartbeat',
             'outdoor_T_avg_C','wind_m_p_s_avg', 'T_out_e_avg_C', 'irradiation_hor_avg_W_p_m2',  
             'T_in_avg_C', 'T_set_first_C',
-        XXX 'gas_cum_m3' XXX, 
-            'gas_sup_avg_W', 'gas_no_CH_sup_avg_W', 'gas_CH_sup_avg_W', 
+            'gas_sup_avg_W', 'gas_sup_no_CH_avg_W', 'gas_sup_CH_avg_W', 
             'e_remaining_heat_avg_W', 
             'interval_s'
         ]
         """
+
+        # Conversion factor s_p_h [s/h]  = 60 [min/h] * 60 [s/min] 
+        s_p_h = (60 * 60) 
+
+        # Conversion factor J_p_kWh [J/kWh]  = 1000 [Wh/kWh] * s_p_h [s/h] * 1 [J/Ws]
+        J_p_kWh = 1000 * s_p_h
+
 
         df_all_homes = pd.DataFrame()
 
@@ -904,13 +910,6 @@ class Extractor(Database):
                                                                             up_intv=up_intv, gap_n_intv=gap_n_intv,
                                                                             summ_intv=summ_intv, summ=Summarizer.first)
                                    ],axis=1, join='outer')
-                    # df = pd.concat([df, extractor.get_property_preprocessed('gMeterReadingSupply', 'gas_m3_cum', 
-                    #                                                         metertimestamp='gMeterReadingTimestamp', tz_source=tz_source, tz_home=tz_home,
-                    #                                                         process_meter_reading=False, 
-                    #                                                         min_interval_value=None, max_interval_value=None, n_std=None,
-                    #                                                         up_intv=up_intv, gap_n_intv=gap_n_intv,
-                    #                                                         summ_intv=summ_intv, summ=Summarizer.first)
-                    #                ], axis=1, join='outer')
                     df = pd.concat([df, extractor.get_property_preprocessed('gMeterReadingSupply', 'gas_m3_p_interval', 
                                                                             metertimestamp='gMeterReadingTimestamp', tz_source=tz_source, tz_home=tz_home,
                                                                             process_meter_reading=True, 
@@ -957,51 +956,12 @@ class Extractor(Database):
                     df = df[first_day:(last_day + timedelta(days=1)) - timedelta(seconds=1)]
                     logging.info('data from home after slicing: ', df)
 
-                    # Conversion factor s_p_h [s/h]  = 60 [min/h] * 60 [s/min] 
-                    s_p_h = (60 * 60) 
-
-                    # Conversion factor J_p_kWh [J/kWh]  = 1000 [Wh/kWh] * s_p_h [s/h] * 1 [J/Ws]
-                    J_p_kWh = 1000 * s_p_h
-
-                    # Conversion factor s_p_d [s/d]  = 24 [h/d] * s_p_h [s/h] 
-                    s_p_d = (24 * s_p_h) 
-                    # Conversion factor s_p_a [s/a]  = 365.25 [d/a] * s_p_d [s/d] 
-                    s_p_a = (365.25 * s_p_d) 
-
                     # Superior calirific value superior calorific value of natural gas from the Groningen field = 35,170,000.00 [J/m^3]
                     h_sup_J_p_m3 = 35170000.0
 
                     # converting gas values from m^3 per interval to averages 
                     df['gas_sup_avg_W'] = df['gas_m3_p_interval'] * h_sup_J_p_m3 / df['interval_s']
                     df = df.drop('gas_m3_p_interval', axis=1)
-
-                    gas_no_CH_avg_m3_p_s = (339.0 / s_p_a)  # 339 [m^3/a] average gas usage per year for cooking and DHW, i.e. not for CH
-                    gas_no_CH_sup_avg_W = gas_no_CH_avg_m3_p_s * h_sup_J_p_m3 
-
-                    logging.info('gas_no_CH_avg_m3_p_s: {:.5E}'.format(gas_no_CH_avg_m3_p_s))
-                    logging.info('gas_no_CH_sup_avg_W: ', gas_no_CH_sup_avg_W)
-
-
-                    # using this national average, distribute gas usage over central heating (CH) versus no Central Heating (no_CH)
-                    df['gas_no_CH_sup_avg_W'] = gas_no_CH_sup_avg_W
-                    df['gas_CH_sup_avg_W'] = df['gas_sup_avg_W'] - df['gas_no_CH_sup_avg_W']
-
-                    # Avoid negative values for heating; simple fix: negative value with zero in gas_CH_sup_avg_W array
-                    df.loc[df.gas_CH_sup_avg_W < 0, 'gas_CH_sup_avg_W'] = 0
-
-                    # Compensate by scaling down gas_CH_sup_avg_W 
-                    gas_sup_home_avg_W = df['gas_sup_avg_W'].mean()
-                    uncorrected_gas_CH_sup_home_avg_W = df['gas_CH_sup_avg_W'].mean()
-                    scaling_factor =   (gas_sup_home_avg_W - gas_no_CH_sup_avg_W) / uncorrected_gas_CH_sup_home_avg_W  
-                    df['gas_CH_sup_avg_W'] = df['gas_CH_sup_avg_W'] * scaling_factor
-                    corrected_gas_CH_sup_home_avg_W = df['gas_CH_sup_avg_W'].mean()
-
-                    print('home_id: ', home_id)
-                    print('gas_sup_home_avg_W: ', gas_sup_home_avg_W)
-                    print('uncorrected_gas_CH_sup_home_avg_W: ', uncorrected_gas_CH_sup_home_avg_W)
-                    print('scaling_factor: ', scaling_factor)
-                    print('corrected_gas_CH_sup_home_avg_W: ', corrected_gas_CH_sup_home_avg_W)
-                    print('gas_no_CH_sup_avg_W + corrected_gas_CH_sup_home_avg_W: ', gas_no_CH_sup_avg_W + corrected_gas_CH_sup_home_avg_W)
 
                     # calculating derived columns
                     df['e_used_avg_W'] = (df['e_used_normal_kWh_p_interval'] + df['e_used_low_kWh_p_interval']) * J_p_kWh / df['interval_s']
