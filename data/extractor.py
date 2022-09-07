@@ -841,11 +841,11 @@ class Extractor(Database):
         interpolated with the int_intv
         rendered as a dataframe with a timezone-aware datetime index
         [
-            'home_id', 'heartbeat',
-            'outdoor_T_avg_C','wind_m_p_s_avg', 'T_out_e_avg_C', 'irradiation_hor_avg_W_p_m2',  
+            'home_id', 'timestamp',
+            'T_out_avg_C','wind_avg_m_p_s', 'irradiation_hor_avg_W_p_m2','T_out_e_avg_C',   
             'T_in_avg_C', 'T_set_first_C',
             'gas_sup_avg_W', 'gas_sup_no_CH_avg_W', 'gas_sup_CH_avg_W', 
-            'e_remaining_heat_avg_W', 
+            'e_used_avg_W',, 'e_returned_avg_W', 'e_remaining_heat_avg_W', 
             'interval_s'
         ]
         """
@@ -1015,7 +1015,7 @@ class WeatherExtractor:
         with NO outlier removal (assuming that KNMI already did this)
         interpolated with the int_intv
         rendered as a dataframe with a timezone-aware datetime index
-        columns ['outdoor_T_avg_C', 'wind_m_p_s_avg', 'irradiation_hor_avg_W_p_m2', 'T_out_e_avg_C']
+        columns ['T_out_avg_C', 'wind_avg_m_p_s', 'irradiation_hor_avg_W_p_m2', 'T_out_e_avg_C']
         """
         
         up = '15min'
@@ -1035,7 +1035,7 @@ class WeatherExtractor:
         
 
         # stop gap measure: author of historicdutchweather created special export (which had erronaous tz info)
-        # then we made the times disabiguable
+        # then we made the times disambiguable
         df = pd.read_csv('../data/weather-assendorp-interpolated-disambiguable.csv', index_col=0)
         df.index = pd.to_datetime(df.index)
         df = df.tz_localize(None).tz_localize(tz_source, ambiguous='infer')
@@ -1046,10 +1046,10 @@ class WeatherExtractor:
         
         logging.info('Resampling weather data...' )
 
-        outdoor_T_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'T', 'outdoor_T_avg_C', 
+        outdoor_T_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'T', 'T_out_avg_C', 
                                                                                            up, int_intv, 
                                                                                            tz_source, tz_home)
-        windspeed_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'FH', 'wind_m_p_s_avg', 
+        windspeed_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'FH', 'wind_avg_m_p_s', 
                                                                                         up, int_intv, 
                                                                                         tz_source, tz_home)
         irradiation_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'Q', 'irradiation_hor_J_p_h_p_cm2_avg', 
@@ -1067,7 +1067,7 @@ class WeatherExtractor:
         df.loc[(df.irradiation_hor_avg_W_p_m2 < 0), 'irradiation_hor_avg_W_p_m2'] = 0
 
         #calculate effective outdoor temperature based on KNMI formula
-        df['T_out_e_avg_C'] = df['outdoor_T_avg_C'] - 2/3 * df['wind_m_p_s_avg'] 
+        df['T_out_e_avg_C'] = df['T_out_avg_C'] - 2/3 * df['wind_avg_m_p_s'] 
         
         #remove intervals earlier than first_day or later than last_day
         df = df[first_day:(last_day + timedelta(days=1)) - timedelta(seconds=1)]
