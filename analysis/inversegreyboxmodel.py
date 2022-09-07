@@ -87,7 +87,7 @@ class Learner():
             if showdetails:
                 print('Home pseudonym: ', home_id)
 
-            df_data_one_home = df_data_homes[df_data_homes['homepseudonym'] == home_id]    
+            df_data_one_home = df_data_homes[df_data_homes['homepseudonym'] == home_id]
 
             moving_horizon_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='left', freq=daterange_frequency)
 
@@ -125,33 +125,30 @@ class Learner():
 
                 # load data from dataframe into np.arrays
 
-                # data loading
-                
-                time_recorded = df['Date_Time'].iloc[start_point:end_point] # [s]
-                
                 setpoint = np.asarray(df_moving_horizon['indoor_setpoint_temp_degC'])
-                T_in_meas = np.asarray(df['indoor_temp_degC'].iloc[start_point:end_point]) # [K]
-                T_out_eff_arr = np.asarray(df['effective_outdoor_temp_degC'].iloc[start_point:end_point]) # [K]
-                T_out = np.asarray(df['outdoor_temp_degC'].iloc[start_point:end_point]) # [K]
-                gas_total = np.asarray(df['gas_m^3'].iloc[start_point:end_point]) #[m^3]
-                I_geo_eff_val = np.asarray(df['hor_irradiation_W_per_m^2'].iloc[start_point:end_point])  # [W/m2]
-                
-                e_used_normal_val = np.asarray(df['e_used_normal_kWh'].iloc[start_point:end_point]) # [kWh]
-                e_used_low_val = np.asarray(df['e_used_low_kWh'].iloc[start_point:end_point]) # [kWh]
-                delta_E_supply_val = np.asarray(e_used_normal_val + e_used_low_val) # [kWh]
-                
-                e_returned_normal_val = np.asarray(df['e_returned_normal_kWh'].iloc[start_point:end_point]) # [kWh]
-                e_returned_low_val = np.asarray(df['e_returned_low_kWh'].iloc[start_point:end_point]) # [kWh]
-                delta_E_ret_val = np.asarray(e_returned_normal_val + e_returned_low_val) # [kWh]
-                
-                delta_E_int_val = delta_E_supply_val - delta_E_ret_val # [kWh]
+                T_in_meas = np.asarray(df_moving_horizon['indoor_temp_degC'])
+                T_out_eff_arr = np.asarray(df_moving_horizon['effective_outdoor_temp_degC'])
+                T_out = np.asarray(df_moving_horizon['outdoor_temp_degC'])
 
-                delta_G_val = gas_total / delta_t
-                delta_G_noCH_val = 339.0 / (365.25 * 24 * 60 * 60)
-                delta_G_CH_val = delta_G_val - delta_G_noCH_val
-                delta_G_CH_val[delta_G_CH_val < 0] = 0
+                gas_total = np.asarray(df_moving_horizon['gas_m^3'])
+
+                e_used_normal_val = np.asarray(df_moving_horizon['e_used_normal_kWh'])
+                e_used_low_val = np.asarray(df_moving_horizon['e_used_low_kWh'])
+                e_returned_normal_val = np.asarray(df_moving_horizon['e_returned_normal_kWh'])
+                e_returned_low_val = np.asarray(df_moving_horizon['e_returned_low_kWh'])
+
+                delta_E_supply_val = np.asarray(e_used_normal_val + e_used_low_val)
+
+                delta_E_PV_val = 0
+
+                delta_E_ret_val = np.asarray(e_returned_normal_val + e_returned_low_val)
+                delta_EV_charge_val = 0
+
+                delta_E_CH_val = 0
 
 
+                delta_E_int_val = np.asarray(
+                    (delta_E_supply_val + delta_E_PV_val - delta_E_ret_val - delta_EV_charge_val - delta_E_CH_val) / delta_t)   # [kWh/s]
                 delta_Q_int_e_val = np.asarray(delta_E_int_val * 1000 * 60 * 60)    # [W]
                 I_geo_eff_val = np.asarray(df_moving_horizon['hor_irradiation_W_per_m^2'])
                 
@@ -222,12 +219,10 @@ class Learner():
                         ########################################################################################################################
                         # initialize gekko
                         m = GEKKO(remote=False)
-                        # m.time = np.linspace(delta_t, len(T_in_meas) * delta_t, len(T_in_meas))  # [s]
-                        # in above line time starts from 900 and in modified below line time starts from 0
-                        m.time = np.linspace(0, (len(T_in_meas)-1) * delta_t, len(T_in_meas))
+                        m.time = np.linspace(delta_t, len(T_in_meas) * delta_t, len(T_in_meas))  # [s]
 
                         # line below added to avoid "Warning: shifting time horizon to start at zero; Current starting time value: 900.000000000000"
-                        # m.time = m.time - delta_t
+                        m.time = m.time - delta_t
                         # print('m.time: ', m.time)
                         # print ('len(T_in_meas): ', len(T_in_meas)) 
                         # print('m.time[-1]: ', m.time[-1])
@@ -249,7 +244,8 @@ class Learner():
                         H = m.FV(value=300.0, lb=0, ub=1000);
                         H.STATUS = 1;
                         H.FSTATUS = 0;  # H.DMAX=50                #[W/K]
-
+                        # eta_hs_CH = m.FV(value=0.8, lb=0, ub=1.0); eta_hs_CH.STATUS = 1; eta_hs_CH.FSTATUS = 0;  # eta_hs_CH.DMAX = 0.25
+                        # COP_CH = m.FV(value=1, lb=0.1, ub=7) ; COP_CH.STATUS = 1 ; COP_CH.FSTATUS = 0 ; #COP_CH.DMAX=1
                         if np.isnan(A_value):
                             A_eff = m.FV(value=5, lb=1, ub=100) ; A_eff.STATUS = 1 ; A_eff.FSTATUS = 0            #[m^2]
                         else:
@@ -271,22 +267,19 @@ class Learner():
                         Np [-]: number of persons in the household living in the home
                         Q_int_person_avg [W]: internal heat gain from persons
                         """
-                        # Gekko constant Parameter
-                        h_sup = m.Param(value=35170000) # [J/Nm^3]
-                        COP = m.Param(value=6)
-                        h_E = m.Param(value=60 * 60 * 1000) # [J/kWh]
-                        eta_hs = m.Param(value=0.9)
-                        eta_no_ch = m.Param(value=0.34)
-                        delta_G_noCH = m.Param(value=339.0 / (365.25 * 24 * 60 * 60)) #[Nm^3/s]
-                        delta_E_CH = m.Param(value=0)
-                        delta_Q_int_occup = m.Param(value=2.2 * 61 / (24*3600)) #[W]
-                        A_eff = m.Param(value=12)  #[m^2]
-                        
-                        
+                        h_E = m.Param(value=60 * 60 * 1000)  # [J/kWh"], the conversion factor [kWh] to [J]
+                        h_sup = m.Param(value=35170000.0)  # [J/Nm^3] "superior calorific value of natural gas from the Groningen field"
+                        eta_hs_noCH = m.Param(value=0.34)  # eq48. and PowerPoint Slide 24 (Effective upper home for indirect heating eff.)
+
                         eta_hs_CH = m.Param(value=eta_hs_CH_hint)
 
                         delta_G_noCH = m.Param(value=339.0 / (365.25 * 24 * 60 * 60))  # [Nm^3/s]
                         delta_Q_int_gas_noCH = m.Param(value=delta_G_noCH * eta_hs_noCH * h_sup)  # [W]=[J/s]
+
+                        Np = m.Param(value=2.2)  # average number of people in Dutch household
+                        Q_int_person_avg = m.Param(value=61)  # [J/s] average heat gain for each average person with average behaviour
+                        delta_Q_int_occup = m.Param(value=Np * Q_int_person_avg)  # [J/s]
+
                         """"
                         Manipulated parameter:
                         delta_Q_int_e [J/s]: internal heat gain from internally used electricity
@@ -296,11 +289,24 @@ class Learner():
                         delta_G [Nm3/s] = Natural gas supplied to the home via the natural gas net
                         I_geo_eff [W/m^2] = geospatially interpolated global horizontal irradiation
                         """
-                        delta_G = m.MV(value=gas_total / delta_t) ; delta_G.STATUS=0 ; delta_G.FSTATUS=1 # [Nm^3/s]
-                        delta_G_CH = m.MV(value=delta_G_CH_val) ; delta_G_CH.STATUS=0 ; delta_G_CH.FSTATUS=1 # [Nm^3/s]
-                        I_geo = m.MV(value=I_geo_eff_val) ; I_geo.STATUS=0 ; I_geo.FSTATUS=1 #[W/m^2]
-                        delta_E_int = m.MV(value=delta_E_int_val) ; delta_E_int.STATUS=0 ; delta_E_int.FSTATUS=1 #[kWh]
-                        T_out_eff = m.MV(value=T_out_eff_arr); T_out_eff.STATUS = 0; T_out_eff.FSTATUS = 1 #[K]
+                        delta_Q_int_e = m.MV(value=delta_Q_int_e_val);
+                        delta_Q_int_e.STATUS = 0;
+                        delta_Q_int_e.FSTATUS = 1  # [J/s]
+                        T_out_eff = m.MV(value=T_out_eff_arr);
+                        T_out_eff.STATUS = 0;
+                        T_out_eff.FSTATUS = 1  # [K]
+                        delta_E_CH = m.MV(value=delta_E_CH_val / delta_t);
+                        delta_E_CH.STATUS = 0;
+                        delta_E_CH.FSTATUS = 1  # [kWh/s]
+                        # delta_G = m.MV(value=gas_total / delta_t);
+                        # delta_G.STATUS = 0;
+                        # delta_G.FSTATUS = 1  # [Nm^3/s]
+
+                        delta_G = m.MV(value=delta_G_val); delta_G.STATUS = 0; delta_G.FSTATUS = 1  # [Nm^3/s]
+
+                        I_geo_eff = m.MV(value=I_geo_eff_val);
+                        I_geo_eff.STATUS = 0;
+                        I_geo_eff.FSTATUS = 1
 
                         """"
                         Control variable:
@@ -329,8 +335,13 @@ class Learner():
                         delta_G_CH [Nm3/s] = Natural gas used for central heating
                         delta_G_CH [Nm3/s] = delta_G [Nm3/s]- delta_G_noCH [Nm3/s]
                         """
-                        delta_Q_CH = m.Intermediate((delta_G_CH * eta_hs * h_sup) + (delta_E_CH * COP * h_E)) #[w]
-                        
+
+                        delta_G_CH = m.MV(value=delta_G_CH_val)  # [Nm3/s]
+                        delta_G_CH.STATUS = 0;
+                        delta_G_CH.FSTATUS = 1
+
+                        delta_Q_CH = m.Intermediate(delta_G_CH * eta_hs_CH * h_sup) # [J/s]
+                        # delta_Q_CH = m.Intermediate((delta_Q_CH * eta_hs_CH * h_sup) + (delta_E_CH * COP_CH * h_E))  # [J/s]
                         ########################################################################################################################
                         #                                                   Equation - delta_Q_int
                         ########################################################################################################################
@@ -339,26 +350,23 @@ class Learner():
                         delta_Q_int [J/s]= delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH
                         delta_E_int [kWh/s] = delta_E_supply [kWh/s] + delta_E_PV [kWh/s] - delta_E_ret [kWh/s] - delta_E_EVcharge [kWh/s]
                         """
-                        
-                        delta_Q_int_e = m.Intermediate(delta_E_int * h_E / delta_t)    #[w]
-                        delta_Q_int_gas_noCH = m.Intermediate(delta_G_noCH * eta_no_ch * h_sup)         #[w]
-                        delta_Q_int = m.Intermediate(delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH)      #[w]
+                        delta_Q_int = m.Intermediate(delta_Q_int_e + delta_Q_int_occup + delta_Q_int_gas_noCH)  # [J/s]
 
                         ########################################################################################################################
                         #                                                   Equation - delta_Q_sol
                         ########################################################################################################################
-                        delta_Q_sol = m.Intermediate(A_eff * I_geo) #[w]
+                        delta_Q_sol = m.Intermediate(A_eff * I_geo_eff)  # [J/s]
 
                         ########################################################################################################################
                         #                                                    Equation - delta_Q_gain
                         ########################################################################################################################
-                        delta_Q_gain = m.Intermediate(delta_Q_CH + delta_Q_sol + delta_Q_int) #[w]
+                        delta_Q_gain = m.Intermediate(delta_Q_CH + delta_Q_sol + delta_Q_int)  # [J/s]
 
                         ########################################################################################################################
                         #                                                   Final Equations
                         ########################################################################################################################
                         C_eff = m.Intermediate(H * tau)
-                        m.Equation(T_in_sim.dt() == (delta_Q_gain - (H * (T_in_sim - T_out_eff))) / (H * tau))  #
+                        m.Equation(T_in_sim.dt() == (delta_Q_gain - (H * (T_in_sim - T_out_eff))) / C_eff)
 
                         ########################################################################################################################
                         #                                                    Solve Equations
@@ -369,17 +377,11 @@ class Learner():
                         # m.options.CV_TYPE = 2
                         # add dead-band for measurement to avoid overfitting
                         # T_in_sim.MEAS_GAP = 0.25
-                        # m.solve(disp=showdetails)
-                        m.solve(disp=False)
-
-                        
+                        m.solve(disp=showdetails)
                         ########################################################################################################################
                         #                                                       Result
                         ########################################################################################################################
-                        
-                        df_data_one_home.loc[moving_horizon_start:moving_horizon_end, ['T_in_sim']] = list(T_in_sim.value)
-                        print(df_data_one_home[moving_horizon_start:moving_horizon_end])
-                        
+
                         duration_s = m.time[-1]
                         error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
 
