@@ -20,8 +20,8 @@ class Plot:
         ax2.plot(df.index, df['irradiation_hor_avg_W_p_m2'], '.', label='global horizontal irradiation', alpha=0.5, color='y')  
         ax2.legend(loc=1)
 
-        ax.plot(df.index, df['outdoor_T_avg_C'], '.', label='outdoor temperature', color='orange')
-        ax.plot(df.index, df['wind_m_p_s_avg'], '.', label='wind speed', color='c')  
+        ax.plot(df.index, df['T_out_avg_C'], '.', label='outdoor temperature', color='orange')
+        ax.plot(df.index, df['wind_avg_m_p_s'], '.', label='wind speed', color='c')  
         ax.plot(df.index, df['T_out_e_avg_C'], '.', label='effective outdoor temperature', color='b')
 
         for property in propertycolors:
