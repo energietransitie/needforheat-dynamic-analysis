@@ -17,7 +17,7 @@ class Learner():
                                             homes_to_analyze=None, 
                                             start_analysis_period:datetime=None, 
                                             end_analysis_period:datetime=None, 
-                                            hint_A_m2=None, hint_eta_sup_CH_frac=0.9, ev_type=2) -> pd.DataFrame:
+                                            hint_A_m2=None, hint_eta_sup_CH_frac=0.97, ev_type=2) -> pd.DataFrame:
         """
         Input:  
         - a dataframe with a timezone-aware datetime index and measurement values: with at least the following columns
@@ -385,9 +385,9 @@ class Learner():
                         logging.info('sanity: {0:.2f}'.format(sanity_moving_horizon))
                         logging.info('OBJFCNVAL: ', m.options.OBJFCNVAL)
                         logging.info('EV_TYPE: ', m.options.EV_TYPE)
-                        logging.info('H [W/K]: ', round(m.H_W_p_K.value[0], 4))
-                        logging.info('tau [h]: ', round(m.tau_s.value[0] / s_p_h, 2))
-                        logging.info('A [m^2]: ', round(m.A_m2.value[0], 2))
+                        print('H [W/K]: ', round(m.H_W_p_K.value[0], 4))
+                        print('tau [h]: ', round(m.tau_s.value[0] / s_p_h, 2))
+                        print('A [m^2]: ', round(m.A_m2.value[0], 2))
                         logging.info('A value fixed: ', not np.isnan(iterator_A_m2))
                         logging.info('eta_sup [-]: ', round(m.eta_sup_CH_frac.value[0], 2))
                         logging.info('eta_sup value fixed: ', True)
