@@ -1000,7 +1000,7 @@ class Extractor(Database):
         return df_all_homes
 
     @staticmethod
-    def get_virtual_homes_data(home_id, h, tau, tz_home:str) -> pd.DataFrame:
+    def get_virtual_homes_data_csv(filename: str, tz_home:str) -> pd.DataFrame:
         """
         Obtain data from an csv file with virtual home data 
         convert timestamps to the tz_home timezone 
@@ -1016,17 +1016,24 @@ class Extractor(Database):
             'interval_s'
         ]
         """
-        filename = str('../data/virtualhome_P{0}H{1}tau{2}.csv'.format(home_id, h, tau))
-        df_data_virtual_homes = pd.read_csv(filename, delimiter =";")
+        df_data_virtual_homes = pd.read_csv(filename, delimiter=";", skipinitialspace=True, decimal=",", parse_dates=['timestamp'])
         df_data_virtual_homes = df_data_virtual_homes.set_index('timestamp')
         df_data_virtual_homes = df_data_virtual_homes.loc[df_data_virtual_homes.index.dropna()]
         df_data_virtual_homes = df_data_virtual_homes.drop('Unnamed: 0', axis=1)
+        df_data_virtual_homes = df_data_virtual_homes.drop('Unnamed: 15', axis=1)
+        df_data_virtual_homes = df_data_virtual_homes.drop('Unnamed: 16', axis=1)
+        df_data_virtual_homes.rename(columns={"sanity_frac ": "sanity_frac"}, inplace=True)
+        df_data_virtual_homes.rename(columns={"T_out_avg_C ": "T_out_avg_C"}, inplace=True)
+        df_data_virtual_homes.rename(columns={"wind_avg_m_p_s ": "wind_avg_m_p_s"}, inplace=True)
+        df_data_virtual_homes.rename(columns={"T_out_e_avg_C ": "T_out_e_avg_C"}, inplace=True)
+        df_data_virtual_homes.rename(columns={"T_in_avg_C ": "T_in_avg_C"}, inplace=True)
         df_data_virtual_homes.index = pd.to_datetime(df_data_virtual_homes.index)
         df_data_virtual_homes = df_data_virtual_homes.tz_localize(tz_home)
         df_data_virtual_homes.reset_index(inplace=True)
         cols = list(df_data_virtual_homes.columns)
         df_data_virtual_homes = df_data_virtual_homes[[cols[1]] + [cols[0]] + cols [2::]]
         df_data_virtual_homes = df_data_virtual_homes.set_index(['home_id', 'timestamp'])
+        df_data_virtual_homes = df_data_virtual_homes.loc[df_data_virtual_homes.index.dropna()]
         return df_data_virtual_homes
       
 
