@@ -18,8 +18,7 @@ import logging
 # or include the following line (without comment) in requirements.txt and run `pip install -r requirements.txt` in a terminal
 # -e git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather
 
-# the line below was working until 20-5-2022; then something changed which caused historicdutchweather to stop working
-# import historicdutchweather
+import historicdutchweather
 
 
 
@@ -1059,29 +1058,15 @@ class WeatherExtractor:
         up = '15min'
         
         largest_measurement_interval = timedelta(hours=1)
-        extractor_starttime = (first_day - largest_measurement_interval).astimezone(pytz.timezone(tz_source))
+        extractor_starttime = first_day
         logging.info('weather_extractor_starttime: ', extractor_starttime)
-        extractor_endtime = (last_day + timedelta(days=1) + largest_measurement_interval).astimezone(pytz.timezone(tz_source))
+        extractor_endtime = last_day
         logging.info('weather_extractor_endtime: ', extractor_endtime)
 
         
-        # the .tz_localize(None).tz_localize(tz_home) at the and is needed to work around a bug in the historicdutchweather library 
-        # TODO: post an issue in the historicdutchweather library and change the code to the line directly below when repaired.
-        # weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q'])
-        # the line below was working until 20-5-2022; then something changed which caused historicdutchweather to stop working
-        # weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q']).tz_localize(None).tz_localize(tz_home)
-        
+        df = historicdutchweather.get_local_weather(extractor_starttime, extractor_endtime, lat, lon, metrics=['T', 'FH', 'Q'])
+       
 
-        # stop gap measure: author of historicdutchweather created special export (which had erronaous tz info)
-        # then we made the times disambiguable
-        df = pd.read_csv('../data/weather-assendorp-interpolated-disambiguable.csv', index_col=0)
-        df.index = pd.to_datetime(df.index)
-        df = df.tz_localize(None).tz_localize(tz_source, ambiguous='infer')
-        df = df.tz_convert(tz_home)
-
-        #remove intervals earlier than first_day or later than last_day 
-        df = df[first_day:(last_day + timedelta(days=1))]
-        
         logging.info('Resampling weather data...' )
 
         outdoor_T_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'T', 'T_out_avg_C', 
@@ -1107,9 +1092,7 @@ class WeatherExtractor:
         #calculate effective outdoor temperature based on KNMI formula
         df['T_out_e_avg_C'] = df['T_out_avg_C'] - 2/3 * df['wind_avg_m_p_s'] 
         
-        #remove intervals earlier than first_day or later than last_day
-        df = df[first_day:(last_day + timedelta(days=1)) - timedelta(seconds=1)]
-        
+       
         return df
 
     @staticmethod
