@@ -105,8 +105,11 @@ class Learner():
             # create empty dataframe for results of a home
             df_results_home = pd.DataFrame()
 
-            # create empty dataframe for temperature simultion results of a single home
+            # create empty dataframe for temperature simulation results of a single home
             df_results_home_allweeks_tempsim = pd.DataFrame()
+            
+            # create empty dataframe for temperature simulation results of a single week of a single home
+            df_results_homeweek_tempsim  = pd.DataFrame()
 
             logging.info('Home pseudonym: ', home_id)
 
@@ -459,9 +462,9 @@ class Learner():
                     try:
                         df_results_home = pd.concat([df_results_home, df_result_row])
                         
-                        df_results_home_allweeks_tempsim = pd.concat([df_results_home_allweeks_tempsim, df_results_homeweek_tempsim])
-                        
-                        df_results_home_allweeks_tempsim.describe(include='all')
+                        if df_results_homeweek_tempsim is not None and len(df_results_homeweek_tempsim.columns)>0:
+                            df_results_home_allweeks_tempsim = pd.concat([df_results_home_allweeks_tempsim, df_results_homeweek_tempsim])
+                            df_results_home_allweeks_tempsim.describe(include='all')
                         
                     except KeyboardInterrupt:    
                         logging.error(str('KeyboardInterrupt; home analysis {0} not complete; saving results so far then will exit...'.format(home_id)))
