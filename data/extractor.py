@@ -999,7 +999,7 @@ class Extractor(Database):
         return df_all_homes
 
     @staticmethod
-    def get_virtual_homes_data_csv(filename: str, tz_home:str) -> pd.DataFrame:
+    def get_virtual_home_data_csv(filename: str, tz_home:str) -> pd.DataFrame:
         """
         Obtain data from an csv file with virtual home data 
         convert timestamps to the tz_home timezone 
@@ -1015,27 +1015,27 @@ class Extractor(Database):
             'interval_s'
         ]
         """
-        df_data_virtual_homes = pd.read_csv(filename, delimiter=";", skipinitialspace=True, decimal=",", parse_dates=['timestamp'])
-        df_data_virtual_homes = df_data_virtual_homes.set_index('timestamp')
-        df_data_virtual_homes = df_data_virtual_homes.loc[df_data_virtual_homes.index.dropna()]
-        df_data_virtual_homes = df_data_virtual_homes.drop('Unnamed: 0', axis=1)
-        df_data_virtual_homes = df_data_virtual_homes.drop('Unnamed: 15', axis=1)
-        df_data_virtual_homes = df_data_virtual_homes.drop('Unnamed: 16', axis=1)
-        df_data_virtual_homes.rename(columns={"sanity_frac ": "sanity_frac"}, inplace=True)
-        df_data_virtual_homes.rename(columns={"T_out_avg_C ": "T_out_avg_C"}, inplace=True)
-        df_data_virtual_homes.rename(columns={"wind_avg_m_p_s ": "wind_avg_m_p_s"}, inplace=True)
-        df_data_virtual_homes.rename(columns={"T_out_e_avg_C ": "T_out_e_avg_C"}, inplace=True)
-        df_data_virtual_homes.rename(columns={"T_in_avg_C ": "T_in_avg_C"}, inplace=True)
-        df_data_virtual_homes.index = pd.to_datetime(df_data_virtual_homes.index)
-        df_data_virtual_homes = df_data_virtual_homes.tz_localize(tz_home)
-        df_data_virtual_homes.reset_index(inplace=True)
-        cols = list(df_data_virtual_homes.columns)
-        df_data_virtual_homes = df_data_virtual_homes[[cols[1]] + [cols[0]] + cols [2::]]
-        df_data_virtual_homes = df_data_virtual_homes.set_index(['home_id', 'timestamp'])
-        df_data_virtual_homes = df_data_virtual_homes.loc[df_data_virtual_homes.index.dropna()]
-        return df_data_virtual_homes
-      
-
+        df_data_virtual_home = pd.read_csv(filename, delimiter=";", skipinitialspace=True, decimal=",", parse_dates=['timestamp'])
+        df_data_virtual_home = df_data_virtual_home.set_index('timestamp')
+        df_data_virtual_home = df_data_virtual_home.loc[df_data_virtual_home.index.dropna()]
+        df_data_virtual_home = df_data_virtual_home.drop('Unnamed: 0', axis=1)
+        # df_data_virtual_home = df_data_virtual_home.drop('Unnamed: 15', axis=1)
+        # df_data_virtual_home = df_data_virtual_home.drop('Unnamed: 16', axis=1)
+        df_data_virtual_home.rename(columns={"sanity_frac ": "sanity_frac"}, inplace=True)
+        df_data_virtual_home.rename(columns={"T_out_avg_C ": "T_out_avg_C"}, inplace=True)
+        df_data_virtual_home.rename(columns={"wind_avg_m_p_s ": "wind_avg_m_p_s"}, inplace=True)
+        df_data_virtual_home.rename(columns={"T_out_e_avg_C ": "T_out_e_avg_C"}, inplace=True)
+        df_data_virtual_home.rename(columns={"T_in_avg_C ": "T_in_avg_C"}, inplace=True)
+        df_data_virtual_home.index = pd.to_datetime(df_data_virtual_home.index)
+        df_data_virtual_home = df_data_virtual_home.tz_localize(tz_home)
+        df_data_virtual_home.reset_index(inplace=True)
+        cols = list(df_data_virtual_home.columns)
+        df_data_virtual_home = df_data_virtual_home[[cols[1]] + [cols[0]] + cols [2::]]
+        df_data_virtual_home = df_data_virtual_home.set_index(['home_id', 'timestamp'])
+        df_data_virtual_home = df_data_virtual_home.loc[df_data_virtual_home.index.dropna()]
+        return df_data_virtual_home
+    
+    
     
 class WeatherExtractor:
     """
