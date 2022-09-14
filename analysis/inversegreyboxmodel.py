@@ -157,10 +157,7 @@ class Learner():
                 # moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d) - timedelta(minutes=1))
                 moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d))
 
-                df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end]
-                last_row = df_moving_horizon.tail(1).index
-                df_moving_horizon.drop(last_row, inplace=True)
-                                  
+                df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end].iloc[:-1]
                 moving_horizon_end = df_moving_horizon.index.max()
 
                 logging.info('Start datetime: ', moving_horizon_start)
@@ -229,13 +226,7 @@ class Learner():
  
                         # initialize gekko
                         m = GEKKO(remote=False)
-                        # m.time = np.linspace(0, (number_of_timesteps-1) * step_s, number_of_timesteps)
-                        m.time = range(number_of_timesteps)
-
-
-
-
-
+                        m.time = np.linspace(0, (number_of_timesteps-1) * step_s, number_of_timesteps)
 
 
                         ########################################################################################################################
@@ -243,14 +234,14 @@ class Learner():
                         ########################################################################################################################
                         
                         # Model parameter: H [W/K]: specific heat loss
-                        m.H_W_p_K = m.FV(value=300.0, lb=0, ub=1000)
-                        m.H_W_p_K.STATUS = 1
-                        m.H_W_p_K.FSTATUS = 0
+                        H_W_p_K = m.FV(value=300.0, lb=0, ub=1000)
+                        H_W_p_K.STATUS = 1
+                        H_W_p_K.FSTATUS = 0
                         
                         # Model parameter: tau [s]: effective thermal inertia
-                        m.tau_s = m.FV(value=(100 * s_p_h), lb=(10 * s_p_h), ub=(1000 * s_p_h))
-                        m.tau_s.STATUS = 1
-                        m.tau_s.FSTATUS = 0
+                        tau_s = m.FV(value=(100 * s_p_h), lb=(10 * s_p_h), ub=(1000 * s_p_h))
+                        tau_s.STATUS = 1
+                        tau_s.FSTATUS = 0
 
                         ########################################################################################################################
                         #                                               Gekko - Equations
@@ -264,19 +255,19 @@ class Learner():
                         # eta_sup_CH_frac [-]: upper heating efficiency of the central heating system
 
                         # This section of code (later) when  eta_sup_CH_frac is estimated using the model
-                        # m.eta_sup_CH_frac = m.FV(value=0.8, lb=0, ub=1.0)
-                        # m.eta_sup_CH_frac.STATUS = 1
-                        # m.eta_sup_CH_frac.FSTATUS = 0
+                        # eta_sup_CH_frac = m.FV(value=0.8, lb=0, ub=1.0)
+                        # eta_sup_CH_frac.STATUS = 1
+                        # eta_sup_CH_frac.FSTATUS = 0
                         ## eta_sup_CH_frac.DMAX = 0.25
 
                         # Fix eta_sup_CH_frac when a hint is given 
-                        m.eta_sup_CH_frac = m.Param(value=hint_eta_sup_CH_frac)
+                        eta_sup_CH_frac = m.Param(value=hint_eta_sup_CH_frac)
                         
-                        m.gas_sup_CH_avg_W = m.MV(value=gas_sup_CH_avg_W_array)
-                        m.gas_sup_CH_avg_W.STATUS = 0
-                        m.gas_sup_CH_avg_W.FSTATUS = 1
+                        gas_sup_CH_avg_W = m.MV(value=gas_sup_CH_avg_W_array)
+                        gas_sup_CH_avg_W.STATUS = 0
+                        gas_sup_CH_avg_W.FSTATUS = 1
 
-                        m.Q_gain_gas_CH_avg_W = m.Intermediate(m.gas_sup_CH_avg_W * m.eta_sup_CH_frac)
+                        Q_gain_gas_CH_avg_W = m.Intermediate(gas_sup_CH_avg_W * eta_sup_CH_frac)
                     
                     
                         ########################################################################################################################
@@ -285,70 +276,70 @@ class Learner():
 
                         # eta_sup_no_CH_frac [-]: superior efficiency of heating the home indirectly using gas, 
                         # for other primary purposes than heating the home, # eq48, PPT slide 24
-                        m.eta_sup_no_CH_frac = m.Param(value=0.34)
+                        eta_sup_no_CH_frac = m.Param(value=0.34)
                         
-                        m.gas_sup_no_CH_avg_W = m.MV(value=gas_sup_no_CH_avg_W_array)
-                        m.gas_sup_no_CH_avg_W.STATUS = 0
-                        m.gas_sup_no_CH_avg_W.FSTATUS = 1
+                        gas_sup_no_CH_avg_W = m.MV(value=gas_sup_no_CH_avg_W_array)
+                        gas_sup_no_CH_avg_W.STATUS = 0
+                        gas_sup_no_CH_avg_W.FSTATUS = 1
                         
-                        m.Q_gain_gas_no_CH_avg_W = m.Intermediate(m.gas_sup_no_CH_avg_W * m.eta_sup_no_CH_frac)
+                        Q_gain_gas_no_CH_avg_W = m.Intermediate(gas_sup_no_CH_avg_W * eta_sup_no_CH_frac)
 
                         ########################################################################################################################
                         # Equation - Q_gain_int_avg_W: Heat gain from internal sources
                         ########################################################################################################################
-                        # Manipulated Variable: m.e_remaining_heat_avg_W: internal heat gain from internally used electricity
-                        m.e_remaining_heat_avg_W = m.MV(value=e_remaining_heat_avg_W_array)
-                        m.e_remaining_heat_avg_W.STATUS = 0
-                        m.e_remaining_heat_avg_W.FSTATUS = 1
+                        # Manipulated Variable: e_remaining_heat_avg_W: internal heat gain from internally used electricity
+                        e_remaining_heat_avg_W = m.MV(value=e_remaining_heat_avg_W_array)
+                        e_remaining_heat_avg_W.STATUS = 0
+                        e_remaining_heat_avg_W.FSTATUS = 1
 
-                        m.Q_gain_int_avg_W = m.Intermediate(m.e_remaining_heat_avg_W + Q_gain_int_occup_avg_W + m.Q_gain_gas_no_CH_avg_W)
+                        Q_gain_int_avg_W = m.Intermediate(e_remaining_heat_avg_W + Q_gain_int_occup_avg_W + Q_gain_gas_no_CH_avg_W)
 
                         ########################################################################################################################
-                        # Equation - m.Q_gain_sol_avg_W: : heat gain from solar irradiation
+                        # Equation - Q_gain_sol_avg_W: : heat gain from solar irradiation
                         ########################################################################################################################
 
                         if np.isnan(iterator_A_m2):
                             # Model parameter: A [m^2]: Effective area of the imaginary solar aperture in the horizontal plane
-                            m.A_m2 = m.FV(value=5, lb=1, ub=100)
-                            m.A_m2.STATUS = 1
-                            m.A_m2.FSTATUS = 0
+                            A_m2 = m.FV(value=5, lb=1, ub=100)
+                            A_m2.STATUS = 1
+                            A_m2.FSTATUS = 0
                         else:
                             # Fixed value: A [m^2]: Effective area of the imaginary solar aperture in the horizontal plane 
-                            m.A_m2 = m.Param(value=iterator_A_m2)
+                            A_m2 = m.Param(value=iterator_A_m2)
 
-                        m.irradiation_hor_avg_W_p_m2 = m.MV(value=irradiation_hor_avg_W_p_m2_array)
-                        m.irradiation_hor_avg_W_p_m2.STATUS = 0
-                        m.irradiation_hor_avg_W_p_m2.FSTATUS = 1
+                        irradiation_hor_avg_W_p_m2 = m.MV(value=irradiation_hor_avg_W_p_m2_array)
+                        irradiation_hor_avg_W_p_m2.STATUS = 0
+                        irradiation_hor_avg_W_p_m2.FSTATUS = 1
                         
-                        m.Q_gain_sol_avg_W = m.Intermediate(m.irradiation_hor_avg_W_p_m2 * m.A_m2)
+                        Q_gain_sol_avg_W = m.Intermediate(irradiation_hor_avg_W_p_m2 * A_m2)
                         
 
                         ########################################################################################################################
                         # Equation - Q_gain_W: all heat gains combined
                         ########################################################################################################################
-                        m.Q_gain_W = m.Intermediate(m.Q_gain_gas_CH_avg_W + m.Q_gain_sol_avg_W + m.Q_gain_int_avg_W)
+                        Q_gain_W = m.Intermediate(Q_gain_gas_CH_avg_W + Q_gain_sol_avg_W + Q_gain_int_avg_W)
                       
 
                         ########################################################################################################################
                         # Manipulated Variable (MV): T_out_e_avg_C [°C]: effective outdoor temperature
                         ########################################################################################################################
-                        m.T_out_e_avg_C = m.MV(value=T_out_e_avg_C_array)
-                        m.T_out_e_avg_C.STATUS = 0
-                        m.T_out_e_avg_C.FSTATUS = 1
+                        T_out_e_avg_C = m.MV(value=T_out_e_avg_C_array)
+                        T_out_e_avg_C.STATUS = 0
+                        T_out_e_avg_C.FSTATUS = 1
 
                         ########################################################################################################################
                         # Control Variable T_in_avg_C: Indoor temperature
                         ########################################################################################################################
-                        m.T_in_avg_C = m.CV(value=T_in_avg_C_array)
-                        m.T_in_avg_C.STATUS = 1
-                        m.T_in_avg_C.FSTATUS = 1  # m.T_in_avg_C.MEAS_GAP= 0.25
+                        T_in_avg_C = m.CV(value=T_in_avg_C_array)
+                        T_in_avg_C.STATUS = 1
+                        T_in_avg_C.FSTATUS = 1  # T_in_avg_C.MEAS_GAP= 0.25
                         
 
                         ########################################################################################################################
                         # Final Equations
                         ########################################################################################################################
-                        m.C_J_p_K  = m.Intermediate(m.H_W_p_K * m.tau_s) 
-                        m.Equation(m.T_in_avg_C.dt() == ((step_s * (m.Q_gain_W - m.H_W_p_K * (m.T_in_avg_C - m.T_out_e_avg_C))) / m.C_J_p_K))
+                        C_J_p_K  = m.Intermediate(H_W_p_K * tau_s) 
+                        m.Equation(T_in_avg_C.dt() == ((Q_gain_W - H_W_p_K * (T_in_avg_C - T_out_e_avg_C)) / C_J_p_K))
                         
                         ########################################################################################################################
                         # Solve Equations
@@ -363,14 +354,14 @@ class Learner():
                         ########################################################################################################################
 
                         #add simulated indoor temperature for optimized solution to sim_T_in_avg_C column
-                        # logging.info(m.T_in_avg_C)
-                        # logging.info(len(list(m.T_in_avg_C.value)))
-                        # logging.info(list(m.T_in_avg_C.value))
+                        # logging.info(T_in_avg_C)
+                        # logging.info(len(list(T_in_avg_C.value)))
+                        # logging.info(list(T_in_avg_C.value))
                         
                         # create a deep copy
                         df_results_homeweek_tempsim = df_moving_horizon.copy(deep=True)
 
-                        df_results_homeweek_tempsim['T_in_sim_avg_C'] = list(m.T_in_avg_C.value)
+                        df_results_homeweek_tempsim['T_in_sim_avg_C'] = list(T_in_avg_C.value)
                         df_results_homeweek_tempsim['A_value_is_fixed'] = not np.isnan(iterator_A_m2)
                         
                         # logging.info(df_results_homeweek_tempsim) 
@@ -388,11 +379,11 @@ class Learner():
                         logging.info('sanity: {0:.2f}'.format(sanity_moving_horizon))
                         logging.info('OBJFCNVAL: ', m.options.OBJFCNVAL)
                         logging.info('EV_TYPE: ', m.options.EV_TYPE)
-                        print('H [W/K]: ', round(m.H_W_p_K.value[0], 4))
-                        print('tau [h]: ', round(m.tau_s.value[0] / s_p_h, 2))
-                        print('A [m^2]: ', round(m.A_m2.value[0], 2))
+                        logging.info('H [W/K]: ', round(H_W_p_K.value[0], 4))
+                        logging.info('tau [h]: ', round(tau_s.value[0] / s_p_h, 2))
+                        logging.info('A [m^2]: ', round(A_m2.value[0], 2))
                         logging.info('A value fixed: ', not np.isnan(iterator_A_m2))
-                        logging.info('eta_sup [-]: ', round(m.eta_sup_CH_frac.value[0], 2))
+                        logging.info('eta_sup [-]: ', round(eta_sup_CH_frac.value[0], 2))
                         logging.info('eta_sup value fixed: ', True)
 
                         # Create a results row
@@ -408,11 +399,11 @@ class Learner():
                             'sanity_frac': [sanity_moving_horizon],
                             'OBJFCNVAL': [m.options.OBJFCNVAL],
                             'EV_TYPE': [m.options.EV_TYPE],
-                            'H_W_p_K': [m.H_W_p_K.value[0]],
-                            'tau_h': [m.tau_s.value[0] / s_p_h],
-                            'A_m^2': [m.A_m2.value[0]],
+                            'H_W_p_K': [H_W_p_K.value[0]],
+                            'tau_h': [tau_s.value[0] / s_p_h],
+                            'A_m^2': [A_m2.value[0]],
                             'A_m^2_fixed': [not np.isnan(iterator_A_m2)],
-                            'eta_sup': [m.eta_sup_CH_frac.value[0]],
+                            'eta_sup': [eta_sup_CH_frac.value[0]],
                             'eta_sup_fixed': [True]})
                         df_result_row.set_index(['start_horizon'], inplace=True)
                         
@@ -501,6 +492,12 @@ class Learner():
 
 
         # and after all homes
+        df_results_allhomes_allweeks_tempsim.reset_index(inplace=True)
+        df_results_allhomes_allweeks_tempsim.rename(columns = {'index':'timestamp'}, inplace=True)
+        cols = list(df_results_allhomes_allweeks_tempsim.columns)
+        df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim[[cols[1]] + [cols[0]] + cols [2::]]
+        df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim.set_index(['home_id', 'timestamp'])
+        
         print('DONE: Analysis of all homes complete; writing files.')
         
         print(df_results_allhomes_allweeks_tempsim.describe(include='all'))
