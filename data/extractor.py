@@ -1035,7 +1035,37 @@ class Extractor(Database):
         df_data_virtual_home = df_data_virtual_home.loc[df_data_virtual_home.index.dropna()]
         return df_data_virtual_home
     
-    
+    @staticmethod
+    def write_home_data_to_csv(df_data_homes: pd.DataFrame, filename: str):
+        df = df_data_homes.copy(deep=True)
+        df.reset_index(inplace=True)
+        df=df.dropna(subset = ['home_id'])
+        df['unix_time'] = df['timestamp'].map(pd.Timestamp.timestamp)
+        df['date_local'] =  pd.to_datetime(df['timestamp']).dt.date
+        df['time_local'] =  pd.to_datetime(df['timestamp']).dt.time
+        df['utc_offset'] = df['timestamp'].map(lambda x: float(pd.to_datetime(x).strftime('%z')[1:3]) + float(pd.to_datetime(x).strftime('%z')[4:5])/60)
+        df['timestamp_ISO8601'] = df['timestamp'].map(pd.Timestamp.isoformat)
+        df = df[['home_id',
+         'timestamp_ISO8601',
+         'unix_time',
+         'date_local',
+         'time_local',
+         'utc_offset',
+         'T_out_avg_C',
+         'wind_avg_m_p_s',
+         'irradiation_hor_avg_W_p_m2',
+         'T_out_e_avg_C',
+         'T_in_avg_C',
+         'T_set_first_C',
+         'interval_s',
+         'gas_sup_avg_W',
+         'e_used_avg_W',
+         'e_returned_avg_W',
+         'e_remaining_heat_avg_W',
+         'sanity_frac']]
+        df.index.name = '#'
+        df.to_csv(filename)
+        return
     
 class WeatherExtractor:
     """
