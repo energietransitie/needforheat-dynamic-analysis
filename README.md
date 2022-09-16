@@ -12,10 +12,10 @@ This repository contains source code for the Twomes and Twutility digital twin h
 * [Credits](#credits)
 
 ## General info
-Add more general information about the repo. What is purpose of the code in the repo? Motivation?
+\<to be described soon\>
 
 ## Deploying
-After cloning this this respository, install requirements: open a terminal windows (in JypyterLabs availabe via the Lunacher which itself is always avalable via the `+` tab), navigate to the root folder of this repository and enter this command: 
+After cloning this this respository, install requirements: open a terminal windows (in JuypyterLabs availabe via the Launcher which itself is always avalable via the `+` tab), navigate to the root folder of this repository and enter this command: 
   ```shell
   pip install -r requirements.txt
   ```  
@@ -24,10 +24,10 @@ After cloning this this respository, install requirements: open a terminal windo
 This section describes how you can change the source code using a development environment and compile the source code into a service that can be deployed via the method described in the section [Deploying](#deploying).
 
 ### Prerequisites
+
+If you want to run the code locally,you need:  
 - [PyCharm](https://www.jetbrains.com/pycharm/download/#section=windows) Community or Professional Edition IDE installed (recommended)  
-	
-Following packages are required to run the code locally:  
-- [Python](https://www.python.org/downloads/) (min version 3.8)  
+- [Python](https://www.python.org/downloads/) installed (min version 3.8)  
 
 Start PyCharm and install the following packages by entering the following commands in a Terminal window in PyCharm:
 - [Gekko](https://gekko.readthedocs.io/en/latest/) which can be installed using following command:
@@ -46,6 +46,8 @@ Start PyCharm and install the following packages by entering the following comma
 	```shell
 	pip install matplotlib
 	``` 
+If you want to run the code on a JuluterLab server,you need:  
+\<to be described soon\>
 
 ## Features
 List of features ready and TODOs for future development. Ready:
@@ -56,7 +58,7 @@ List of features ready and TODOs for future development. Ready:
 
 To-do:
 * extend GEKKO model with installation model parameters;
-* refine measurement outlier removal.
+* refine measurement outlier removal via time series outlier reoval procedures.
 
 ## Status
 Project is: _in progress_
