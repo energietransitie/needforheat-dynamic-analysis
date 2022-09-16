@@ -49,13 +49,14 @@ Start PyCharm and install the following packages by entering the following comma
 
 ## Features
 List of features ready and TODOs for future development. Ready:
-* awesome feature 1;
-* awesome feature 2;
-* awesome feature 3.
+* data extraction;
+* measurement outlier removal and interpolation;
+* GEKKO model with model parameters for biulding envelope.
+* Analysis code to learn building model parameters;
 
 To-do:
-* wow improvement to be done 1;
-* wow improvement to be done 2.
+* extend GEKKO model with installation model parameters;
+* refine measurement outlier removal.
 
 ## Status
 Project is: _in progress_
