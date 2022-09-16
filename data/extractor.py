@@ -11,13 +11,14 @@ from database import Database
 from tqdm import tqdm_notebook
 
 from enum import Enum, auto
+import logging
+
 
 # before import use pip install git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather
 # or include the following line (without comment) in requirements.txt and run `pip install -r requirements.txt` in a terminal
 # -e git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather
 
-# the line below was working until 20-5-2022; then something changed which caused historicdutchweather to stop working
-# import historicdutchweather
+import historicdutchweather
 
 
 
@@ -624,159 +625,447 @@ class Extractor(Database):
 
         return result
 
-    def get_property_preprocessed(self, parameter:str, seriesname:str, differentiate:bool, summ, 
-                                  n_std:int, up:str, gap_n_intv:int, int_intv:str, tz_home:str) -> pd.DataFrame:
+    def get_property_preprocessed(self, parameter:str, seriesname:str, metertimestamp:str, 
+                                  tz_source:str, tz_home:str,
+                                  process_meter_reading:bool, 
+                                  min_interval_value:float, max_interval_value:float, n_std:int, 
+                                  up_intv:str, gap_n_intv:int, 
+                                  summ_intv:str, summ) -> pd.DataFrame:
 
         # Type checking
         if not isinstance(summ, Summarizer):
             raise TypeError('summ parameter must be an instance of Summarizer Enum')
 
-        tz_system = 'UTC'
         df = self.get(parameter)
+        
+        logging.info(seriesname, 'df before localization:', df.head(25))
+
         df.set_index('datetime', inplace=True)
+        df.drop(['index', 'timestamp'], axis=1, inplace=True)
 
-        if tz_system == tz_home:
-            df = df.tz_localize(tz_system)
+        if tz_source == tz_home:
+            df = df.tz_localize(tz_source)
         else:
-            df = df.tz_localize(tz_system).tz_convert(tz_home)
+            df = df.tz_localize(tz_source).tz_convert(tz_home)
+            
+        logging.info(seriesname, 'df after localization, before concatenation:', df.head(25))
+        if (df is not None and len(df.index)>0):
+            logging.info('df.index[0]: ', df.index[0])
+            logging.info('df.index[0].tzinfo: ', df.index[0].tzinfo)
 
+        if metertimestamp is not None:
+            df_metertimestamp = self.get(metertimestamp)
+            df_metertimestamp.set_index('datetime', inplace=True)
+            df_metertimestamp.drop(['index', 'timestamp'], axis=1, inplace=True)
+            if tz_source == tz_home:
+                df_metertimestamp = df_metertimestamp.tz_localize(tz_source)
+            else:
+                df_metertimestamp = df_metertimestamp.tz_localize(tz_source).tz_convert(tz_home)
+
+            logging.info(seriesname, 'df_metertimestamp before parsing YYMMDDhhmmssX values:', df_metertimestamp.head(25))
+            logging.info(seriesname, 'df_metertimestamp.index[0]: ', df_metertimestamp.index[0])
+            logging.info(seriesname, 'df_metertimestamp.index[0].tzinfo: ', df_metertimestamp.index[0].tzinfo)
+
+            # parse DSMR TST value format: YYMMDDhhmmssX
+            # meaning according to DSMR 5.0.2 standard: 
+            # "ASCII presentation of Time stamp with Year, Month, Day, Hour, Minute, Second, 
+            # and an indication whether DST is active (X=S) or DST is not active (X=W)."
+            if df_metertimestamp['value'].str.contains('W|S', regex=True).any():
+                logging.info(seriesname, 'parsing DSMR>v2 $S $W timestamps')
+                df_metertimestamp['value'].replace(to_replace='W$', value='+0100', regex=True, inplace=True)
+                logging.info(seriesname, 'df_metertimestamp after replace W:', df_metertimestamp.head(25))
+                df_metertimestamp['value'].replace(to_replace='S$', value='+0200', regex=True, inplace=True)
+                logging.info(seriesname, 'df_metertimestamp after replace S, before parsing:', df_metertimestamp.head(25))
+                df_metertimestamp['meterdatetime'] = df_metertimestamp['value'].str.strip()
+                logging.info(seriesname, 'df_metertimestamp after stripping, before parsing:', df_metertimestamp.head(25))
+                df_metertimestamp['meterdatetime'] = pd.to_datetime(df_metertimestamp['meterdatetime'], format='%y%m%d%H%M%S%z', errors='coerce')
+                logging.info(seriesname, df_metertimestamp[df_metertimestamp.meterdatetime.isnull()])
+                df_metertimestamp['meterdatetime'] = df_metertimestamp['meterdatetime'].tz_convert(tz_home)
+            else:
+                logging.info(seriesname, 'parsing DSMR=v2 timestamps without $W $S indication')
+                if df_metertimestamp['value'].str.contains('[0-9]', regex=True).any():
+                    # for smart meters of type Kamstrup 162JxC - KA6U (DSMR2), there is no W or S at the end; timeoffset needs to be inferred
+                    logging.info(seriesname, 'df_metertimestamp before parsing:', df_metertimestamp.head(25))
+                    df_metertimestamp['meterdatetime'] = df_metertimestamp['value'].str.strip() 
+                    logging.info(seriesname, 'df_metertimestamp after stripping, before parsing:', df_metertimestamp.head(25))
+                    df_metertimestamp['meterdatetime'] = pd.to_datetime(df_metertimestamp['meterdatetime'], format='%y%m%d%H%M%S', errors='coerce')
+                    logging.info(seriesname, df_metertimestamp[df_metertimestamp.meterdatetime.isnull()])
+                    df_metertimestamp['meterdatetime'] = df_metertimestamp['meterdatetime'].tz_localize(None).tz_localize(tz_home, ambiguous='infer')
+                else: # DSMRv2 did not speficy eMeterReadingTimestamps
+                    df_metertimestamp['meterdatetime'] = df_metertimestamp.index 
+                    
+                logging.info(seriesname, 'df_metertimestamp after all parsing:', df_metertimestamp.head(25))
+
+
+
+            # dataframe contains NaT values  
+            logging.info('before NaT replacement:', df_metertimestamp[df_metertimestamp.meterdatetime.isnull()])
+
+            # unfortunately, support for linear interpolation of datetimes is not properly implemented, so we do it via Unix time
+            df_metertimestamp['meterdatetime']= df_metertimestamp['meterdatetime']\
+                                                .apply(lambda x: np.nan if pd.isnull(x) else x.timestamp())\
+                                                .interpolate(method='linear', limit=2)
+            df_metertimestamp['meterdatetime'] = pd.to_datetime(df_metertimestamp['meterdatetime'], unit='s', utc=True,  origin='unix')\
+                                                 .dt.tz_convert(tz_home)
+
+
+            df_metertimestamp.reset_index(inplace=True)
+            df_metertimestamp.set_index('datetime', inplace=True)
+            df_metertimestamp.drop(['value'], axis=1, inplace=True)
+            logging.info('df_metertimestamp after NaT replacement:', df_metertimestamp.head(25))
+            logging.info('df_metertimestamp.index[0]: ', df_metertimestamp.index[0])
+            logging.info('df_metertimestamp.index[0].tzinfo: ', df_metertimestamp.index[0].tzinfo)
+
+            df = pd.concat([df, df_metertimestamp], axis=1, join='outer')
+            logging.info('df:', df.head(25))
+            logging.info('df.index[0]: ', df.index[0])
+            logging.info('df.index[0].tzinfo: ', df.index[0].tzinfo)
+
+            df.reset_index(inplace=True)
+            df.drop(['datetime'], axis=1, inplace=True)
+            df.rename(columns = {'meterdatetime':'datetime'}, inplace = True)
+            logging.info('df after rename:', df.head(25))
+            df.drop_duplicates(inplace=True)
+            logging.info('df after dropping duplicates:', df.head(25))
+            df.set_index('datetime', inplace=True)
+            logging.info('df:', df.head(25))
+            
         #first sort on datetime index
         df.sort_index(inplace=True)
-        # tempting, but do NOT drop duplicates since this ignores index column
-        # df.drop_duplicates(inplace=True)
+        # tempting, but do NOT drop duplicates since this ignores index column, 
+        # for meter readings, we already dropped duplicates earlier when both smart meter timestamp and smart meter reading were identical 
+
+        # remove index, timestamp and value columns and rename column to seriesname
+        logging.info('before rename:', df.head(25))
+        df.rename(columns = {'value':seriesname}, inplace = True)
 
         # Converting str to float
-        df['value'] = df['value'].astype(float)
+        df[seriesname] = df[seriesname].astype(float)
+        logging.info('after rename:', df.head(25))
 
-        if differentiate:
-            df['value'] = df['value'].diff().shift(-1)
 
-        #remove static outliers
-        df = Extractor.remove_measurement_outliers(df, n_std)
+        if process_meter_reading:
+            
+            #first, correct for occasional zero meter readings; this involves taking a diff and removing the meter reading that causes the negative jump
+            logging.info('before zero meter reading filter:', df.head(25))
+            df['diff'] = df[seriesname].diff()
+            logging.info('after diff:', df.head(25))
+            df = df[df['diff'] >= 0]
+            df.drop(['diff'], axis=1, inplace=True)
+            logging.info('after zero meter reading filter:', df.head(25))
+
+            #then, correct for meter changes; this involves taking a diff and removing the negative jum and cumulating again
+            #first, correct for potential meter changes
+            df[seriesname] = df[seriesname].diff().shift(-1)
+            logging.info('after diff:', df.head(25))
+            df.loc[df[seriesname] < 0, seriesname] = 0
+            logging.info('after filter negatives:', df.head(25))
+
+            # now, cumulate again
+            df[seriesname] = df[seriesname].shift(1).fillna(0).cumsum()
+            logging.info(seriesname, 'after making series cumulative again before resampling and interpolation:', df.head(25))
+            
+            # then interpolate the cumulative series
+            logging.info(df[df.index.isnull()])
+            df = df.resample(up_intv).first()
+            logging.info('after resample:', df.head(25))
+            df.interpolate(method='time', inplace=True, limit=gap_n_intv)
+            logging.info('after interpolation:', df.head(25))
+          
+            # finally, differentiate a last time to get rate of use
+            df[seriesname] = df[seriesname].diff().shift(-1)
+            logging.info('after taking differences:', df.head(25))
+            
+
+        #if min_interval_value given, then remove larger values
+        if min_interval_value is not None:
+            df.loc[df[seriesname] < min_interval_value, seriesname] = np.nan
+
+        #if max_interval_value given, then remove larger values
+        if max_interval_value is not None:
+            df.loc[df[seriesname] > max_interval_value, seriesname] = np.nan
+
+        #if n_std is given, them outliers more than n_std standard deviations away from mean
+        if n_std is not None:
+            df = Extractor.remove_measurement_outliers(df, seriesname, n_std)
 
         # then first upsample to regular intervals; this creates various colums with np.NaN as value
-        df = df.resample(up).first()
+        df = df.resample(up_intv).first()
 
-         # remove index, timestamp and value columns and rename column to seriesname; a bit complex but works (TODO: simplify?)
-        df['target_value'] = df['value']
-        df.rename(columns={'target_value':seriesname}, inplace=True)
-        df.drop(['index', 'timestamp', 'value'], axis=1, inplace=True)
-       
-        # interpolate, but don't bridge gaps larger than gap_n_intv times the interval
+        # procedures above may have removed values; fill these, but don't bridge gaps larger than gap_n_intv times the interval
         if (summ == Summarizer.first):
             df.interpolate(method='pad', inplace=True)
         else: 
             df.interpolate(method='time', inplace=True, limit=gap_n_intv)
+            
 
         # interplolate and summarize data using  resampling 
         if (summ == Summarizer.add):
-            df = df[seriesname].resample(int_intv).sum()
+            df = df[seriesname].resample(summ_intv).sum()
         elif (summ == Summarizer.mean):
-            df = df[seriesname].resample(int_intv).mean()
+            df = df[seriesname].resample(summ_intv).mean()
         elif (summ == Summarizer.count):
-            df = df[seriesname].resample(int_intv).count()
+            df = df[seriesname].resample(summ_intv).count()
         elif (summ == Summarizer.first):
             # not totally sure, mean seems to be a proper summary of e.g. a thermostat setpoint
-            df = df[seriesname].resample(int_intv).mean()
+            df = df[seriesname].resample(summ_intv).mean()
+                
         return df
 
     @staticmethod
-    def remove_measurement_outliers(df: pd.DataFrame, n_std) -> pd.DataFrame:
+    def remove_measurement_outliers(df: pd.DataFrame, col, n_std) -> pd.DataFrame:
         """
         Simple procedure to replace outliers in the 'value' column with NaN
         Where outliers are those values more than n_std standard deviations away from the average of the 'value' column in a dataframe
         """
 
-        col='value'
         mean = df[col].mean()
         std = df[col].std()
-        df[(df[col]-mean).abs() > (n_std*std)] = np.nan
+        # df[(df[col]-mean).abs() > (n_std*std)] = np.nan
+        df.loc[(df[col]-mean).abs() > (n_std*std), col] = np.nan
 
         return df
     
 
     @staticmethod
-    def get_preprocessed_homes_data(homes, starttime:datetime, endtime:datetime, 
-                                    n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, 
+    def get_preprocessed_homes_data(homes, first_day:datetime, last_day:datetime, 
+                                    tz_source:str, tz_home:str, 
+                                    up_intv:str, gap_n_intv:int, summ_intv:str, 
                                     req_col:list,
-                                    tz_home:str, weather_interpolated:pd.DataFrame) -> pd.DataFrame:
+                                    weather_interpolated:pd.DataFrame) -> pd.DataFrame:
         """
         Obtain data from twomes database 
         convert timestamps to the tz_home timezone 
-        with outlier removal, outliers are those values more than 3 standard deviations away from the average of the 'value' column in a dataframe
+        with outlier removal specific for each property
         interpolated with the int_intv
         rendered as a dataframe with a timezone-aware datetime index
         [
-            'homepseudonym', 'heartbeat',
-            'outdoor_temp_degC','windspeed_m_per_s', 'effective_outdoor_temp_degC', 'hor_irradiation_J_per_h_per_cm^2', 'hor_irradiation_W_per_m^2',  
-            'indoor_temp_degC', 'indoor_temp_degC_CO2', 'indoor_setpoint_temp_degC',
-            'gas_m^3', 'e_used_normal_kWh', 'e_used_low_kWh', 'e_returned_normal_kWh', 'e_returned_low_kWh', 'e_used_net_kWh', 'e_remaining_heat_kWh', 
-            'timedelta', 'timedelta_s'
+            'home_id', 'timestamp',
+            'T_out_avg_C','wind_avg_m_p_s', 'irradiation_hor_avg_W_p_m2','T_out_e_avg_C',   
+            'T_in_avg_C', 'T_set_first_C',
+            'gas_sup_avg_W', 'gas_sup_no_CH_avg_W', 'gas_sup_CH_avg_W', 
+            'e_used_avg_W',, 'e_returned_avg_W', 'e_remaining_heat_avg_W', 
+            'interval_s'
         ]
         """
 
-        print(str('Retrieving data for homes {0} from {1} to {2} ...'.format(homes, starttime.isoformat(),endtime.isoformat())))
+        # Conversion factor s_p_h [s/h]  = 60 [min/h] * 60 [s/min] 
+        s_p_h = (60 * 60) 
+
+        # Conversion factor J_p_kWh [J/kWh]  = 1000 [Wh/kWh] * s_p_h [s/h] * 1 [J/Ws]
+        J_p_kWh = 1000 * s_p_h
+
+
         df_all_homes = pd.DataFrame()
+
+        # if so, convert starttime & endtime to database timezone; extend on both sides with interval of one 
+        largest_measurement_interval = timedelta(hours=1)
+        extractor_starttime = (first_day - largest_measurement_interval).astimezone(pytz.timezone(tz_source))
+        logging.info('extractor_starttime: ', extractor_starttime)
+        extractor_endtime = (last_day + timedelta(days=1) + largest_measurement_interval).astimezone(pytz.timezone(tz_source))
+        logging.info('extractor_endtime: ', extractor_endtime)
 
         for home_id in tqdm_notebook(homes):
 
-            extractor = Extractor(home_id, Period(starttime, endtime))
-                                  
-            df_indoortemp = extractor.get_property_preprocessed('roomTemp', 'indoor_temp_degC', False, Summarizer.mean, 
-                                                     n_std, up_intv, gap_n_intv, int_intv, tz_home)
-            if len(df_indoortemp.index)>=1:
-                # start with weather data
-                df = pd.DataFrame()
-                df = weather_interpolated.copy()
-                # label each line with homepseudonym
-                df.insert(loc=0, column='homepseudonym', value=home_id)
-                # heartbeats_interpolated = extractor.get_home_parameter_timeseries_count('heartbeat', 'heartbeat', False, Summarizer.mean, 
-                #                                                                         n_std, up_intv, gap_n_intv, int_intv, tz_home)
-                df = pd.concat([df, df_indoortemp], axis=1, join='outer')
-                df = pd.concat([df, extractor.get_property_preprocessed('roomTempCO2', 'indoor_temp_degC_CO2', False, Summarizer.mean, 
-                                                                        n_std, up_intv, gap_n_intv, int_intv, tz_home)
-                               ], axis=1, join='outer')
-                df = pd.concat([df, extractor.get_property_preprocessed('roomSetpointTemp', 'indoor_setpoint_temp_degC', False, Summarizer.first, 
-                                                                        n_std, up_intv, gap_n_intv, int_intv, tz_home)
-                               ],axis=1, join='outer')
-                df = pd.concat([df, extractor.get_property_preprocessed('gMeterReadingSupply', 'gas_m^3', True, Summarizer.add, 
-                                                                        n_std, up_intv, gap_n_intv, int_intv, tz_home)
-                               ], axis=1, join='outer')
-                df = pd.concat([df, extractor.get_property_preprocessed('eMeterReadingSupplyHigh', 'e_used_normal_kWh', True, Summarizer.add, 
-                                                                        n_std, up_intv, gap_n_intv, int_intv, tz_home)
-                               ], axis=1, join='outer')
-                df = pd.concat([df, extractor.get_property_preprocessed('eMeterReadingSupplyLow', 'e_used_low_kWh', True, Summarizer.add,
-                                                                        n_std, up_intv, gap_n_intv, int_intv, tz_home)
-                               ], axis=1, join='outer')
-                df = pd.concat([df, extractor.get_property_preprocessed('eMeterReadingReturnHigh', 'e_returned_normal_kWh', True, Summarizer.add, 
-                                                                        n_std, up_intv, gap_n_intv, int_intv, tz_home)
-                               ], axis=1, join='outer')
-                df = pd.concat([df, extractor.get_property_preprocessed('eMeterReadingReturnLow', 'e_returned_low_kWh', True, Summarizer.add,
-                                                                        n_std, up_intv, gap_n_intv, int_intv, tz_home)
-                               ], axis=1, join='outer')
-                                            
-                # calculating derived columns
-                df['e_used_net_kWh'] = (df['e_used_normal_kWh'] + df['e_used_low_kWh'] - df['e_returned_normal_kWh'] - df['e_returned_low_kWh'])
-                df['e_remaining_heat_kWh'] = (df['e_used_net_kWh'])
-                
-                # calculate timedelta for each interval (code is suitable for unevenly spaced measurementes)
-                df['timedelta'] = df.index.to_series().diff().shift(-1)
-                df['timedelta_s'] = df['timedelta'].apply(lambda x: x.total_seconds())
+            logging.info(f'Retrieving data for home {home_id} from {extractor_starttime.isoformat()} to {extractor_endtime.isoformat()} ...')
+            
+            
+            # temporary fix: request more data
+            extractor = Extractor(home_id, Period(extractor_starttime, extractor_endtime))
 
-                # finally: add to results from other homes
-                df_all_homes = pd.concat([df_all_homes, df], axis=0)
-                                 
+            df_indoortemp = extractor.get_property_preprocessed('roomTemp', 'T_in_avg_C', 
+                                                                metertimestamp=None, tz_source=tz_source, tz_home=tz_home,
+                                                                process_meter_reading=False,
+                                                                min_interval_value=0.0, max_interval_value=40.0, n_std=3,
+                                                                up_intv=up_intv, gap_n_intv=gap_n_intv, 
+                                                                summ_intv=summ_intv, summ=Summarizer.mean)
                 
-            # if no indoortemp then don's add data for this home
+                
+            if len(df_indoortemp.index)>=1:
+                try:
+                    # start with weather data
+                    df = pd.DataFrame()
+                    df = weather_interpolated.copy()
+                    # label each line with homepseudonym
+                    df.insert(loc=0, column='home_id', value=home_id)
+                    # heartbeats_interpolated = extractor.get_home_parameter_timeseries_count('heartbeat', 'heartbeat', 
+                    #                                                                         metertimestamp=None, tz_source=tz_source, tz_home=tz_home,
+                    #                                                                         process_meter_reading=False,
+                    #                                                                         min_interval_value=0.0, max_interval_value=None, n_std=None, 
+                    #                                                                         up_intv=up_intv, gap_n_intv=gap_n_intv, 
+                    #                                                                         summ_intv=summ_intv, summ=Summarizer.mean)
+                    df = pd.concat([df, df_indoortemp], axis=1, join='outer')
+                    # df = pd.concat([df, extractor.get_property_preprocessed('roomTempCO2', 'indoor_CO2T_avg_C', 
+                    #                                                         metertimestamp=None, tz_source=tz_source, tz_home=tz_home,
+                    #                                                         process_meter_reading=False, 
+                    #                                                         min_interval_value=0.0, max_interval_value=45.0, n_std,
+                    #                                                         up_intv=up_intv, gap_n_intv=gap_n_intv,
+                    #                                                         summ_intv=summ_intv, summ=Summarizer.mean)
+                    #                ], axis=1, join='outer')
+                    df = pd.concat([df, extractor.get_property_preprocessed('roomSetpointTemp', 'T_set_first_C', 
+                                                                            metertimestamp=None, tz_source=tz_source, tz_home=tz_home,
+                                                                            process_meter_reading=False, 
+                                                                            min_interval_value=0.0, max_interval_value=45.0, n_std=None,
+                                                                            up_intv=up_intv, gap_n_intv=gap_n_intv,
+                                                                            summ_intv=summ_intv, summ=Summarizer.first)
+                                   ],axis=1, join='outer')
+                    df = pd.concat([df, extractor.get_property_preprocessed('gMeterReadingSupply', 'gas_m3_p_interval', 
+                                                                            metertimestamp='gMeterReadingTimestamp', tz_source=tz_source, tz_home=tz_home,
+                                                                            process_meter_reading=True, 
+                                                                            min_interval_value=0.0, max_interval_value=None, n_std=None,
+                                                                            up_intv=up_intv, gap_n_intv=gap_n_intv,
+                                                                            summ_intv=summ_intv, summ=Summarizer.add)
+                                   ], axis=1, join='outer')
+                    df = pd.concat([df, extractor.get_property_preprocessed('eMeterReadingSupplyHigh', 'e_used_normal_kWh_p_interval', 
+                                                                            metertimestamp='eMeterReadingTimestamp', tz_source=tz_source, tz_home=tz_home,
+                                                                            process_meter_reading=True, 
+                                                                            min_interval_value=0.0, max_interval_value=None, n_std=None,
+                                                                            up_intv=up_intv, gap_n_intv=gap_n_intv,
+                                                                            summ_intv=summ_intv, summ=Summarizer.add)
+                                   ], axis=1, join='outer')
+                    df = pd.concat([df, extractor.get_property_preprocessed('eMeterReadingSupplyLow', 'e_used_low_kWh_p_interval', 
+                                                                            metertimestamp='eMeterReadingTimestamp', tz_source=tz_source, tz_home=tz_home,
+                                                                            process_meter_reading=True, 
+                                                                            min_interval_value=0.0, max_interval_value=None, n_std=None,
+                                                                            up_intv=up_intv, gap_n_intv=gap_n_intv,
+                                                                            summ_intv=summ_intv, summ=Summarizer.add)
+
+                                   ], axis=1, join='outer')
+                    df = pd.concat([df, extractor.get_property_preprocessed('eMeterReadingReturnHigh', 'e_returned_normal_kWh_p_interval', 
+                                                                            metertimestamp='eMeterReadingTimestamp', tz_source=tz_source, tz_home=tz_home,
+                                                                            process_meter_reading=True, 
+                                                                            min_interval_value=0.0, max_interval_value=None, n_std=None,
+                                                                            up_intv=up_intv, gap_n_intv=gap_n_intv,
+                                                                            summ_intv=summ_intv, summ=Summarizer.add)
+
+                                   ], axis=1, join='outer')
+                    df = pd.concat([df, extractor.get_property_preprocessed('eMeterReadingReturnLow', 'e_returned_low_kWh_p_interval', 
+                                                                            metertimestamp='eMeterReadingTimestamp', tz_source=tz_source, tz_home=tz_home,
+                                                                            process_meter_reading=True, 
+                                                                            min_interval_value=0.0, max_interval_value=None, n_std=None,
+                                                                            up_intv=up_intv, gap_n_intv=gap_n_intv,
+                                                                            summ_intv=summ_intv, summ=Summarizer.add)
+                                   ], axis=1, join='outer')
+
+                    # calculate timedelta for each interval (code is suitable for unevenly spaced measurementes)
+                    df['interval_s'] = df.index.to_series().diff().shift(-1).apply(lambda x: x.total_seconds())
+
+                    #remove intervals earlier than first_day or later than last_day
+                    logging.info('data from home before slicing: ', df)
+                    df = df[first_day:(last_day + timedelta(days=1)) - timedelta(seconds=1)]
+                    logging.info('data from home after slicing: ', df)
+
+                    # Superior calirific value superior calorific value of natural gas from the Groningen field = 35,170,000.00 [J/m^3]
+                    h_sup_J_p_m3 = 35170000.0
+
+                    # converting gas values from m^3 per interval to averages 
+                    df['gas_sup_avg_W'] = df['gas_m3_p_interval'] * h_sup_J_p_m3 / df['interval_s']
+                    df = df.drop('gas_m3_p_interval', axis=1)
+
+                    # calculating derived columns
+                    df['e_used_avg_W'] = (df['e_used_normal_kWh_p_interval'] + df['e_used_low_kWh_p_interval']) * J_p_kWh / df['interval_s']
+                    df['e_returned_avg_W'] = (df['e_returned_normal_kWh_p_interval'] + df['e_returned_low_kWh_p_interval']) * J_p_kWh / df['interval_s']
+
+                    # converting electricity usage from kWh per interval to averages 
+                    df['e_remaining_heat_avg_W'] = df['e_used_avg_W'] - df['e_returned_avg_W']
+
+                    df = df.drop('e_used_normal_kWh_p_interval', axis=1)
+                    df = df.drop('e_used_low_kWh_p_interval', axis=1)
+                    df = df.drop('e_returned_normal_kWh_p_interval', axis=1)
+                    df = df.drop('e_returned_low_kWh_p_interval', axis=1)
+                    
+                        
+                    # finally: add to results from other homes
+                    df_all_homes = pd.concat([df_all_homes, df], axis=0)
+                except Exception as e:
+                    logging.exception(e)
+                    return df
+
+
+                # if no indoortemp then don't add data for this home
 
         # after all homes are done
         # perform sanity check; not any required column may be missing a value
-        df_all_homes.loc[:,'sanity_fraction'] = ~np.isnan(df_all_homes[req_col]).any(axis="columns")
-        df_all_homes['sanity_fraction'] = df_all_homes['sanity_fraction'].map({True: 1.0, False: 0.0})
+        df_all_homes.loc[:,'sanity_frac'] = ~np.isnan(df_all_homes[req_col]).any(axis="columns")
+        df_all_homes['sanity_frac'] = df_all_homes['sanity_frac'].map({True: 1.0, False: 0.0})
 
+        df_all_homes.reset_index(inplace=True)
+        df_all_homes.rename(columns = {'index':'timestamp'}, inplace=True)
+        cols = list(df_all_homes.columns)
+        df_all_homes = df_all_homes[[cols[1]] + [cols[0]] + cols [2::]]
+        df_all_homes = df_all_homes.set_index(['home_id', 'timestamp'])
+        
                                   
         return df_all_homes
+
+    @staticmethod
+    def get_virtual_home_data_csv(filename: str, tz_home:str) -> pd.DataFrame:
+        """
+        Obtain data from an csv file with virtual home data 
+        convert timestamps to the tz_home timezone 
+        with outlier removal specific for each property
+        interpolated with the int_intv
+        rendered as a dataframe with a timezone-aware datetime index
+        [
+            'home_id', 'timestamp',
+            'T_out_avg_C','wind_avg_m_p_s', 'irradiation_hor_avg_W_p_m2','T_out_e_avg_C',   
+            'T_in_avg_C', 'T_set_first_C',
+            'gas_sup_avg_W', 'gas_sup_no_CH_avg_W', 'gas_sup_CH_avg_W', 
+            'e_used_avg_W',, 'e_returned_avg_W', 'e_remaining_heat_avg_W', 
+            'interval_s'
+        ]
+        """
+        df_data_virtual_home = pd.read_csv(filename, delimiter=";", skipinitialspace=True, decimal=",", parse_dates=['timestamp'])
+        df_data_virtual_home = df_data_virtual_home.set_index('timestamp')
+        df_data_virtual_home = df_data_virtual_home.loc[df_data_virtual_home.index.dropna()]
+        df_data_virtual_home = df_data_virtual_home.drop('Unnamed: 0', axis=1)
+        # df_data_virtual_home = df_data_virtual_home.drop('Unnamed: 15', axis=1)
+        # df_data_virtual_home = df_data_virtual_home.drop('Unnamed: 16', axis=1)
+        df_data_virtual_home.rename(columns={"sanity_frac ": "sanity_frac"}, inplace=True)
+        df_data_virtual_home.rename(columns={"T_out_avg_C ": "T_out_avg_C"}, inplace=True)
+        df_data_virtual_home.rename(columns={"wind_avg_m_p_s ": "wind_avg_m_p_s"}, inplace=True)
+        df_data_virtual_home.rename(columns={"T_out_e_avg_C ": "T_out_e_avg_C"}, inplace=True)
+        df_data_virtual_home.rename(columns={"T_in_avg_C ": "T_in_avg_C"}, inplace=True)
+        df_data_virtual_home.index = pd.to_datetime(df_data_virtual_home.index)
+        df_data_virtual_home = df_data_virtual_home.tz_localize(tz_home)
+        df_data_virtual_home.reset_index(inplace=True)
+        cols = list(df_data_virtual_home.columns)
+        df_data_virtual_home = df_data_virtual_home[[cols[1]] + [cols[0]] + cols [2::]]
+        df_data_virtual_home = df_data_virtual_home.set_index(['home_id', 'timestamp'])
+        df_data_virtual_home = df_data_virtual_home.loc[df_data_virtual_home.index.dropna()]
+        return df_data_virtual_home
     
+    @staticmethod
+    def write_home_data_to_csv(df_data_homes: pd.DataFrame, filename: str):
+        df = df_data_homes.copy(deep=True)
+        df.reset_index(inplace=True)
+        df=df.dropna(subset = ['home_id'])
+        df['unix_time'] = df['timestamp'].map(pd.Timestamp.timestamp)
+        df['date_local'] =  pd.to_datetime(df['timestamp']).dt.date
+        df['time_local'] =  pd.to_datetime(df['timestamp']).dt.time
+        df['utc_offset'] = df['timestamp'].map(lambda x: float(pd.to_datetime(x).strftime('%z')[1:3]) + float(pd.to_datetime(x).strftime('%z')[4:5])/60)
+        df['timestamp_ISO8601'] = df['timestamp'].map(pd.Timestamp.isoformat)
+        df = df[['home_id',
+         'timestamp_ISO8601',
+         'unix_time',
+         'date_local',
+         'time_local',
+         'utc_offset',
+         'T_out_avg_C',
+         'wind_avg_m_p_s',
+         'irradiation_hor_avg_W_p_m2',
+         'T_out_e_avg_C',
+         'T_in_avg_C',
+         'T_set_first_C',
+         'interval_s',
+         'gas_sup_avg_W',
+         'e_used_avg_W',
+         'e_returned_avg_W',
+         'e_remaining_heat_avg_W',
+         'sanity_frac']]
+        df.index.name = '#'
+        df.to_csv(filename)
+        return
     
 class WeatherExtractor:
     """
@@ -784,7 +1073,7 @@ class WeatherExtractor:
     """
 
     @staticmethod
-    def get_interpolated_weather_nl(starttime:datetime, endtime:datetime, lat:float, lon:float, tz_home:str, int_intv:str) -> pd.DataFrame:
+    def get_interpolated_weather_nl(first_day:datetime, last_day:datetime, lat:float, lon:float, tz_source:str, tz_home:str, int_intv:str) -> pd.DataFrame:
         """
         get weather data using a linear geospatial interpolation 
         based on three nearby KNMI weather stations 
@@ -793,52 +1082,59 @@ class WeatherExtractor:
         with NO outlier removal (assuming that KNMI already did this)
         interpolated with the int_intv
         rendered as a dataframe with a timezone-aware datetime index
-        columns ['outdoor_temp_degC', 'windspeed_m_per_s', 'hor_irradiation_J_per_h_per_cm^2', 'hor_irradiation_W_per_m^2', 'effective_outdoor_temp_degC']
+        columns ['T_out_avg_C', 'wind_avg_m_p_s', 'irradiation_hor_avg_W_p_m2', 'T_out_e_avg_C']
         """
         
-        up = '5min'
+        up = '15min'
         
-        # the .tz_localize(None).tz_localize(tz_home) at the and is needed to work around a bug in the historicdutchweather library 
-        # TODO: post an issue in the historicdutchweather library and change the code to the line directly below when repaired.
-        # weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q'])
-        # the line below was working until 20-5-2022; then something changed which caused historicdutchweather to stop working
-        # weather = historicdutchweather.get_local_weather(starttime, endtime, lat, lon, metrics=['T', 'FH', 'Q']).tz_localize(None).tz_localize(tz_home)
-        
+        largest_measurement_interval = timedelta(hours=1)
+        extractor_starttime = first_day
+        logging.info('weather_extractor_starttime: ', extractor_starttime)
+        extractor_endtime = last_day
+        logging.info('weather_extractor_endtime: ', extractor_endtime)
 
-        # stop gap measure: author of historicdutchweather created special export (which had erronaous tz info)
-        # then we made the times disabiguable
-        df = pd.read_csv('~/twomes-twutility-inverse-grey-box-analysis/data/weather-assendorp-interpolated-disabiguable.csv', index_col=0)
-        df.index = pd.to_datetime(df.index)
-        df = df.tz_localize(None).tz_localize(None).tz_localize(tz_home, ambiguous='infer')[starttime:endtime]
         
-        print('Resampling weather data...' )
-        
-        
-        outdoor_temp_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'T', 'outdoor_temp_degC', up, int_intv, tz_home)
-        windspeed_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'FH', 'windspeed_m_per_s', up, int_intv, tz_home)
-        irradiation_interpolated = WeatherExtractor. get_weather_parameter_timeseries_mean(df, 'Q', 'hor_irradiation_J_per_h_per_cm^2', up, int_intv, tz_home)
+        df = historicdutchweather.get_local_weather(extractor_starttime, extractor_endtime, lat, lon, metrics=['T', 'FH', 'Q'])
+       
+
+        logging.info('Resampling weather data...' )
+
+        outdoor_T_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'T', 'T_out_avg_C', 
+                                                                                           up, int_intv, 
+                                                                                           tz_source, tz_home)
+        windspeed_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'FH', 'wind_avg_m_p_s', 
+                                                                                        up, int_intv, 
+                                                                                        tz_source, tz_home)
+        irradiation_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'Q', 'irradiation_hor_J_p_h_p_cm2_avg', 
+                                                                                          up, int_intv, 
+                                                                                          tz_source, tz_home)
+
 
         # merge weather data in a single dataframe
-        df = pd.concat([outdoor_temp_interpolated, windspeed_interpolated, irradiation_interpolated], axis=1, join='outer') 
+        df = pd.concat([outdoor_T_interpolated, windspeed_interpolated, irradiation_interpolated], axis=1, join='outer') 
         
-        df['hor_irradiation_W_per_m^2'] = df['hor_irradiation_J_per_h_per_cm^2']  * (100 * 100) / (60 * 60)
+        df['irradiation_hor_avg_W_p_m2'] = df['irradiation_hor_J_p_h_p_cm2_avg']  * (100 * 100) / (60 * 60)
+        df = df.drop('irradiation_hor_J_p_h_p_cm2_avg', axis=1)
+
+        #oddly enough the column contains values that are minutely negative, which look weird and are impossible; hence: replace
+        df.loc[(df.irradiation_hor_avg_W_p_m2 < 0), 'irradiation_hor_avg_W_p_m2'] = 0
 
         #calculate effective outdoor temperature based on KNMI formula
-        df['effective_outdoor_temp_degC'] = df['outdoor_temp_degC'] - 2/3 * df['windspeed_m_per_s'] 
+        df['T_out_e_avg_C'] = df['T_out_avg_C'] - 2/3 * df['wind_avg_m_p_s'] 
         
+       
         return df
 
     @staticmethod
     def get_weather_parameter_timeseries_mean(df: pd.DataFrame, parameter: str, seriesname: str, 
                                  up_to: str, int_intv: str,
-                                 tz_home: str) -> pd.DataFrame:
+                                 tz_source:str, tz_home: str) -> pd.DataFrame:
 
-        tz_system = 'UTC'
         df = pd.DataFrame(df[parameter])
-        # print(df)
+        logging.info(df)
         # df.set_index('datetime', inplace=True)
 
-        if not(tz_system == tz_home):
+        if not(tz_source == tz_home):
             df = df.tz_convert(tz_home)
 
         #first sort on datetime index
@@ -854,7 +1150,7 @@ class WeatherExtractor:
 
         df.rename(columns={parameter:seriesname}, inplace=True)
         df = df.resample(int_intv).mean()
-
+        
         return df
     
     @staticmethod
