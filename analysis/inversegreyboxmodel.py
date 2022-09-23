@@ -298,13 +298,12 @@ class Learner():
                         # Equation - Q_gain_sol_avg_W: : heat gain from solar irradiation
                         ########################################################################################################################
 
+                        # Model parameter/fixed value: A [m^2]: Effective area of the solar aperture
                         if np.isnan(iterator_A_m2):
-                            # Model parameter: A [m^2]: Effective area of the imaginary solar aperture in the horizontal plane
                             A_m2 = m.FV(value=5, lb=1, ub=100)
                             A_m2.STATUS = 1
                             A_m2.FSTATUS = 0
                         else:
-                            # Fixed value: A [m^2]: Effective area of the imaginary solar aperture in the horizontal plane 
                             A_m2 = m.Param(value=iterator_A_m2)
 
                         irradiation_hor_avg_W_p_m2 = m.MV(value=irradiation_hor_avg_W_p_m2_array)
@@ -313,13 +312,6 @@ class Learner():
                         
                         Q_gain_sol_avg_W = m.Intermediate(irradiation_hor_avg_W_p_m2 * A_m2)
                         
-
-                        ########################################################################################################################
-                        # Equation - Q_gain_W: all heat gains combined
-                        ########################################################################################################################
-                        Q_gain_W = m.Intermediate(Q_gain_gas_CH_avg_W + Q_gain_sol_avg_W + Q_gain_int_avg_W)
-                      
-
                         ########################################################################################################################
                         # Manipulated Variable (MV): T_out_e_avg_C [°C]: effective outdoor temperature
                         ########################################################################################################################
@@ -336,17 +328,15 @@ class Learner():
                         
 
                         ########################################################################################################################
-                        # Final Equations
+                        # Main Equations & Solver
                         ########################################################################################################################
+                        Q_gain_W = m.Intermediate(Q_gain_gas_CH_avg_W + Q_gain_sol_avg_W + Q_gain_int_avg_W)
+                        Q_loss_W = m.Intermediate(H_W_p_K * (T_in_avg_C - T_out_e_avg_C)) 
                         C_J_p_K  = m.Intermediate(H_W_p_K * tau_s) 
-                        m.Equation(T_in_avg_C.dt() == ((Q_gain_W - H_W_p_K * (T_in_avg_C - T_out_e_avg_C)) / C_J_p_K))
+                        m.Equation(T_in_avg_C.dt() == ((Q_gain_W - Q_loss_W) / C_J_p_K)
                         
-                        ########################################################################################################################
-                        # Solve Equations
-                        ########################################################################################################################
                         m.options.IMODE = 5
                         m.options.EV_TYPE = ev_type # specific objective function (L1-norm vs L2-norm)
-                        # m.options.NODES = 2  # when commented, the default is active: m.options.NODES = 3
                         m.solve(False)      
 
                         ########################################################################################################################
