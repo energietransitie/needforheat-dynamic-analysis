@@ -333,7 +333,7 @@ class Learner():
                         Q_gain_W = m.Intermediate(Q_gain_gas_CH_avg_W + Q_gain_sol_avg_W + Q_gain_int_avg_W)
                         Q_loss_W = m.Intermediate(H_W_p_K * (T_in_avg_C - T_out_e_avg_C)) 
                         C_J_p_K  = m.Intermediate(H_W_p_K * tau_s) 
-                        m.Equation(T_in_avg_C.dt() == ((Q_gain_W - Q_loss_W) / C_J_p_K)
+                        m.Equation(T_in_avg_C.dt() == ((Q_gain_W - Q_loss_W) / C_J_p_K))
                         
                         m.options.IMODE = 5
                         m.options.EV_TYPE = ev_type # specific objective function (L1-norm vs L2-norm)
