@@ -625,6 +625,63 @@ class Extractor(Database):
 
         return result
 
+    def get_rawdata(self) -> pd.DataFrame:
+        """
+        Get a DataFrame with raw data from homes
+        """
+
+        self._connect()
+        cursor = self._db.cursor()
+        
+        var = {
+            'house': self.__house
+        }
+
+        start = ""
+        if self.__period.start is not None:
+            start += " AND m.timestamp >= %(start)s"
+            var['start'] = self.__period.start
+
+        end = ""
+        if self.__period.end is not None:
+            end += " AND m.timestamp <= %(end)s"
+            var['end'] = self.__period.end
+
+
+        
+        sql = """
+        SELECT DISTINCT
+            a.pseudonym AS 'peudonym',
+            UNIX_TIMESTAMP(m.timestamp) AS 'unix_time',
+            pr.name as 'property_name',
+            m.value AS 'value',
+            pr.unit AS 'unit',
+            m.id AS 'measurement_id'
+        FROM
+            measurement m
+        JOIN property pr ON
+            pr.id = m.property_id
+        JOIN device d ON
+            d.id = m.device_id
+        JOIN building b ON
+            b.id = d.building_id
+        JOIN account a on
+            a.id = b.id
+        WHERE
+            a.pseudonym = '""" + str(self.__house) + """'
+        AND m.timestamp BETWEEN '2021-10-24 23:00' AND '2022-05-08 01:00'
+        ORDER BY
+            a.pseudonym,
+            m.timestamp
+
+        """
+        
+        cursor.execute(sql)
+        rows = cursor.fetchall()
+        self._close()
+
+        return pd.DataFrame(rows, columns=['pseudonym','unix_time','property_name','value','unit','measurement_id'])
+
     def get_property_preprocessed(self, parameter:str, seriesname:str, metertimestamp:str, 
                                   tz_source:str, tz_home:str,
                                   process_meter_reading:bool, 
@@ -1041,31 +1098,43 @@ class Extractor(Database):
         df.reset_index(inplace=True)
         df=df.dropna(subset = ['home_id'])
         df['unix_time'] = df['timestamp'].map(pd.Timestamp.timestamp)
-        df['date_local'] =  pd.to_datetime(df['timestamp']).dt.date
-        df['time_local'] =  pd.to_datetime(df['timestamp']).dt.time
-        df['utc_offset'] = df['timestamp'].map(lambda x: float(pd.to_datetime(x).strftime('%z')[1:3]) + float(pd.to_datetime(x).strftime('%z')[4:5])/60)
         df['timestamp_ISO8601'] = df['timestamp'].map(pd.Timestamp.isoformat)
         df = df[['home_id',
-         'timestamp_ISO8601',
-         'unix_time',
-         'date_local',
-         'time_local',
-         'utc_offset',
-         'T_out_avg_C',
-         'wind_avg_m_p_s',
-         'irradiation_hor_avg_W_p_m2',
-         'T_out_e_avg_C',
-         'T_in_avg_C',
-         'T_set_first_C',
-         'interval_s',
-         'gas_sup_avg_W',
-         'e_used_avg_W',
-         'e_returned_avg_W',
-         'e_remaining_heat_avg_W',
-         'sanity_frac']]
+                 'timestamp_ISO8601',
+                 'unix_time',
+                 'T_out_avg_C',
+                 'wind_avg_m_p_s',
+                 'irradiation_hor_avg_W_p_m2',
+                 'T_out_e_avg_C',
+                 'T_in_avg_C',
+                 'T_set_first_C',
+                 'interval_s',
+                 'gas_sup_avg_W',
+                 'e_used_avg_W',
+                 'e_returned_avg_W',
+                 'e_remaining_heat_avg_W',
+                 'sanity_frac']]
         df.index.name = '#'
         df.to_csv(filename)
         return
+
+    @staticmethod
+    def write_raw_data_to_csv(df_rawdata: pd.DataFrame, filename: str):
+        df = df_rawdata.copy(deep=True)
+        df.reset_index(inplace=True)
+        df.rename(columns = {'pseudonym':'home_id'}, inplace = True)
+        df=df.dropna(subset = ['home_id'])
+        df = df[['home_id',
+                'unix_time',
+                'property_name',
+                'value',
+                'unit',
+                'measurement_id']]
+        df.index.name = '#'
+        df.to_csv(filename)
+        return
+    
+    
     
 class WeatherExtractor:
     """
