@@ -14,9 +14,6 @@ class Learner():
     def learn_home_parameter_moving_horizon(df_data_homes:pd.DataFrame, 
                                             n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, 
                                             moving_horizon_duration_d=7, sanity_lb:float=0.5,
-                                            homes_to_analyze=None, 
-                                            start_analysis_period:datetime=None, 
-                                            end_analysis_period:datetime=None, 
                                             hint_A_m2=None, hint_eta_sup_CH_frac=0.97, ev_type=2) -> pd.DataFrame:
         """
         Input:  
@@ -47,13 +44,10 @@ class Learner():
         if (moving_horizon_duration_d is None):
             moving_horizon_duration_d = 7
 
-        if (homes_to_analyze is None):
-            homes_to_analyze= df_data_homes['home_id'].unique()
-        if (start_analysis_period is None):
-                start_analysis_period = df_data_homes.index.min()
-        if (end_analysis_period is None): 
-                end_analysis_period = df_data_homes.index.max()
-
+        homes_to_analyze= df_data_homes.index.unique('home_id')
+        start_analysis_period = df_data_homes.index.unique('timestamp').min().to_pydatetime()
+        end_analysis_period = df_data_homes.index.unique('timestamp').max().to_pydatetime()
+        
         daterange_frequency = str(moving_horizon_duration_d) + 'D'
 
         print('Homes to analyse: ', homes_to_analyze)
@@ -91,16 +85,17 @@ class Learner():
         Q_gain_int_W_p_person = 61  # average heat gain per average person with average behaviour asnd occupancy
         Q_gain_int_occup_avg_W = Q_gain_int_W_p_person * avg_persons
 
+        # currently, we use 339 [m^3/a] national average gas usage per year for cooking and DHW, i.e. not for CH
+        gas_no_CH_avg_m3_p_s = (339.0 / s_p_a)  
+
         # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
-
-        home_iterator = tqdm_notebook(homes_to_analyze)
 
         # create empty dataframe for temperature simultion results of all homes
         df_results_allhomes_allweeks_tempsim = pd.DataFrame()
            
         # iterate over homes
-        for home_id in home_iterator:
+        for home_id in tqdm_notebook(homes_to_analyze):
             
             # create empty dataframe for results of a home
             df_results_home = pd.DataFrame()
@@ -117,8 +112,6 @@ class Learner():
                         
             # split gas over CH and no_CH per home based on the entire period 
             
-            # currently, we use 339 [m^3/a] national average gas usage per year for cooking and DHW, i.e. not for CH
-            gas_no_CH_avg_m3_p_s = (339.0 / s_p_a)  
             # in a future version we intend to use a value specific per home based on average usage of natural gas in the summer months (June - August) 
            
             gas_sup_no_CH_avg_W = gas_no_CH_avg_m3_p_s * h_sup_J_p_m3 
@@ -147,18 +140,18 @@ class Learner():
             logging.info('corrected_gas_CH_sup_home_avg_W: ', corrected_gas_CH_sup_home_avg_W)
             logging.info('gas_sup_no_CH_avg_W + corrected_gas_CH_sup_home_avg_W: ', gas_sup_no_CH_avg_W + corrected_gas_CH_sup_home_avg_W)
             
-            moving_horizon_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='left', freq=daterange_frequency)
+            moving_horizon_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
 
             moving_horizon_iterator = tqdm_notebook(moving_horizon_starts)
 
             # iterate over horizons
             for moving_horizon_start in moving_horizon_iterator:
 
-                # moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d) - timedelta(minutes=1))
                 moving_horizon_end = min(end_analysis_period, moving_horizon_start + timedelta(days=moving_horizon_duration_d))
 
-                df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end].iloc[:-1]
-                moving_horizon_end = df_moving_horizon.index.max()
+                if (moving_horizon_end < end_analysis_period):
+                    df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end].iloc[:-1]
+                    moving_horizon_end = df_moving_horizon.index.max()
 
                 logging.info('Start datetime: ', moving_horizon_start)
                 logging.info('End datetime: ', moving_horizon_end)
