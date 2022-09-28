@@ -341,6 +341,21 @@ class Learner():
                         # logging.info(len(list(T_in_avg_C.value)))
                         # logging.info(list(T_in_avg_C.value))
                         
+                        # Compute Mean absolute error and mean squared error
+                        abs_err = []
+                        sqrd_err = []
+                        for j, k in zip(T_in_sim, T_in_meas):
+                            abs_err.append(abs(j-k))
+                            sqrd_err.append((j-k)**2)
+
+                        abs_err_val = np.sum(abs_err)
+                        mean_abs_err_val = abs_err_val / len(abs_err)
+                        
+                        sqrd_err_val = np.sum(sqrd_err)
+                        mean_sqrd_err_val = sqrd_err_val / len(sqrd_err)
+                        route_mean_sqrd_err = np.sqrt(sqrd_err_val) / len(sqrd_err)
+                        
+                        
                         # create a deep copy
                         df_results_homeweek_tempsim = df_moving_horizon.copy(deep=True)
 
@@ -368,6 +383,11 @@ class Learner():
                         logging.info('A value fixed: ', not np.isnan(iterator_A_m2))
                         logging.info('eta_sup [-]: ', round(eta_sup_CH_frac.value[0], 2))
                         logging.info('eta_sup value fixed: ', True)
+                        
+                        # Add computed error to result
+                        logging.info('Mean absolute error: ', round(mean_abs_err_val, 2))
+                        logging.info('Route mean squared error: ', round(route_mean_sqrd_err, 2))
+                        
 
                         # Create a results row
                         df_result_row = pd.DataFrame({
@@ -387,7 +407,10 @@ class Learner():
                             'A_m^2': [A_m2.value[0]],
                             'A_m^2_fixed': [not np.isnan(iterator_A_m2)],
                             'eta_sup': [eta_sup_CH_frac.value[0]],
-                            'eta_sup_fixed': [True]})
+                            'eta_sup_fixed': [True], 
+                            'Mean absolute error': mean_abs_err_val,
+                            'Route mean squared error': route_mean_sqrd_err})
+                        
                         df_result_row.set_index(['start_horizon'], inplace=True)
                         
                         # add week to home results dataframe
@@ -428,7 +451,9 @@ class Learner():
                             'A_m^2': [np.nan],
                             'A_m^2_fixed': [not (np.isnan(iterator_A_m2))],
                             'eta_sup': [np.nan],
-                            'eta_sup_fixed': [True]})
+                            'eta_sup_fixed': [True],
+                            'Mean absolute error': mean_abs_err_val,
+                            'Route mean squared error': route_mean_sqrd_err})
                         df_result_row.set_index(['start_horizon'], inplace=True)
                         pass
 
