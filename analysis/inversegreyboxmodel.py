@@ -173,6 +173,7 @@ class Learner():
 
                 step_s = df_moving_horizon['interval_s'].mean()
                 number_of_timesteps = len(T_in_avg_C_array)
+                duration_s = number_of_timesteps * step_s
 
                 # load data from dataframe into np.arrays
                 # logging.info(df_moving_horizon)
@@ -219,7 +220,7 @@ class Learner():
  
                         # initialize gekko
                         m = GEKKO(remote=False)
-                        m.time = np.linspace(0, (number_of_timesteps-1) * step_s, number_of_timesteps)
+                        m.time = np.arange(0, duration_s, step_s)
 
 
                         ########################################################################################################################
@@ -228,13 +229,11 @@ class Learner():
                         
                         # Model parameter: H [W/K]: specific heat loss
                         H_W_p_K = m.FV(value=300.0, lb=0, ub=1000)
-                        H_W_p_K.STATUS = 1
-                        H_W_p_K.FSTATUS = 0
+                        H_W_p_K.STATUS = 1; H_W_p_K.FSTATUS = 0
                         
                         # Model parameter: tau [s]: effective thermal inertia
                         tau_s = m.FV(value=(100 * s_p_h), lb=(10 * s_p_h), ub=(1000 * s_p_h))
-                        tau_s.STATUS = 1
-                        tau_s.FSTATUS = 0
+                        tau_s.STATUS = 1; tau_s.FSTATUS = 0
 
                         ########################################################################################################################
                         #                                               Gekko - Equations
@@ -257,8 +256,7 @@ class Learner():
                         eta_sup_CH_frac = m.Param(value=hint_eta_sup_CH_frac)
                         
                         gas_sup_CH_avg_W = m.MV(value=gas_sup_CH_avg_W_array)
-                        gas_sup_CH_avg_W.STATUS = 0
-                        gas_sup_CH_avg_W.FSTATUS = 1
+                        gas_sup_CH_avg_W.STATUS = 0; gas_sup_CH_avg_W.FSTATUS = 1
 
                         Q_gain_gas_CH_avg_W = m.Intermediate(gas_sup_CH_avg_W * eta_sup_CH_frac)
                     
@@ -272,8 +270,7 @@ class Learner():
                         eta_sup_no_CH_frac = m.Param(value=0.34)
                         
                         gas_sup_no_CH_avg_W = m.MV(value=gas_sup_no_CH_avg_W_array)
-                        gas_sup_no_CH_avg_W.STATUS = 0
-                        gas_sup_no_CH_avg_W.FSTATUS = 1
+                        gas_sup_no_CH_avg_W.STATUS = 0; gas_sup_no_CH_avg_W.FSTATUS = 1
                         
                         Q_gain_gas_no_CH_avg_W = m.Intermediate(gas_sup_no_CH_avg_W * eta_sup_no_CH_frac)
 
@@ -282,8 +279,7 @@ class Learner():
                         ########################################################################################################################
                         # Manipulated Variable: e_remaining_heat_avg_W: internal heat gain from internally used electricity
                         e_remaining_heat_avg_W = m.MV(value=e_remaining_heat_avg_W_array)
-                        e_remaining_heat_avg_W.STATUS = 0
-                        e_remaining_heat_avg_W.FSTATUS = 1
+                        e_remaining_heat_avg_W.STATUS = 0; e_remaining_heat_avg_W.FSTATUS = 1
 
                         Q_gain_int_avg_W = m.Intermediate(e_remaining_heat_avg_W + Q_gain_int_occup_avg_W + Q_gain_gas_no_CH_avg_W)
 
@@ -294,14 +290,12 @@ class Learner():
                         # Model parameter/fixed value: A [m^2]: Effective area of the solar aperture
                         if np.isnan(iterator_A_m2):
                             A_m2 = m.FV(value=5, lb=1, ub=100)
-                            A_m2.STATUS = 1
-                            A_m2.FSTATUS = 0
+                            A_m2.STATUS = 1; A_m2.FSTATUS = 0
                         else:
                             A_m2 = m.Param(value=iterator_A_m2)
 
                         irradiation_hor_avg_W_p_m2 = m.MV(value=irradiation_hor_avg_W_p_m2_array)
-                        irradiation_hor_avg_W_p_m2.STATUS = 0
-                        irradiation_hor_avg_W_p_m2.FSTATUS = 1
+                        irradiation_hor_avg_W_p_m2.STATUS = 0; irradiation_hor_avg_W_p_m2.FSTATUS = 1
                         
                         Q_gain_sol_avg_W = m.Intermediate(irradiation_hor_avg_W_p_m2 * A_m2)
                         
@@ -309,15 +303,14 @@ class Learner():
                         # Manipulated Variable (MV): T_out_e_avg_C [°C]: effective outdoor temperature
                         ########################################################################################################################
                         T_out_e_avg_C = m.MV(value=T_out_e_avg_C_array)
-                        T_out_e_avg_C.STATUS = 0
-                        T_out_e_avg_C.FSTATUS = 1
+                        T_out_e_avg_C.STATUS = 0; T_out_e_avg_C.FSTATUS = 1
 
                         ########################################################################################################################
                         # Control Variable T_in_avg_C: Indoor temperature
                         ########################################################################################################################
                         T_in_avg_C = m.CV(value=T_in_avg_C_array)
-                        T_in_avg_C.STATUS = 1
-                        T_in_avg_C.FSTATUS = 1  # T_in_avg_C.MEAS_GAP= 0.25
+                        T_in_avg_C.STATUS = 1; T_in_avg_C.FSTATUS = 1
+                        # T_in_avg_C.MEAS_GAP= 0.25
                         
 
                         ########################################################################################################################
@@ -355,7 +348,6 @@ class Learner():
                                                                                                              moving_horizon_start.isoformat(),
                                                                                                              moving_horizon_end.isoformat())))
                         
-                        duration_s = number_of_timesteps * step_s
                         # error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
 
                         logging.info('duration [s]: ', duration_s)
