@@ -223,6 +223,12 @@ class Learner():
                         m.time = np.arange(0, duration_s, step_s)
 
 
+
+
+
+
+
+
                         ########################################################################################################################
                         # Gekko Model - Model Parameters
                         ########################################################################################################################
@@ -289,8 +295,7 @@ class Learner():
 
                         # Model parameter/fixed value: A [m^2]: Effective area of the solar aperture
                         if np.isnan(iterator_A_m2):
-                            A_m2 = m.FV(value=5, lb=1, ub=100)
-                            A_m2.STATUS = 1; A_m2.FSTATUS = 0
+                            A_m2 = m.FV(value=5, lb=1, ub=100); A_m2.STATUS = 1; A_m2.FSTATUS = 0
                         else:
                             A_m2 = m.Param(value=iterator_A_m2)
 
