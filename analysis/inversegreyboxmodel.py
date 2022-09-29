@@ -354,6 +354,8 @@ class Learner():
                                                                                                              moving_horizon_end.isoformat())))
                         
                         # error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
+                        mae_K = (abs(df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])).mean()
+                        rmse_K = ((df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])**2).mean()**0.5
 
                         logging.info('duration [s]: ', duration_s)
                         logging.info('sanity: {0:.2f}'.format(sanity_moving_horizon))
@@ -365,6 +367,9 @@ class Learner():
                         logging.info('A value fixed: ', not np.isnan(iterator_A_m2))
                         logging.info('eta_sup [-]: ', round(eta_sup_CH_frac.value[0], 2))
                         logging.info('eta_sup value fixed: ', True)
+                        logging.info('MAE: ', mae_K)
+                        logging.info('RMSE: ', rmse_K)
+                        
 
                         # Create a results row
                         df_result_row = pd.DataFrame({
@@ -384,7 +389,9 @@ class Learner():
                             'A_m^2': [A_m2.value[0]],
                             'A_m^2_fixed': [not np.isnan(iterator_A_m2)],
                             'eta_sup': [eta_sup_CH_frac.value[0]],
-                            'eta_sup_fixed': [True]})
+                            'eta_sup_fixed': [True],
+                            'MAE_K': [mae_K],
+                            'RMSE_K': [rmse_K]})
                         df_result_row.set_index(['start_horizon'], inplace=True)
                         
                         # add week to home results dataframe
@@ -425,7 +432,9 @@ class Learner():
                             'A_m^2': [np.nan],
                             'A_m^2_fixed': [not (np.isnan(iterator_A_m2))],
                             'eta_sup': [np.nan],
-                            'eta_sup_fixed': [True]})
+                            'eta_sup_fixed': [True],
+                            'MAE_K': [mae_K],
+                            'RMSE_K': [rmse_K]})
                         df_result_row.set_index(['start_horizon'], inplace=True)
                         pass
 
