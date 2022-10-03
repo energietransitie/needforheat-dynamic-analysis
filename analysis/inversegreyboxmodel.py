@@ -173,6 +173,7 @@ class Learner():
 
                 step_s = df_moving_horizon['interval_s'].mean()
                 number_of_timesteps = len(T_in_avg_C_array)
+                duration_s = number_of_timesteps * step_s
 
                 # load data from dataframe into np.arrays
                 # logging.info(df_moving_horizon)
@@ -219,7 +220,13 @@ class Learner():
  
                         # initialize gekko
                         m = GEKKO(remote=False)
-                        m.time = np.linspace(0, (number_of_timesteps-1) * step_s, number_of_timesteps)
+                        m.time = np.arange(0, duration_s, step_s)
+
+
+
+
+
+
 
 
                         ########################################################################################################################
@@ -228,13 +235,11 @@ class Learner():
                         
                         # Model parameter: H [W/K]: specific heat loss
                         H_W_p_K = m.FV(value=300.0, lb=0, ub=1000)
-                        H_W_p_K.STATUS = 1
-                        H_W_p_K.FSTATUS = 0
+                        H_W_p_K.STATUS = 1; H_W_p_K.FSTATUS = 0
                         
                         # Model parameter: tau [s]: effective thermal inertia
                         tau_s = m.FV(value=(100 * s_p_h), lb=(10 * s_p_h), ub=(1000 * s_p_h))
-                        tau_s.STATUS = 1
-                        tau_s.FSTATUS = 0
+                        tau_s.STATUS = 1; tau_s.FSTATUS = 0
 
                         ########################################################################################################################
                         #                                               Gekko - Equations
@@ -257,8 +262,7 @@ class Learner():
                         eta_sup_CH_frac = m.Param(value=hint_eta_sup_CH_frac)
                         
                         gas_sup_CH_avg_W = m.MV(value=gas_sup_CH_avg_W_array)
-                        gas_sup_CH_avg_W.STATUS = 0
-                        gas_sup_CH_avg_W.FSTATUS = 1
+                        gas_sup_CH_avg_W.STATUS = 0; gas_sup_CH_avg_W.FSTATUS = 1
 
                         Q_gain_gas_CH_avg_W = m.Intermediate(gas_sup_CH_avg_W * eta_sup_CH_frac)
                     
@@ -272,8 +276,7 @@ class Learner():
                         eta_sup_no_CH_frac = m.Param(value=0.34)
                         
                         gas_sup_no_CH_avg_W = m.MV(value=gas_sup_no_CH_avg_W_array)
-                        gas_sup_no_CH_avg_W.STATUS = 0
-                        gas_sup_no_CH_avg_W.FSTATUS = 1
+                        gas_sup_no_CH_avg_W.STATUS = 0; gas_sup_no_CH_avg_W.FSTATUS = 1
                         
                         Q_gain_gas_no_CH_avg_W = m.Intermediate(gas_sup_no_CH_avg_W * eta_sup_no_CH_frac)
 
@@ -282,8 +285,7 @@ class Learner():
                         ########################################################################################################################
                         # Manipulated Variable: e_remaining_heat_avg_W: internal heat gain from internally used electricity
                         e_remaining_heat_avg_W = m.MV(value=e_remaining_heat_avg_W_array)
-                        e_remaining_heat_avg_W.STATUS = 0
-                        e_remaining_heat_avg_W.FSTATUS = 1
+                        e_remaining_heat_avg_W.STATUS = 0; e_remaining_heat_avg_W.FSTATUS = 1
 
                         Q_gain_int_avg_W = m.Intermediate(e_remaining_heat_avg_W + Q_gain_int_occup_avg_W + Q_gain_gas_no_CH_avg_W)
 
@@ -293,15 +295,12 @@ class Learner():
 
                         # Model parameter/fixed value: A [m^2]: Effective area of the solar aperture
                         if np.isnan(iterator_A_m2):
-                            A_m2 = m.FV(value=5, lb=1, ub=100)
-                            A_m2.STATUS = 1
-                            A_m2.FSTATUS = 0
+                            A_m2 = m.FV(value=5, lb=1, ub=100); A_m2.STATUS = 1; A_m2.FSTATUS = 0
                         else:
                             A_m2 = m.Param(value=iterator_A_m2)
 
                         irradiation_hor_avg_W_p_m2 = m.MV(value=irradiation_hor_avg_W_p_m2_array)
-                        irradiation_hor_avg_W_p_m2.STATUS = 0
-                        irradiation_hor_avg_W_p_m2.FSTATUS = 1
+                        irradiation_hor_avg_W_p_m2.STATUS = 0; irradiation_hor_avg_W_p_m2.FSTATUS = 1
                         
                         Q_gain_sol_avg_W = m.Intermediate(irradiation_hor_avg_W_p_m2 * A_m2)
                         
@@ -309,15 +308,14 @@ class Learner():
                         # Manipulated Variable (MV): T_out_e_avg_C [°C]: effective outdoor temperature
                         ########################################################################################################################
                         T_out_e_avg_C = m.MV(value=T_out_e_avg_C_array)
-                        T_out_e_avg_C.STATUS = 0
-                        T_out_e_avg_C.FSTATUS = 1
+                        T_out_e_avg_C.STATUS = 0; T_out_e_avg_C.FSTATUS = 1
 
                         ########################################################################################################################
                         # Control Variable T_in_avg_C: Indoor temperature
                         ########################################################################################################################
                         T_in_avg_C = m.CV(value=T_in_avg_C_array)
-                        T_in_avg_C.STATUS = 1
-                        T_in_avg_C.FSTATUS = 1  # T_in_avg_C.MEAS_GAP= 0.25
+                        T_in_avg_C.STATUS = 1; T_in_avg_C.FSTATUS = 1
+                        # T_in_avg_C.MEAS_GAP= 0.25
                         
 
                         ########################################################################################################################
@@ -341,21 +339,6 @@ class Learner():
                         # logging.info(len(list(T_in_avg_C.value)))
                         # logging.info(list(T_in_avg_C.value))
                         
-                        # Compute Mean absolute error and mean squared error
-                        abs_err = []
-                        sqrd_err = []
-                        for j, k in zip(T_in_sim, T_in_meas):
-                            abs_err.append(abs(j-k))
-                            sqrd_err.append((j-k)**2)
-
-                        abs_err_val = np.sum(abs_err)
-                        mean_abs_err_val = abs_err_val / len(abs_err)
-                        
-                        sqrd_err_val = np.sum(sqrd_err)
-                        mean_sqrd_err_val = sqrd_err_val / len(sqrd_err)
-                        route_mean_sqrd_err = np.sqrt(sqrd_err_val) / len(sqrd_err)
-                        
-                        
                         # create a deep copy
                         df_results_homeweek_tempsim = df_moving_horizon.copy(deep=True)
 
@@ -372,6 +355,8 @@ class Learner():
                         
                         duration_s = number_of_timesteps * step_s
                         # error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
+                        mae_K = (abs(df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])).mean()
+                        rmse_K = ((df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])**2).mean()**0.5
 
                         logging.info('duration [s]: ', duration_s)
                         logging.info('sanity: {0:.2f}'.format(sanity_moving_horizon))
@@ -383,10 +368,8 @@ class Learner():
                         logging.info('A value fixed: ', not np.isnan(iterator_A_m2))
                         logging.info('eta_sup [-]: ', round(eta_sup_CH_frac.value[0], 2))
                         logging.info('eta_sup value fixed: ', True)
-                        
-                        # Add computed error to result
-                        logging.info('Mean absolute error: ', round(mean_abs_err_val, 2))
-                        logging.info('Route mean squared error: ', round(route_mean_sqrd_err, 2))
+                        logging.info('MAE: ', mae_K)
+                        logging.info('RMSE: ', rmse_K)
                         
 
                         # Create a results row
@@ -407,10 +390,9 @@ class Learner():
                             'A_m^2': [A_m2.value[0]],
                             'A_m^2_fixed': [not np.isnan(iterator_A_m2)],
                             'eta_sup': [eta_sup_CH_frac.value[0]],
-                            'eta_sup_fixed': [True], 
-                            'Mean absolute error': mean_abs_err_val,
-                            'Route mean squared error': route_mean_sqrd_err})
-                        
+                            'eta_sup_fixed': [True],
+                            'MAE_K': [mae_K],
+                            'RMSE_K': [rmse_K]})
                         df_result_row.set_index(['start_horizon'], inplace=True)
                         
                         # add week to home results dataframe
@@ -452,8 +434,8 @@ class Learner():
                             'A_m^2_fixed': [not (np.isnan(iterator_A_m2))],
                             'eta_sup': [np.nan],
                             'eta_sup_fixed': [True],
-                            'Mean absolute error': mean_abs_err_val,
-                            'Route mean squared error': route_mean_sqrd_err})
+                            'MAE_K': [mae_K],
+                            'RMSE_K': [rmse_K]})
                         df_result_row.set_index(['start_horizon'], inplace=True)
                         pass
 
