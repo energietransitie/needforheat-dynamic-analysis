@@ -44,7 +44,7 @@ class Learner():
         if (moving_horizon_duration_d is None):
             moving_horizon_duration_d = 7
 
-        homes_to_analyze= df_data_homes.index.unique('home_id')
+        homes_to_analyze= df_data_homes.index.unique('home_id').dropna()
         start_analysis_period = df_data_homes.index.unique('timestamp').min().to_pydatetime()
         end_analysis_period = df_data_homes.index.unique('timestamp').max().to_pydatetime()
         
