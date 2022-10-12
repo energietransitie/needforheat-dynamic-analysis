@@ -433,8 +433,8 @@ class Learner():
                             'A_m^2_fixed': [not (np.isnan(iterator_A_m2))],
                             'eta_sup': [np.nan],
                             'eta_sup_fixed': [True],
-                            'MAE_K': [mae_K],
-                            'RMSE_K': [rmse_K]})
+                            'MAE_K': [np.nan],
+                            'RMSE_K': [np.nan]})
                         df_result_row.set_index(['start_horizon'], inplace=True)
                         pass
 
@@ -504,4 +504,4 @@ class Learner():
         ex.write(df_results_allhomes_allweeks_tempsim, str('{0}-data_homes_tempsim.xlsx'.format(filename_prefix)))
         print('DONE: all result files written.')
     
-        return df_results_allhomes_allweeks_tempsim
+        return df_results, df_results_allhomes_allweeks_tempsim
