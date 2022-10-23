@@ -165,4 +165,22 @@ class Plot:
                                                       propertycolors = propertycolors)
             
     
-    
+    @staticmethod
+    def learned_parameters_boxplot(title:str, df_results_model_parameters: pd.DataFrame, parameters = ['H_W_p_K', 'tau_h', 'C_Wh_p_K']):
+        """
+        Visualize results of all learned model parameters of all homes in one box plot
+        """
+
+        # # TODO find a way to share the x-axis of all parameters,using parameters.index(parameter) 
+        # fig, ax = plt.subplots(nrows=len(parameters), ncols=1, sharex=True)
+        # fig.suptitle(title)  
+        
+        for parameter in parameters:
+            (df_results_model_parameters
+             [parameter]
+             .reorder_levels(['start_horizon', 'home_id'])
+             .unstack()
+             .plot(kind='box', 
+                   rot=90,
+                   title=parameter)
+            )
