@@ -149,7 +149,7 @@ class Learner():
             gas_sup_home_avg_W = df_data_one_home['gas_sup_avg_W'].mean()
             uncorrected_gas_CH_sup_home_avg_W = df_data_one_home['gas_sup_CH_avg_W'].mean()
             scaling_factor =   (gas_sup_home_avg_W - gas_sup_no_CH_avg_W) / uncorrected_gas_CH_sup_home_avg_W  
-            df_data_one_home.loc['gas_sup_CH_avg_W'] = df_data_one_home['gas_sup_CH_avg_W'] * scaling_factor
+            df_data_one_home['gas_sup_CH_avg_W'] = df_data_one_home['gas_sup_CH_avg_W'] * scaling_factor
             corrected_gas_CH_sup_home_avg_W = df_data_one_home['gas_sup_CH_avg_W'].mean()
 
             logging.info('home_id: ', home_id)
