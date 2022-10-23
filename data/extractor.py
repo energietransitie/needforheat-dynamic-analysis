@@ -1046,15 +1046,11 @@ class Extractor(Database):
         # perform sanity check; not any required column may be missing a value
         df_all_homes.loc[:,'sanity_frac'] = ~np.isnan(df_all_homes[req_col]).any(axis="columns")
         df_all_homes['sanity_frac'] = df_all_homes['sanity_frac'].map({True: 1.0, False: 0.0})
-
-        df_all_homes.reset_index(inplace=True)
-        df_all_homes.rename(columns = {'index':'timestamp'}, inplace=True)
-        cols = list(df_all_homes.columns)
-        df_all_homes = df_all_homes[[cols[1]] + [cols[0]] + cols [2::]]
-        df_all_homes = df_all_homes.set_index(['home_id', 'timestamp'])
         
-                                  
-        return df_all_homes
+        df_all_homes = df_all_homes.reset_index().rename(columns = {'index':'timestamp'}).set_index(['home_id', 'timestamp'])
+        df_all_homes.index = df_all_homes.index.set_levels(df_all_homes.index.levels[0].astype(int), level=0)
+                                          
+        return df_all_homes.loc[df_all_homes.index.dropna()]
 
     @staticmethod
     def get_virtual_home_data_csv(filename: str, tz_home:str) -> pd.DataFrame:
