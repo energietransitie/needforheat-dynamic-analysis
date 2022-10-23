@@ -108,8 +108,8 @@ class Plot:
             moving_horizon_end = df_moving_horizon.index.max()
 
 
-            print(f'Learned model parameters for home: {home_id} from {moving_horizon_start} to {moving_horizon_end}', df_moving_horizon.sanity_frac.mean())
-            if (df_moving_horizon.sanity_frac.mean() > sanity_threshold):
+            print(f'Learned model parameters for home: {home_id} from {moving_horizon_start} to {moving_horizon_end} with sanity {df_moving_horizon.sanity.astype(float).mean():.2f}')
+            if (df_moving_horizon.sanity.astype(float).mean() > sanity_threshold):
                 Plot.temperature_and_power_one_home_plot(f'Learned model parameters for home: {home_id} from {moving_horizon_start} to {moving_horizon_end}',
                                                          df_moving_horizon,                                                         
                                                          shared_x_label = shared_x_label,
@@ -160,7 +160,7 @@ class Plot:
     def learned_parameters_plot(df: pd.DataFrame, propertycolors = []):
         
         for home_id in df.index.levels[0]:
-            Plot.learned_parameters_for_one_home_plot(f'Learned model parameters for home: {home_id}', 
+            Plot.learned_parameters_one_home_plot(f'Learned model parameters for home: {home_id}', 
                                                       df.loc[home_id], 
                                                       propertycolors = propertycolors)
             

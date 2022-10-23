@@ -889,7 +889,6 @@ class Extractor(Database):
     def get_preprocessed_homes_data(homes, first_day:datetime, last_day:datetime, 
                                     tz_source:str, tz_home:str, 
                                     up_intv:str, gap_n_intv:int, summ_intv:str, 
-                                    req_col:list,
                                     weather_interpolated:pd.DataFrame) -> pd.DataFrame:
         """
         Obtain data from twomes database 
@@ -1006,12 +1005,10 @@ class Extractor(Database):
                                    ], axis=1, join='outer')
 
                     # calculate timedelta for each interval (code is suitable for unevenly spaced measurementes)
-                    df['interval_s'] = df.index.to_series().diff().shift(-1).apply(lambda x: x.total_seconds())
+                    df['interval_s'] = df.index.to_series().diff().shift(-1).apply(lambda x: x.total_seconds()).fillna(0).astype(int)
 
                     #remove intervals earlier than first_day or later than last_day
-                    logging.info('data from home before slicing: ', df)
-                    df = df[first_day:(last_day + timedelta(days=1)) - timedelta(seconds=1)]
-                    logging.info('data from home after slicing: ', df)
+                    df = df[(df.index >= first_day) & (df.index < (last_day + timedelta(days=1)))]
 
                     # Superior calirific value superior calorific value of natural gas from the Groningen field = 35,170,000.00 [J/m^3]
                     h_sup_J_p_m3 = 35170000.0
@@ -1043,12 +1040,8 @@ class Extractor(Database):
                 # if no indoortemp then don't add data for this home
 
         # after all homes are done
-        # perform sanity check; not any required column may be missing a value
-        df_all_homes.loc[:,'sanity_frac'] = ~np.isnan(df_all_homes[req_col]).any(axis="columns")
-        df_all_homes['sanity_frac'] = df_all_homes['sanity_frac'].map({True: 1.0, False: 0.0})
         
         df_all_homes = df_all_homes.reset_index().rename(columns = {'index':'timestamp'}).set_index(['home_id', 'timestamp'])
-        df_all_homes.index = df_all_homes.index.set_levels(df_all_homes.index.levels[0].astype(int), level=0)
                                           
         return df_all_homes.loc[df_all_homes.index.dropna()]
 
@@ -1074,13 +1067,11 @@ class Extractor(Database):
         df_data_virtual_home = df_data_virtual_home.set_index("timestamp")
         df_data_virtual_home = df_data_virtual_home.loc[df_data_virtual_home.index.dropna()]
         df_data_virtual_home = df_data_virtual_home.drop('Unnamed: 0', axis=1)
-        df_data_virtual_home.rename(columns={"sanity_frac ": "sanity_frac"}, inplace=True)
         df_data_virtual_home.rename(columns={"T_out_avg_C ": "T_out_avg_C"}, inplace=True)
         df_data_virtual_home.rename(columns={"wind_avg_m_p_s ": "wind_avg_m_p_s"}, inplace=True)
         df_data_virtual_home.rename(columns={"T_out_e_avg_C ": "T_out_e_avg_C"}, inplace=True)
         df_data_virtual_home.rename(columns={"T_in_avg_C ": "T_in_avg_C"}, inplace=True)
         df_data_virtual_home.index = pd.to_datetime(df_data_virtual_home.index)
-        # df_data_virtual_home = df_data_virtual_home.tz_localize(tz_home)
         df_data_virtual_home.reset_index(inplace=True)
         cols = list(df_data_virtual_home.columns)
         df_data_virtual_home = df_data_virtual_home[[cols[1]] + [cols[0]] + cols [2::]]
@@ -1091,26 +1082,8 @@ class Extractor(Database):
     @staticmethod
     def write_home_data_to_csv(df_data_homes: pd.DataFrame, filename: str):
         df = df_data_homes.copy(deep=True)
-        df.reset_index(inplace=True)
-        df=df.dropna(subset = ['home_id'])
-        df['unix_time'] = df['timestamp'].map(pd.Timestamp.timestamp)
-        df['timestamp_ISO8601'] = df['timestamp'].map(pd.Timestamp.isoformat)
-        df = df[['home_id',
-         'timestamp_ISO8601',
-         'unix_time',
-         'T_out_avg_C',
-         'wind_avg_m_p_s',
-         'irradiation_hor_avg_W_p_m2',
-         'T_out_e_avg_C',
-         'T_in_avg_C',
-         'T_set_first_C',
-         'interval_s',
-         'gas_sup_avg_W',
-         'e_used_avg_W',
-         'e_returned_avg_W',
-         'e_remaining_heat_avg_W',
-         'sanity_frac']]
-        df.index.name = '#'
+        df['unix_time'] = df.index.levels[1].map(pd.Timestamp.timestamp)      
+        df['timestamp_ISO8601'] = df.index.levels[1].map(pd.Timestamp.isoformat)
         df.to_csv(filename)
         return
 

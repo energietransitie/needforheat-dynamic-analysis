@@ -13,7 +13,8 @@ class Learner():
     @staticmethod
     def learn_home_parameter_moving_horizon(df_data_homes:pd.DataFrame, 
                                             n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, 
-                                            moving_horizon_duration_d=7, sanity_lb:float=0.5,
+                                            moving_horizon_duration_d=7, 
+                                            req_col:list = [], sanity_threshold:float=0.5,
                                             hint_A_m2=None, hint_eta_sup_CH_frac=0.97, ev_type=2) -> pd.DataFrame:
         """
         Input:  
@@ -22,7 +23,7 @@ class Learner():
                 'home_id', 
                 'T_out_e_avg_C', 'irradiation_hor_avg_W_p_m2',
                 'T_in_avg_C', 'gas_sup_avg_W', 'e_remaining_heat_avg_W', 
-                'interval_s', 'sanity_frac', 'ev_type'
+                'ev_type'
             ]
         and optionally,
         - the number of days to use as moving horizon duration in the analysis
@@ -30,8 +31,11 @@ class Learner():
         - end datatime for the analysis (defaults to latest datatime in the index column)
         
         Output:
-        - a dataframe with results
-        - excel files with intermediate results per home and all homes
+        - a dataframe with per home_id and per moving horizon_duration the learned parameters
+        - a dataframe with:
+          - sanity means: none of the required columns in the req_col list are NaN
+          - interval time  in the 'interval_s' column
+          - best fiting temperatures added in the 'T_in_sim_avg_C' column
         """
         
         if not ((hint_A_m2 is None) or isinstance(hint_A_m2, numbers.Number)):
@@ -62,7 +66,22 @@ class Learner():
         print('Hint for superior heating efficiency eta [-]: ', hint_eta_sup_CH_frac)
         print('EV_TYPE: ', ev_type)
 
+        # perform sanity check; not any required column may be missing a value
+        if (req_col == []):
+            df_data_homes.loc[:,'sanity'] = ~np.isnan(df_data_homes[req_col]).any(axis="columns")
+        else:
+            df_data_homes.loc[:,'sanity'] = True
+            
+        # df_data_homes.sanity = df_data_homes.sanity.map({True: 1.0, False: 0.0}).astype(int)
 
+        total_measurement_time = timedelta(seconds = int(df_data_homes.interval_s.sum()))
+        print('Total measurement time: ', total_measurement_time)
+        sane_fraction = df_data_homes.sanity.astype(float).mean()
+        print('Sane fraction measurement time: {:.2f}'.format(sane_fraction))
+        print('Sane  measurement time: ', total_measurement_time * sane_fraction)
+
+        #see more statisctics
+        df_data_homes.describe(include='all')
                 
         # Conversion factor s_p_h [s/h]  = 60 [min/h] * 60 [s/min] 
         s_p_h = (60 * 60) 
@@ -158,16 +177,19 @@ class Learner():
 
                 logging.info('Start datetime: ', moving_horizon_start)
                 logging.info('End datetime: ', moving_horizon_end)
+                
+                # first check whether enough data, if not then skip this homeweek, move on to next
+                if ((moving_horizon_end - moving_horizon_start) / pd.Timedelta(hours=1) < 24):
+                    logging.info(f'Fpr home {home_id} fess than 24 hours in period from {moving_horizon_start} to {moving_horizon_start}; skipping...')
+                    continue
 
                 # first check whether sanity of the data is sufficient, if not then skip this homeweek, move on to next
-                sanity_moving_horizon = df_moving_horizon['sanity_frac'].mean()
-                if (sanity_moving_horizon < sanity_lb):
-                    logging.info(str('Sanity {0:.2f} for home {1} in period from {2} to {3} lower than {4:.2f}; skipping...'
-                              .format(sanity_moving_horizon, home_id, moving_horizon_start, moving_horizon_end, sanity_lb)))
+                sanity_moving_horizon = df_moving_horizon.sanity.astype(float).mean()
+                if (sanity_moving_horizon < sanity_threshold):
+                    logging.info(f'Sanity {sanity_moving_horizon:.2f} for home {home_id} in period from {moving_horizon_start} to {moving_horizon_end} lower than {sanity_threshold:.2f}; skipping...')
                     continue
                 else:
-                    logging.info(str('Sanity {0:.2f} for home {1} in period from {2} to {3} higher than {4:.2f}; sufficient for analysis...'
-                              .format(sanity_moving_horizon, home_id, moving_horizon_start, moving_horizon_end, sanity_lb)))
+                    logging.info(f'Sanity {sanity_moving_horizon:.2f} for home {home_id} in period from {moving_horizon_start} to {moving_horizon_end} higher than {sanity_threshold:.2f}; sufficient for analysis...')
                 
                 # T_set_first_C_array = df_moving_horizon['T_set_first_C'].to_numpy()
                 T_in_avg_C_array = df_moving_horizon['T_in_avg_C'].to_numpy()
@@ -385,7 +407,7 @@ class Learner():
                             'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
                             'interpolation_interval': [int_intv],
                             'duration_s': [duration_s],
-                            'sanity_frac': [sanity_moving_horizon],
+                            'sanity': [sanity_moving_horizon],
                             'OBJFCNVAL': [m.options.OBJFCNVAL],
                             'EV_TYPE': [m.options.EV_TYPE],
                             'H_W_p_K': [H_W_p_K.value[0]],
@@ -429,7 +451,7 @@ class Learner():
                             'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
                             'interpolation_interval': [int_intv],
                             'duration_s': [np.nan],
-                            'sanity_frac': [sanity_moving_horizon],
+                            'sanity': [sanity_moving_horizon],
                             'OBJFCNVAL': [np.nan],
                             'EV_TYPE': [np.nan],
                             'H_W_p_K': [np.nan],
