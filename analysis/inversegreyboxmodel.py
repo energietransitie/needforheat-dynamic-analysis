@@ -68,9 +68,9 @@ class Learner():
 
         # perform sanity check; not any required column may be missing a value
         if (req_col == []):
-            df_data_homes.loc[:,'sanity'] = ~np.isnan(df_data_homes[req_col]).any(axis="columns")
-        else:
             df_data_homes.loc[:,'sanity'] = True
+        else:
+            df_data_homes.loc[:,'sanity'] = ~np.isnan(df_data_homes[req_col]).any(axis="columns")
             
         # df_data_homes.sanity = df_data_homes.sanity.map({True: 1.0, False: 0.0}).astype(int)
 
