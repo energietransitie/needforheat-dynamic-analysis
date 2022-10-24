@@ -523,9 +523,9 @@ class Learner():
         
         df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim.reset_index().rename(columns = {'index':'timestamp'}).set_index(['home_id', 'timestamp'])
         
-        print('DONE: Analysis of all homes complete; writing files.')
+        # print('DONE: Analysis of all homes complete; writing files.')
         
-        print(df_results_allhomes_allweeks_tempsim.describe(include='all'))
+        # print(df_results_allhomes_allweeks_tempsim.describe(include='all'))
         
         # try:
         #     ex.write(df_results, (filename_prefix+'-results.xlsx'))
@@ -539,6 +539,6 @@ class Learner():
         
         filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
         # ex.write(df_results_allhomes_allweeks_tempsim, str('{0}-data_homes_tempsim.xlsx'.format(filename_prefix)))
-        print('DONE: all result files written.')
+        # print('DONE: all result files written.')
     
         return  df_results, df_results_allhomes_allweeks_tempsim
