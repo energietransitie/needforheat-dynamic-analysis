@@ -14,7 +14,7 @@ class Learner():
     def learn_home_parameter_moving_horizon(df_data_homes:pd.DataFrame, 
                                             n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, 
                                             moving_horizon_duration_d=7, 
-                                            req_col:list = [], sanity_threshold:float=0.5,
+                                            req_col:list = [], sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                                             hint_A_m2=None, hint_eta_sup_CH_frac=0.97, ev_type=2) -> pd.DataFrame:
         """
         Input:  
@@ -27,15 +27,15 @@ class Learner():
             ]
         and optionally,
         - the number of days to use as moving horizon duration in the analysis
-        - start datetime for the analysis (defaults to earliest datatime in the index column)
-        - end datatime for the analysis (defaults to latest datatime in the index column)
+        - a 'req_col' list: a list of coumn names: if any of the values in this column are NaN, the interval is not considered 'sane'
+        - a sanity_theshold_timedelta: only the longest streaks with sane data longer than this is considered for analysis during each moving_horizon_duration
         
         Output:
         - a dataframe with per home_id and per moving horizon_duration the learned parameters
-        - a dataframe with:
-          - sanity means: none of the required columns in the req_col list are NaN
-          - interval time  in the 'interval_s' column
-          - best fiting temperatures added in the 'T_in_sim_avg_C' column
+        - a dataframe with additional columns:
+          - 'sanity': none of the required columns in the req_col list are NaN
+          - 'interval_s': interval time  in the 
+          - 'T_in_sim_avg_C' best fiting temperature seris for each moving_horizon
         """
         
         if not ((hint_A_m2 is None) or isinstance(hint_A_m2, numbers.Number)):
@@ -72,8 +72,6 @@ class Learner():
         else:
             df_data_homes.loc[:,'sanity'] = ~np.isnan(df_data_homes[req_col]).any(axis="columns")
             
-        # df_data_homes.sanity = df_data_homes.sanity.map({True: 1.0, False: 0.0}).astype(int)
-
         total_measurement_time = timedelta(seconds = int(df_data_homes.interval_s.sum()))
         print('Total measurement time: ', total_measurement_time)
         sane_fraction = df_data_homes.sanity.astype(float).mean()
@@ -128,6 +126,8 @@ class Learner():
             logging.info('Home pseudonym: ', home_id)
 
             df_data_one_home = df_data_homes.loc[home_id].copy()
+            df_data_one_home['streak_id'] = np.nan
+            df_data_one_home['streak_cumulative_duration_s'] = np.nan
                         
             # split gas over CH and no_CH per home based on the entire period 
             
@@ -178,23 +178,33 @@ class Learner():
                 logging.info('Start datetime: ', moving_horizon_start)
                 logging.info('End datetime: ', moving_horizon_end)
                 
-                # first check whether enough data, if not then skip this homeweek, move on to next
-                if ((moving_horizon_end - moving_horizon_start) / pd.Timedelta(hours=1) < 24):
-                    logging.info(f'Fpr home {home_id} fess than 24 hours in period from {moving_horizon_start} to {moving_horizon_start}; skipping...')
-                    continue
+                #first check whether there is even a single sane value
+                if len(df_moving_horizon.query('sanity == True')) == 0:
+                    logging.info(f'For home {home_id} there is no sane data in the period from {moving_horizon_start} to {moving_horizon_start}; skipping...')
+                    continue                       
+                
+                # restrict the df_moving_horizon to the longest streak of sane data
+                ## give each streak a separate id
+                df_moving_horizon.streak_id = df_moving_horizon.sanity.ne(df_moving_horizon.sanity.shift()).cumsum()
+                df_moving_horizon.streak_cumulative_duration_s = df_moving_horizon.groupby('streak_id').interval_s.cumsum()
+                ## make sure streaks with insane values are not considered
+                df_moving_horizon.loc[df_moving_horizon.sanity == False, 'streak_cumulative_duration_s'] = np.nan 
+                ## get the longest streak: the part of the dataframe where the streak_id matches the (first) streak_id that has the longest cumulative duration
+                df_moving_horizon = df_moving_horizon.query('streak_id == ' + str(df_moving_horizon.loc[df_moving_horizon.streak_cumulative_duration_s.idxmax()].streak_id))
 
-                # first check whether sanity of the data is sufficient, if not then skip this homeweek, move on to next
-                sanity_moving_horizon = df_moving_horizon.sanity.astype(float).mean()
-                if (sanity_moving_horizon < sanity_threshold):
-                    logging.info(f'Sanity {sanity_moving_horizon:.2f} for home {home_id} in period from {moving_horizon_start} to {moving_horizon_end} lower than {sanity_threshold:.2f}; skipping...')
+                print('Start datetime longest sane streak: ', moving_horizon_start)
+                print('End datetime longest sane streak: ', moving_horizon_end)
+
+                # then check whether enough data, if not then skip this homeweek, move on to next
+                if ((moving_horizon_end - moving_horizon_start) < sanity_threshold_timedelta):
+                    logging.info(f'For home {home_id} the longest streak of sane data is less than {sanity_threshold_timedelta} in the period from {moving_horizon_start} to {moving_horizon_start}; skipping...')
                     continue
-                else:
-                    logging.info(f'Sanity {sanity_moving_horizon:.2f} for home {home_id} in period from {moving_horizon_start} to {moving_horizon_end} higher than {sanity_threshold:.2f}; sufficient for analysis...')
+                
+
+
                 
                 # T_set_first_C_array = df_moving_horizon['T_set_first_C'].to_numpy()
                 T_in_avg_C_array = df_moving_horizon['T_in_avg_C'].to_numpy()
-                # logging.info(df_moving_horizon['T_in_avg_C'])
-                # logging.info(list(T_in_avg_C_array))
 
                 step_s = df_moving_horizon['interval_s'].mean()
                 number_of_timesteps = len(T_in_avg_C_array)
@@ -384,7 +394,6 @@ class Learner():
                         rmse_K = ((df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])**2).mean()**0.5
 
                         logging.info('duration [s]: ', duration_s)
-                        logging.info('sanity: {0:.2f}'.format(sanity_moving_horizon))
                         logging.info('OBJFCNVAL: ', m.options.OBJFCNVAL)
                         logging.info('EV_TYPE: ', m.options.EV_TYPE)
                         logging.info('H [W/K]: ', round(H_W_p_K.value[0], 4))
@@ -407,7 +416,6 @@ class Learner():
                             'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
                             'interpolation_interval': [int_intv],
                             'duration_s': [duration_s],
-                            'sanity': [sanity_moving_horizon],
                             'OBJFCNVAL': [m.options.OBJFCNVAL],
                             'EV_TYPE': [m.options.EV_TYPE],
                             'H_W_p_K': [H_W_p_K.value[0]],
@@ -451,7 +459,6 @@ class Learner():
                             'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
                             'interpolation_interval': [int_intv],
                             'duration_s': [np.nan],
-                            'sanity': [sanity_moving_horizon],
                             'OBJFCNVAL': [np.nan],
                             'EV_TYPE': [np.nan],
                             'H_W_p_K': [np.nan],
