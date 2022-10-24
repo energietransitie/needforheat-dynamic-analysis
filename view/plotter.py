@@ -100,6 +100,9 @@ class Plot:
     @staticmethod
     def temperature_and_power_one_home_weekly_plot(home_id:int,
                                                    df: pd.DataFrame,
+                                                   first_day: datetime,
+                                                   last_day: datetime,
+                                                   sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                                                    shared_x_label='Datetime',
                                                    temp_plot_dict = {},
                                                    temp_y_label = r'$Temperature [^oC]$',
@@ -110,9 +113,7 @@ class Plot:
                                                    power_plot_2nd_list = [],
                                                    power_2nd_y_label = r'$I\ [W/m^2]$'):
 
-        first_day = df.index.min()
-        last_day = df.index.max()
-        
+       
         for moving_horizon_start in pd.date_range(start=first_day, end=last_day, inclusive='left', freq='7D'):
             moving_horizon_end = min(last_day, moving_horizon_start + timedelta(days=7))
 
@@ -123,18 +124,18 @@ class Plot:
 
             moving_horizon_end = df_moving_horizon.index.max()
 
-
-            Plot.temperature_and_power_one_home_plot(f'Learned model parameters for home: {home_id} from {moving_horizon_start} to {moving_horizon_end}',
-                                                     df_moving_horizon,
-                                                     shared_x_label = shared_x_label,
-                                                     temp_plot_dict = temp_plot_dict,
-                                                     temp_y_label = temp_y_label,
-                                                     temp_plot_2nd_list = temp_plot_2nd_list,
-                                                     temp_2nd_y_label = temp_2nd_y_label,
-                                                     power_plot_dict = power_plot_dict,
-                                                     power_y_label = power_y_label,
-                                                     power_plot_2nd_list = power_plot_2nd_list,
-                                                     power_2nd_y_label = power_2nd_y_label)
+            if ((moving_horizon_end - moving_horizon_start) >= sanity_threshold_timedelta):
+                Plot.temperature_and_power_one_home_plot(f'Learned model parameters for home: {home_id} from {moving_horizon_start} to {moving_horizon_end}',
+                                                         df_moving_horizon,
+                                                         shared_x_label = shared_x_label,
+                                                         temp_plot_dict = temp_plot_dict,
+                                                         temp_y_label = temp_y_label,
+                                                         temp_plot_2nd_list = temp_plot_2nd_list,
+                                                         temp_2nd_y_label = temp_2nd_y_label,
+                                                         power_plot_dict = power_plot_dict,
+                                                         power_y_label = power_y_label,
+                                                         power_plot_2nd_list = power_plot_2nd_list,
+                                                         power_2nd_y_label = power_2nd_y_label)
             
             
             
