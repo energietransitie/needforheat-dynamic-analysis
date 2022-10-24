@@ -38,7 +38,9 @@ class Plot:
             xlabel=shared_x_label,
             ylabel = temp_y_label
         )
-        ax[0].right_ax.set_ylabel(temp_2nd_y_label)
+        
+        if len(temp_plot_2nd_list) >0:
+            ax[0].right_ax.set_ylabel(temp_2nd_y_label)
 
         df[power_plot_dict.keys()].plot(
             ax=ax[1],
