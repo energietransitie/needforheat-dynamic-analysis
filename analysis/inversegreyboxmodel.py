@@ -192,8 +192,8 @@ class Learner():
                 ## get the longest streak: the part of the dataframe where the streak_id matches the (first) streak_id that has the longest cumulative duration
                 df_moving_horizon = df_moving_horizon.query('streak_id == ' + str(df_moving_horizon.loc[df_moving_horizon.streak_cumulative_duration_s.idxmax()].streak_id))
 
-                print('Start datetime longest sane streak: ', moving_horizon_start)
-                print('End datetime longest sane streak: ', moving_horizon_end)
+                logging.info('Start datetime longest sane streak: ', moving_horizon_start)
+                logging.info('End datetime longest sane streak: ', moving_horizon_end)
 
                 # then check whether enough data, if not then skip this homeweek, move on to next
                 if ((moving_horizon_end - moving_horizon_start) < sanity_threshold_timedelta):

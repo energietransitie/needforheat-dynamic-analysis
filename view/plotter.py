@@ -32,7 +32,7 @@ class Plot:
         df[temp_plot_dict.keys()].plot(
             ax=ax[0],
             marker=".",
-            ms=2,
+            ms=3,
             linestyle='None',
             secondary_y=temp_plot_2nd_list,
             grid=True, 
@@ -41,7 +41,7 @@ class Plot:
             xlabel=shared_x_label,
             ylabel = temp_y_label
         )
-        
+        ax[0].set_facecolor('black')
         if len(temp_plot_2nd_list) >0:
             ax[0].right_ax.set_ylabel(temp_2nd_y_label)
 
@@ -49,7 +49,7 @@ class Plot:
             ax=ax[1],
             secondary_y=power_plot_2nd_list, 
             marker=".",
-            ms=2,
+            ms=3,
             linestyle='None',
             mark_right=True, 
             grid=True, 
@@ -58,6 +58,7 @@ class Plot:
             xlabel=shared_x_label,
             ylabel = power_y_label
         )
+        ax[1].set_facecolor('black')
         ax[1].right_ax.set_ylabel(power_2nd_y_label)
 
         plt.show()
@@ -123,7 +124,6 @@ class Plot:
             moving_horizon_end = df_moving_horizon.index.max()
 
 
-            print(f'Learned model parameters for home: {home_id} from {moving_horizon_start} to {moving_horizon_end}')
             Plot.temperature_and_power_one_home_plot(f'Learned model parameters for home: {home_id} from {moving_horizon_start} to {moving_horizon_end}',
                                                      df_moving_horizon,
                                                      shared_x_label = shared_x_label,
@@ -149,7 +149,7 @@ class Plot:
         fig, ax = plt.subplots()
 
         ax.grid(True)
-        ax.set_title(title)  
+        ax.set_title(title)
 
         ax2 = ax.twinx()  # instantiate a second axes that shares the same x-axis
         ax2.set_ylabel(r'$A\ [m^2]$')
@@ -167,6 +167,9 @@ class Plot:
 
         ax.set_xlabel('Datetime')  # Add an x-label to the axes.
         ax.set_ylabel(r'$H [W/K], tau [h]$')
+        ax.tick_params(axis='x', labelrotation = 35)
+        fig.subplots_adjust(bottom=0.2)
+        
         plt.show()
  
 
@@ -195,6 +198,6 @@ class Plot:
              .reorder_levels(['start_horizon', 'home_id'])
              .unstack()
              .plot(kind='box', 
-                   rot=90,
+                   rot=35,
                    title=parameter)
             )
