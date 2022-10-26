@@ -13,7 +13,8 @@ class Learner():
     @staticmethod
     def learn_home_parameter_moving_horizon(df_data_homes:pd.DataFrame, 
                                             n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, 
-                                            moving_horizon_duration_d=7, sanity_lb:float=0.5,
+                                            moving_horizon_duration_d=7, 
+                                            req_col:list = [], sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                                             hint_A_m2=None, hint_eta_sup_CH_frac=0.97, ev_type=2) -> pd.DataFrame:
         """
         Input:  
@@ -22,16 +23,19 @@ class Learner():
                 'home_id', 
                 'T_out_e_avg_C', 'irradiation_hor_avg_W_p_m2',
                 'T_in_avg_C', 'gas_sup_avg_W', 'e_remaining_heat_avg_W', 
-                'interval_s', 'sanity_frac', 'ev_type'
+                'ev_type'
             ]
         and optionally,
         - the number of days to use as moving horizon duration in the analysis
-        - start datetime for the analysis (defaults to earliest datatime in the index column)
-        - end datatime for the analysis (defaults to latest datatime in the index column)
+        - a 'req_col' list: a list of coumn names: if any of the values in this column are NaN, the interval is not considered 'sane'
+        - a sanity_theshold_timedelta: only the longest streaks with sane data longer than this is considered for analysis during each moving_horizon_duration
         
         Output:
-        - a dataframe with results
-        - excel files with intermediate results per home and all homes
+        - a dataframe with per home_id and per moving horizon_duration the learned parameters
+        - a dataframe with additional columns:
+          - 'sanity': none of the required columns in the req_col list are NaN
+          - 'interval_s': interval time  in the 
+          - 'T_in_sim_avg_C' best fiting temperature seris for each moving_horizon
         """
         
         if not ((hint_A_m2 is None) or isinstance(hint_A_m2, numbers.Number)):
@@ -62,7 +66,20 @@ class Learner():
         print('Hint for superior heating efficiency eta [-]: ', hint_eta_sup_CH_frac)
         print('EV_TYPE: ', ev_type)
 
+        # perform sanity check; not any required column may be missing a value
+        if (req_col == []):
+            df_data_homes.loc[:,'sanity'] = True
+        else:
+            df_data_homes.loc[:,'sanity'] = ~np.isnan(df_data_homes[req_col]).any(axis="columns")
+            
+        total_measurement_time = timedelta(seconds = int(df_data_homes.interval_s.sum()))
+        print('Total measurement time: ', total_measurement_time)
+        sane_fraction = df_data_homes.sanity.astype(float).mean()
+        print('Sane fraction measurement time: {:.2f}'.format(sane_fraction))
+        print('Sane  measurement time: ', total_measurement_time * sane_fraction)
 
+        #see more statisctics
+        df_data_homes.describe(include='all')
                 
         # Conversion factor s_p_h [s/h]  = 60 [min/h] * 60 [s/min] 
         s_p_h = (60 * 60) 
@@ -109,6 +126,8 @@ class Learner():
             logging.info('Home pseudonym: ', home_id)
 
             df_data_one_home = df_data_homes.loc[home_id].copy()
+            df_data_one_home['streak_id'] = np.nan
+            df_data_one_home['streak_cumulative_duration_s'] = np.nan
                         
             # split gas over CH and no_CH per home based on the entire period 
             
@@ -130,7 +149,7 @@ class Learner():
             gas_sup_home_avg_W = df_data_one_home['gas_sup_avg_W'].mean()
             uncorrected_gas_CH_sup_home_avg_W = df_data_one_home['gas_sup_CH_avg_W'].mean()
             scaling_factor =   (gas_sup_home_avg_W - gas_sup_no_CH_avg_W) / uncorrected_gas_CH_sup_home_avg_W  
-            df_data_one_home.loc['gas_sup_CH_avg_W'] = df_data_one_home['gas_sup_CH_avg_W'] * scaling_factor
+            df_data_one_home['gas_sup_CH_avg_W'] = df_data_one_home['gas_sup_CH_avg_W'] * scaling_factor
             corrected_gas_CH_sup_home_avg_W = df_data_one_home['gas_sup_CH_avg_W'].mean()
 
             logging.info('home_id: ', home_id)
@@ -151,25 +170,41 @@ class Learner():
 
                 if (moving_horizon_end < end_analysis_period):
                     df_moving_horizon = df_data_one_home[moving_horizon_start:moving_horizon_end].iloc[:-1]
-                    moving_horizon_end = df_moving_horizon.index.max()
+                else:
+                    df_moving_horizon = df_data_one_home[moving_horizon_start:end_analysis_period]
+                    
+                moving_horizon_end = df_moving_horizon.index.max()
 
                 logging.info('Start datetime: ', moving_horizon_start)
                 logging.info('End datetime: ', moving_horizon_end)
+                
+                #first check whether there is even a single sane value
+                if len(df_moving_horizon.query('sanity == True')) == 0:
+                    logging.info(f'For home {home_id} there is no sane data in the period from {moving_horizon_start} to {moving_horizon_start}; skipping...')
+                    continue                       
+                
+                # restrict the df_moving_horizon to the longest streak of sane data
+                ## give each streak a separate id
+                df_moving_horizon.streak_id = df_moving_horizon.sanity.ne(df_moving_horizon.sanity.shift()).cumsum()
+                df_moving_horizon.streak_cumulative_duration_s = df_moving_horizon.groupby('streak_id').interval_s.cumsum()
+                ## make sure streaks with insane values are not considered
+                df_moving_horizon.loc[df_moving_horizon.sanity == False, 'streak_cumulative_duration_s'] = np.nan 
+                ## get the longest streak: the part of the dataframe where the streak_id matches the (first) streak_id that has the longest cumulative duration
+                df_moving_horizon = df_moving_horizon.query('streak_id == ' + str(df_moving_horizon.loc[df_moving_horizon.streak_cumulative_duration_s.idxmax()].streak_id))
 
-                # first check whether sanity of the data is sufficient, if not then skip this homeweek, move on to next
-                sanity_moving_horizon = df_moving_horizon['sanity_frac'].mean()
-                if (sanity_moving_horizon < sanity_lb):
-                    logging.info(str('Sanity {0:.2f} for home {1} in period from {2} to {3} lower than {4:.2f}; skipping...'
-                              .format(sanity_moving_horizon, home_id, moving_horizon_start, moving_horizon_end, sanity_lb)))
+                logging.info('Start datetime longest sane streak: ', moving_horizon_start)
+                logging.info('End datetime longest sane streak: ', moving_horizon_end)
+
+                # then check whether enough data, if not then skip this homeweek, move on to next
+                if ((moving_horizon_end - moving_horizon_start) < sanity_threshold_timedelta):
+                    logging.info(f'For home {home_id} the longest streak of sane data is less than {sanity_threshold_timedelta} in the period from {moving_horizon_start} to {moving_horizon_start}; skipping...')
                     continue
-                else:
-                    logging.info(str('Sanity {0:.2f} for home {1} in period from {2} to {3} higher than {4:.2f}; sufficient for analysis...'
-                              .format(sanity_moving_horizon, home_id, moving_horizon_start, moving_horizon_end, sanity_lb)))
+                
+
+
                 
                 # T_set_first_C_array = df_moving_horizon['T_set_first_C'].to_numpy()
                 T_in_avg_C_array = df_moving_horizon['T_in_avg_C'].to_numpy()
-                # logging.info(df_moving_horizon['T_in_avg_C'])
-                # logging.info(list(T_in_avg_C_array))
 
                 step_s = df_moving_horizon['interval_s'].mean()
                 number_of_timesteps = len(T_in_avg_C_array)
@@ -344,21 +379,21 @@ class Learner():
 
                         df_results_homeweek_tempsim['T_in_sim_avg_C'] = list(T_in_avg_C.value)
                         df_results_homeweek_tempsim['A_value_is_fixed'] = not np.isnan(iterator_A_m2)
+                        df_results_homeweek_tempsim['home_solar_irradiation_avg_W'] =  df_results_homeweek_tempsim['irradiation_hor_avg_W_p_m2'] * A_m2.value[0]
                         
                         # logging.info(df_results_homeweek_tempsim) 
 
-                        filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
-                        ex.write(df_results_homeweek_tempsim, str('{0}-simdata_home-{1}-{2}-{3}.xlsx'.format(home_id,
-                                                                                                             filename_prefix, 
-                                                                                                             moving_horizon_start.isoformat(),
-                                                                                                             moving_horizon_end.isoformat())))
+                        # filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
+                        # ex.write(df_results_homeweek_tempsim, str('{0}-simdata_home-{1}-{2}-{3}.xlsx'.format(home_id,
+                        #                                                                                      filename_prefix, 
+                        #                                                                                      moving_horizon_start.isoformat(),
+                        #                                                                                      moving_horizon_end.isoformat())))
                         
                         # error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
                         mae_K = (abs(df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])).mean()
                         rmse_K = ((df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])**2).mean()**0.5
 
                         logging.info('duration [s]: ', duration_s)
-                        logging.info('sanity: {0:.2f}'.format(sanity_moving_horizon))
                         logging.info('OBJFCNVAL: ', m.options.OBJFCNVAL)
                         logging.info('EV_TYPE: ', m.options.EV_TYPE)
                         logging.info('H [W/K]: ', round(H_W_p_K.value[0], 4))
@@ -381,11 +416,11 @@ class Learner():
                             'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
                             'interpolation_interval': [int_intv],
                             'duration_s': [duration_s],
-                            'sanity_frac': [sanity_moving_horizon],
                             'OBJFCNVAL': [m.options.OBJFCNVAL],
                             'EV_TYPE': [m.options.EV_TYPE],
                             'H_W_p_K': [H_W_p_K.value[0]],
                             'tau_h': [tau_s.value[0] / s_p_h],
+                            'C_Wh_p_K':[H_W_p_K.value[0] * tau_s.value[0] / s_p_h],
                             'A_m^2': [A_m2.value[0]],
                             'A_m^2_fixed': [not np.isnan(iterator_A_m2)],
                             'eta_sup': [eta_sup_CH_frac.value[0]],
@@ -400,14 +435,14 @@ class Learner():
                         logging.error(str('KeyboardInterrupt; home analysis {0} not complete; saving results so far then will exit...'.format(home_id)))
 
                         # do NOT write an empty line for this iteration, to indicate it is not fully processed and we don't know 
-                        ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
+                        # ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
 
                         # but DO include the incomplete home results in the final export
                         df_results = pd.concat([df_results, df_results_home])
-                        ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
+                        # ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
 
                         # only then exit the function and return to caller
-                        return
+                        return  df_results, df_results_allhomes_allweeks_tempsim
 
                     except Exception as e:
                         # do write an empty line for this iteration, to indicate it is fully processed 
@@ -424,11 +459,11 @@ class Learner():
                             'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
                             'interpolation_interval': [int_intv],
                             'duration_s': [np.nan],
-                            'sanity_frac': [sanity_moving_horizon],
                             'OBJFCNVAL': [np.nan],
                             'EV_TYPE': [np.nan],
                             'H_W_p_K': [np.nan],
                             'tau_h': [np.nan],
+                            'C_Wh_p_K':[np.nan],
                             'A_m^2': [np.nan],
                             'A_m^2_fixed': [not (np.isnan(iterator_A_m2))],
                             'eta_sup': [np.nan],
@@ -451,14 +486,14 @@ class Learner():
 
                         # do write full line for this iteration, to indicate it is fully processed and we do know 
                         df_results_home = pd.concat([df_results_home, df_result_row])
-                        ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
+                        # ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
 
                         # and include the incomplete home results in the final export
                         df_results = pd.concat([df_results, df_results_home])
-                        ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
+                        # ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
 
                         # only then exit the function and return to caller
-                        return
+                        return  df_results, df_results_allhomes_allweeks_tempsim
 
                 #after a single innerloop for A fixed or learnable
                 logging.info(str('Analysis of all moving horizons for a single inner loop for home {0} complete.'.format(home_id)))
@@ -467,7 +502,7 @@ class Learner():
             logging.info(str('Analysis of all moving horizons for home {0} complete.'.format(home_id)))
             try:
                 df_results = pd.concat([df_results, df_results_home])
-                ex.write(df_results_home, str(filename_prefix+'-results-{0}.xlsx'.format(home_id)))
+                # ex.write(df_results_home, str(filename_prefix+'-results-{0}.xlsx'.format(home_id)))
                 
                 # label each line in the temperature simulation result dataframa with homepseudonym
                 df_results_home_allweeks_tempsim.insert(loc=0, column='home_id', value=home_id)
@@ -477,31 +512,33 @@ class Learner():
                 
             except KeyboardInterrupt:    
                 logging.error(str('KeyboardInterrupt; home analysis {0} complete; saving results so far then will exit...'.format(home_id)))
-                ex.write(df_results, (filename_prefix+'-results-aborted.xlsx'))
+                # ex.write(df_results, (filename_prefix+'-results-aborted.xlsx'))
+                return  df_results, df_results_allhomes_allweeks_tempsim
 
 
-        # and after all homes
-        df_results_allhomes_allweeks_tempsim.reset_index(inplace=True)
-        df_results_allhomes_allweeks_tempsim.rename(columns = {'index':'timestamp'}, inplace=True)
-        cols = list(df_results_allhomes_allweeks_tempsim.columns)
-        df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim[[cols[1]] + [cols[0]] + cols [2::]]
-        df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim.set_index(['home_id', 'timestamp'])
+        # reset after all homes
+        df_results = df_results.reset_index().rename(columns = {'pseudonym':'home_id'}).set_index(['home_id', 'start_horizon'])
+
+        # cols = list(df_results_allhomes_allweeks_tempsim.columns)
         
-        print('DONE: Analysis of all homes complete; writing files.')
+        df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim.reset_index().rename(columns = {'index':'timestamp'}).set_index(['home_id', 'timestamp'])
         
-        print(df_results_allhomes_allweeks_tempsim.describe(include='all'))
+        # print('DONE: Analysis of all homes complete; writing files.')
         
-        try:
-            ex.write(df_results, (filename_prefix+'-results.xlsx'))
-        except KeyboardInterrupt:    
-            logging.error(str('KeyboardInterrupt; all home analyses complete; will continue saving results and then exit...'.format(home_id)))
-            ex.write(df_results, (filename_prefix+'-results.xlsx'))
+        # print(df_results_allhomes_allweeks_tempsim.describe(include='all'))
+        
+        # try:
+        #     ex.write(df_results, (filename_prefix+'-results.xlsx'))
+        # except KeyboardInterrupt:    
+        #     logging.error(str('KeyboardInterrupt; all home analyses complete; will continue saving results and then exit...'.format(home_id)))
+        #     # ex.write(df_results, (filename_prefix+'-results.xlsx'))
+        #     return df_results, df_results_allhomes_allweeks_tempsim
 
         #return simulation results via df_data_homes parameter
         df_data_homes = df_results_allhomes_allweeks_tempsim
         
         filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
-        ex.write(df_results_allhomes_allweeks_tempsim, str('{0}-data_homes_tempsim.xlsx'.format(filename_prefix)))
-        print('DONE: all result files written.')
+        # ex.write(df_results_allhomes_allweeks_tempsim, str('{0}-data_homes_tempsim.xlsx'.format(filename_prefix)))
+        # print('DONE: all result files written.')
     
-        return df_results, df_results_allhomes_allweeks_tempsim
+        return  df_results, df_results_allhomes_allweeks_tempsim
