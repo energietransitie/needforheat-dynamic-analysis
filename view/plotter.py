@@ -42,8 +42,11 @@ class Plot:
             ylabel = temp_y_label
         )
         ax[0].set_facecolor('black')
+        ax[0].legend(fontsize='small') 
+        
         if len(temp_plot_2nd_list) >0:
             ax[0].right_ax.set_ylabel(temp_2nd_y_label)
+            ax[0].right_ax.legend(fontsize='small') 
 
         df[power_plot_dict.keys()].plot(
             ax=ax[1],
@@ -59,8 +62,10 @@ class Plot:
             ylabel = power_y_label
         )
         ax[1].set_facecolor('black')
-        ax[1].right_ax.set_ylabel(power_2nd_y_label)
-
+        ax[1].legend(fontsize='small') 
+        if len(power_plot_2nd_list) >0:
+            ax[1].right_ax.set_ylabel(power_2nd_y_label)
+            ax[1].right_ax.legend(fontsize='small') 
         plt.show()
         
        
