@@ -24,48 +24,68 @@ class Plot:
         """
         
         #define subplot layout
-        fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True)
+        if len(power_plot_dict.keys()) == 0:
+            fig, ax = plt.subplots(nrows=1, ncols=1, sharex=True)
+            fig.suptitle(title)  
+            #add DataFrames to subplots
+            df[temp_plot_dict.keys()].plot(
+                ax=ax,
+                marker=".",
+                ms=3,
+                linestyle='None',
+                secondary_y=temp_plot_2nd_list,
+                grid=True, 
+                legend=True, 
+                color=temp_plot_dict,
+                xlabel=shared_x_label,
+                ylabel = temp_y_label
+            )
+            ax.set_facecolor('black')
+            ax.legend(fontsize='small') 
+        else:
+            fig, ax = plt.subplots(nrows=2, ncols=1, sharex=True)
+            fig.suptitle(title)  
         
-        fig.suptitle(title)  
 
-        #add DataFrames to subplots
-        df[temp_plot_dict.keys()].plot(
-            ax=ax[0],
-            marker=".",
-            ms=3,
-            linestyle='None',
-            secondary_y=temp_plot_2nd_list,
-            grid=True, 
-            legend=True, 
-            color=temp_plot_dict,
-            xlabel=shared_x_label,
-            ylabel = temp_y_label
-        )
-        ax[0].set_facecolor('black')
-        ax[0].legend(fontsize='small') 
-        
-        if len(temp_plot_2nd_list) >0:
-            ax[0].right_ax.set_ylabel(temp_2nd_y_label)
-            ax[0].right_ax.legend(fontsize='small') 
+            #add DataFrames to subplots
+            df[temp_plot_dict.keys()].plot(
+                ax=ax[0],
+                marker=".",
+                ms=3,
+                linestyle='None',
+                secondary_y=temp_plot_2nd_list,
+                grid=True, 
+                legend=True, 
+                color=temp_plot_dict,
+                xlabel=shared_x_label,
+                ylabel = temp_y_label
+            )
+            ax[0].set_facecolor('black')
+            ax[0].legend(fontsize='small') 
 
-        df[power_plot_dict.keys()].plot(
-            ax=ax[1],
-            secondary_y=power_plot_2nd_list, 
-            marker=".",
-            ms=3,
-            linestyle='None',
-            mark_right=True, 
-            grid=True, 
-            legend=True, 
-            color=power_plot_dict,
-            xlabel=shared_x_label,
-            ylabel = power_y_label
-        )
-        ax[1].set_facecolor('black')
-        ax[1].legend(fontsize='small') 
-        if len(power_plot_2nd_list) >0:
-            ax[1].right_ax.set_ylabel(power_2nd_y_label)
-            ax[1].right_ax.legend(fontsize='small') 
+            if len(temp_plot_2nd_list) >0:
+                ax[0].right_ax.set_ylabel(temp_2nd_y_label)
+                ax[0].right_ax.legend(fontsize='small') 
+
+            df[power_plot_dict.keys()].plot(
+                ax=ax[1],
+                secondary_y=power_plot_2nd_list, 
+                marker=".",
+                ms=3,
+                linestyle='None',
+                mark_right=True, 
+                grid=True, 
+                legend=True, 
+                color=power_plot_dict,
+                xlabel=shared_x_label,
+                ylabel = power_y_label
+            )
+            ax[1].set_facecolor('black')
+            ax[1].legend(fontsize='small') 
+            if len(power_plot_2nd_list) >0:
+                ax[1].right_ax.set_ylabel(power_2nd_y_label)
+                ax[1].right_ax.legend(fontsize='small') 
+
         plt.show()
         
        
