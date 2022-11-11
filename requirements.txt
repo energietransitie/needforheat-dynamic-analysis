@@ -5,6 +5,7 @@ scipy
 mysql-connector-python
 # python-dotenv
 openpyxl
+pyarrow
 -e git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather
 gekko
 matplotlib
