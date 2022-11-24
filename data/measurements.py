@@ -70,6 +70,7 @@ class Measurements:
         SELECT
             m.timestamp AS timestamp,
             a.pseudonym AS home_id,
+            d.name AS device_name,
             dt.name AS device_type,
             p.name AS property,
             m.value AS value,
@@ -132,17 +133,24 @@ class Measurements:
                                                parse_dates={"timestamp": {"utc": "True"}}
                                               )
                                        ):
-            df = pd.concat([df, chunk.astype({'home_id' :'category','device_type':'category','property':'category'})])
+            df = pd.concat([df,chunk.astype({'home_id':'category',
+                                             'device_name':'category',
+                                             'device_type':'category',
+                                             'property':'category'}
+                                           )
+                           ]
+                          )
             
         db.close()
 
         logging.info("Dropping duplicates...")
-        df.drop_duplicates(subset=['home_id', 'timestamp','device_type', 'property'], keep='first', inplace=True)
+        df.drop_duplicates(subset=['home_id', 'timestamp','device_type', 'device_name', 'property'], keep='first', inplace=True)
         
         logging.info("Setting index...")
         df = (df.set_index(['home_id',
                             'timestamp',
                             'device_type',
+                            'device_name',
                             'property']
                           )
               .sort_index()
@@ -153,7 +161,145 @@ class Measurements:
         
         
     @staticmethod    
-    def get_raw_homes_data(homes,
+    def get_accounts_devices(first_day:datetime=None, last_day:datetime=None,
+                             tz_source:str = 'UTC', tz_home:str = 'Europe/Amsterdam') -> pd.DataFrame:
+        
+        """
+        in: 
+        - first_day: timezone-aware date
+        - last_day: , timezone-aware date; data is extracted until end of day
+        out: dataframe with accounts and devices that provided data
+        """
+        db_url_env = os.getenv("TWOMES_DB_URL")
+        assert db_url_env, 'Environment variable TWOMES_DB_URL not set. Format: user:pass@host:port/db '
+
+        db = create_engine("mysql+mysqlconnector://"+db_url_env).connect().execution_options(stream_results=True)
+        
+        largest_measurement_interval = timedelta(hours=1)
+        # convert starttime & endtime to database timezone; extend on both sides with interval of one 
+        if first_day is not None: 
+            logging.info(f'first_day: {first_day}')
+            extractor_starttime = (first_day - largest_measurement_interval).astimezone(pytz.timezone(tz_source))
+            logging.info(f'extractor_starttime: {extractor_starttime}')
+            first_str = "'" + extractor_starttime.strftime('%Y-%m-%d') + "'"
+            logging.info(f'first_str: {first_str}')
+        if last_day is not None: 
+            logging.info(f'last_day: {last_day}')
+            extractor_endtime = (last_day + timedelta(days=1) + largest_measurement_interval).astimezone(pytz.timezone(tz_source))
+            logging.info(f'extractor_endtime: {extractor_endtime}')
+            last_str = "'" + extractor_endtime.strftime('%Y-%m-%d') + "'"
+            logging.info(f'last_str: {last_str}')
+
+        sql_data_B4B = """
+            SELECT
+                a.pseudonym AS account_id,
+                d.id AS device_id,
+                d.name AS device_name,
+                m.timestamp AS latest_timestamp_UTC,
+                p.name AS property,
+                m.value,
+                p.unit
+            FROM
+                measurement m
+            JOIN device d ON
+                m.device_id = d.id
+            JOIN property p ON
+                m.property_id = p.id
+            JOIN building b ON
+                d.building_id = b.id
+            JOIN account a ON
+                b.account_id = a.id
+            WHERE
+                device_id BETWEEN 114 AND 121
+                AND (device_id,
+                property_id,
+                timestamp) IN (
+                SELECT
+                device_id,
+                property_id,
+                MAX(timestamp)
+                FROM
+                measurement
+                WHERE
+                device_id BETWEEN 114 AND 121
+                AND timestamp > '2022-01-01 0:00'
+                GROUP BY
+                device_id,
+                property_id
+                )
+            ORDER BY
+            property,
+            device_name,
+            latest_timestamp_UTC DESC"""
+
+#         match len(homes):
+#             case 0:
+#                 logging.info('empty list of homes, selecting all accounts')
+#             case 1:
+#                 sql_data_Twomes = sql_data_Twomes + " WHERE a.pseudonym = "+ str(homes[0])
+#             case _:
+#                 sql_data_Twomes = sql_data_Twomes + " WHERE a.pseudonym IN "+ f'{tuple(map(str, homes))}'        
+        
+#         match len(property_mapping_dict):
+#             case 0: 
+#                 logging.info('empty list of property names, selecting all properties')
+#             case 1:
+#                 sql_query_properties = "SELECT id FROM property WHERE name = '"+ str(list(property_mapping_dict.keys())[0]) + "'"
+#                 df_properties = pd.read_sql(sql=sql_query_properties, con=db)
+#                 logging.info(f'first_day: {sql_query_properties}')
+#             case _:
+#                 sql_query_properties = "SELECT id FROM property WHERE name IN "+ str(tuple(property_mapping_dict.keys()))
+#                 df_properties = pd.read_sql(sql=sql_query_properties, con=db)
+#                 logging.info(f'first_day: {sql_query_properties}')
+            
+#         match len(df_properties.index):
+#             case 0:
+#                 logging.warning('empty list of properties found')
+#             case 1:
+#                 sql_data_Twomes = sql_data_Twomes + " AND p.id = "+ str(df_properties['id'].iloc[0])
+#             case _:
+#                 sql_data_Twomes = sql_data_Twomes + " AND p.id IN "+ str(tuple(df_properties['id']))
+
+#         if first_day is not None: 
+#             sql_data_Twomes = sql_data_Twomes + " AND m.timestamp >= "+ first_str
+
+#         if last_day is not None: 
+#             sql_data_Twomes = sql_data_Twomes + " AND m.timestamp <= "+ last_str 
+
+        logging.info(sql_data_B4B.replace('\n',' '))
+
+        df = pd.DataFrame()
+
+        #TODO: react on tz_source, depending on whether tz_source == 'UTC'. 
+        for chunk in tqdm(pd.read_sql(sql=sql_data_B4B.replace('\n',' '),
+                                               con=db,
+                                               chunksize = 2000000,
+                                               parse_dates={"timestamp": {"utc": "True"}}
+                                              )
+                                       ):
+            # df = pd.concat([df, chunk.astype({'home_id':'category','device_type':'category','property':'category'})])
+            df = pd.concat([df, chunk])
+            
+        db.close()
+
+#         logging.info("Dropping duplicates...")
+#         df.drop_duplicates(subset=['home_id', 'timestamp','device_type', 'property'], keep='first', inplace=True)
+        
+#         logging.info("Setting index...")
+#         df = (df.set_index(['home_id',
+#                             'timestamp',
+#                             'device_type',
+#                             'property']
+#                           )
+#               .sort_index()
+#               .tz_convert(tz_home, level='timestamp')
+#              )
+        
+        return df
+        
+        
+    @staticmethod    
+    def get_raw_properties(homes,
                            first_day:datetime=None, last_day:datetime=None,
                            property_mapping_dict = None,
                            tz_source:str = 'UTC', tz_home:str = 'Europe/Amsterdam') -> pd.DataFrame:
