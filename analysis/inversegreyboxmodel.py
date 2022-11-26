@@ -3,7 +3,8 @@ import pytz
 import pandas as pd
 import numpy as np
 from gekko import GEKKO
-from tqdm import tqdm_notebook
+from tqdm.notebook import tqdm
+
 from filewriter import ExcelWriter as ex
 import numbers
 import logging
@@ -112,7 +113,7 @@ class Learner():
         df_results_allhomes_allweeks_tempsim = pd.DataFrame()
            
         # iterate over homes
-        for home_id in tqdm_notebook(homes_to_analyze):
+        for home_id in tqdm(homes_to_analyze):
             
             # create empty dataframe for results of a home
             df_results_home = pd.DataFrame()
@@ -161,7 +162,7 @@ class Learner():
             
             moving_horizon_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
 
-            moving_horizon_iterator = tqdm_notebook(moving_horizon_starts)
+            moving_horizon_iterator = tqdm(moving_horizon_starts)
 
             # iterate over horizons
             for moving_horizon_start in moving_horizon_iterator:
@@ -542,3 +543,138 @@ class Learner():
         # print('DONE: all result files written.')
     
         return  df_results, df_results_allhomes_allweeks_tempsim
+    
+    
+    @staticmethod
+    def learn_room_parameter(df_data_rooms:pd.DataFrame, ev_type=2) -> pd.DataFrame:
+        """
+        Input:  
+        - a dataframe with a MultiIndex ['home_id', 'timestamp]; timestamp is timezone-aware
+        - columns:
+          - 'occupancy_p': average number of people present in the room,
+          - 'co2_ppm': average CO2-concentration in the room,
+          - 'valve_frac_0' opening fraction of the ventilation valve 
+        and optionally,
+        - 'ev_type': type 2 is usually recommended, since this is typically more thatn 50 times faster
+        
+        Output:
+        - a dataframe with per room_id the learned parameters
+        - a dataframe with additional column(s):
+          - 'co2_sim_ppm' best fiting temperature series for room_id
+        """
+        
+
+        # Conversion factors
+        s_min_1 = 60
+        min_h_1 = 60
+        s_h_1 = s_min_1 * min_h_1
+        mL_m_3 = 1e3 * 1e3
+        million = 1e6
+
+        # Constants
+        MET_mL_min_1_kg_1_p_1 = 3.5                     # Metabolic Equivalent of Task, per kg body weight
+        desk_work_MET = 1.5                             # MET factor for desk work
+
+        # National averages
+        W_avg_kg = 77.5                                 # average weight of Dutch adult
+        MET_m3_s_1_p_1 = MET_mL_min_1_kg_1_p_1 * W_avg_kg / (s_min_1 * mL_m_3)
+        co2_ext_ppm = 415                               # Yearly average CO2 concentration in Europe 
+
+        # Room averages
+        wind_m_s_1 = 3.0                              # assumed wind speed for virtual rooms that causes infiltration
+
+        
+        
+        # create empty dataframe for results of all homes
+        df_results = pd.DataFrame()
+        
+        rooms = df_data_rooms.index.unique('room_id').dropna()
+        logging.info('Rooms to analyze: ', list(rooms.values))
+
+        for room_id in tqdm(rooms):
+            df = df_data_rooms.loc[room_id]
+            step_s = ((df.index.max() - df.index.min()).total_seconds()
+                      /
+                      (len(df)-1)
+                     )
+            duration_s = step_s * len(df)
+            
+            # Virtual room constants 
+            room_m3 = room_id % 1e3
+            vent_min_m3_h_1 = (room_id % 1e6) // 1e3
+            vent_max_m3_h_1 = room_id // 1e6
+            
+            ##################################################################################################################
+            # Gekko Model - Initialize
+            m = GEKKO(remote = False)
+            m.time = np.arange(0, duration_s, step_s)
+
+
+            # GEKKO Manipulated Variables: measured values
+            occupancy_p = m.MV(value = df.occupancy_p.values)
+            occupancy_p.STATUS = 0; occupancy_p.FSTATUS = 1
+
+            valve_frac_0 = m.MV(value = df.valve_frac_0.values)
+            valve_frac_0.STATUS = 0; valve_frac_0.FSTATUS = 1
+
+
+            # GEKKO Fixed Variable  model parameters
+            infilt_m2 = m.FV(value = 0.001, lb = 0)
+            infilt_m2.STATUS = 1; infilt_m2.FSTATUS = 0
+
+            # GEKKO Control Varibale (predicted variable)
+            co2_ppm = m.CV(value = df.co2_ppm.values) #[ppm]
+            co2_ppm.STATUS = 1; co2_ppm.FSTATUS = 1
+
+            # GEKKO - Equations
+            v_infilt_m3_s_1 = m.Intermediate(wind_m_s_1 * infilt_m2)
+            vent_m3_s_1 = m.Intermediate(vent_max_m3_h_1 * valve_frac_0 / s_h_1)
+            co2_loss_ppm_s_1 = m.Intermediate((vent_m3_s_1 + v_infilt_m3_s_1) / room_m3 * (co2_ppm - co2_ext_ppm)) 
+            v_co2_gain_m3_s_1 = m.Intermediate(occupancy_p * desk_work_MET * MET_m3_s_1_p_1)
+            co2_gain_ppm_s_1 = m.Intermediate(million * v_co2_gain_m3_s_1 / room_m3)
+            m.Equation(co2_ppm.dt() == co2_gain_ppm_s_1 - co2_loss_ppm_s_1)
+
+
+            # GEKKO - Solver setting
+            m.options.IMODE = 5
+            m.options.EV_TYPE = ev_type
+            m.options.NODES = 2
+            m.solve(disp = False)
+
+            df_data_rooms.loc[room_id, 'co2_sim_ppm'] = co2_ppm
+
+            logging.info(f'room {room_id}: effective infiltration area = {infilt_m2.value[0] * 1e4: .2f} [cm^2]')
+
+            mae_ppm = (abs(df_data_rooms.loc[room_id].co2_sim_ppm - df_data_rooms.loc[room_id].co2_ppm)).mean()
+            rmse_ppm = ((df_data_rooms.loc[room_id].co2_sim_ppm - df_data_rooms.loc[room_id].co2_ppm)**2).mean()**0.5
+
+            # Create a results row and add to results dataframe
+            df_results = pd.concat(
+                [
+                    df_results,
+                    pd.DataFrame(
+                        {
+                            'room_id': [room_id],
+                            'duration_s': [duration_s],
+                            'OBJFCNVAL': [m.options.OBJFCNVAL],
+                            'EV_TYPE': [m.options.EV_TYPE],
+                            'vent_min_m3_h_1': [vent_min_m3_h_1],
+                            'vent_max_m3_h_1': [vent_max_m3_h_1],
+                            'room_true_m3': [room_m3],
+                            'infilt_true_cm2': [vent_min_m3_h_1 / (s_h_1 * wind_m_s_1) * 1e4],
+                            'infilt_cm2': [infilt_m2.value[0] * 1e4],
+                            'mae_ppm': [mae_ppm],
+                            'rmse_ppm': [rmse_ppm]
+                        }
+                    )
+                ]
+            )
+            
+            m.cleanup()
+            
+            ##################################################################################################################
+
+
+
+
+        return df_results.set_index('room_id'), df_data_rooms
