@@ -552,7 +552,7 @@ class Learner():
         - a dataframe with a MultiIndex ['home_id', 'timestamp]; timestamp is timezone-aware
         - columns:
           - 'occupancy_p': average number of people present in the room,
-          - 'co2_ppm': average CO2-concentration in the room,
+          - 'co2_ppm': average CO₂-concentration in the room,
           - 'valve_frac_0' opening fraction of the ventilation valve 
         and optionally,
         - 'ev_type': type 2 is usually recommended, since this is typically more thatn 50 times faster
@@ -572,18 +572,31 @@ class Learner():
         million = 1e6
 
         # Constants
-        MET_mL_min_1_kg_1_p_1 = 3.5                     # Metabolic Equivalent of Task, per kg body weight
-        desk_work_MET = 1.5                             # MET factor for desk work
+        MET_mL_min_1_kg_1_p_1 = 3.5                               # Metabolic Equivalent of Task, per kg body weight
+        desk_work = 1.5                                           # MET factor for desk work
+        P_std_Pa = 101325                                         # standard gas pressure
+        R_m3_Pa_K_1_mol_1 = 8.3145                                # gas constant
+        T_room_C = 20.0                                           # standard room temperature
+        T_std_C = 0.0                                             # standard gas temperature
+        T_zero_K = 273.15                                         # 0 ˚C
+        T_std_K = T_zero_K + T_std_C                              # standard gas temperature
+        T_room_K = T_zero_K + T_room_C                            # standard room temperature
 
+        # Approximations
+        room_mol_m_3 = P_std_Pa / (R_m3_Pa_K_1_mol_1 * T_room_K)  # gas molecules in 1 m3 under room conditions 
+        std_mol_m_3 = P_std_Pa / (R_m3_Pa_K_1_mol_1 * T_std_K)    # gas molecules in 1 m3 under standard conditions 
+        co2_ext_ppm = 415                                         # Yearly average CO₂ concentration in Europe 
+        
         # National averages
-        W_avg_kg = 77.5                                 # average weight of Dutch adult
+        W_avg_kg = 77.5                                           # average weight of Dutch adult
         MET_m3_s_1_p_1 = MET_mL_min_1_kg_1_p_1 * W_avg_kg / (s_min_1 * mL_m_3)
-        co2_ext_ppm = 415                               # Yearly average CO2 concentration in Europe 
+        
+        MET_mol_s_1_p_1 = MET_m3_s_1_p_1 * std_mol_m_3            # Metabolic Equivalent of Task, per person
+        co2_p_o2 = 0.894                                          # fraction molecules CO₂ exhaled versus molecule O₂ inhaled
+        co2_mol0_p_1_s_1 = co2_p_o2 * desk_work * MET_mol_s_1_p_1 # CO₂ raise by Dutch desk worker [mol/mol]
 
         # Room averages
-        wind_m_s_1 = 3.0                              # assumed wind speed for virtual rooms that causes infiltration
-
-        
+        wind_m_s_1 = 3.0                                          # assumed wind speed for virtual rooms that causes infiltration
         
         # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
@@ -603,6 +616,7 @@ class Learner():
             room_m3 = room_id % 1e3
             vent_min_m3_h_1 = (room_id % 1e6) // 1e3
             vent_max_m3_h_1 = room_id // 1e6
+            vent_max_m3_s_1 = vent_max_m3_h_1 / s_h_1
             
             ##################################################################################################################
             # Gekko Model - Initialize
@@ -627,11 +641,9 @@ class Learner():
             co2_ppm.STATUS = 1; co2_ppm.FSTATUS = 1
 
             # GEKKO - Equations
-            v_infilt_m3_s_1 = m.Intermediate(wind_m_s_1 * infilt_m2)
-            vent_m3_s_1 = m.Intermediate(vent_max_m3_h_1 * valve_frac_0 / s_h_1)
-            co2_loss_ppm_s_1 = m.Intermediate((vent_m3_s_1 + v_infilt_m3_s_1) / room_m3 * (co2_ppm - co2_ext_ppm)) 
-            v_co2_gain_m3_s_1 = m.Intermediate(occupancy_p * desk_work_MET * MET_m3_s_1_p_1)
-            co2_gain_ppm_s_1 = m.Intermediate(million * v_co2_gain_m3_s_1 / room_m3)
+            co2_loss_ppm_s_1 = m.Intermediate((co2_ppm - co2_ext_ppm) * (vent_max_m3_s_1 * valve_frac_0 + wind_m_s_1 * infilt_m2) / room_m3)
+            co2_gain_mol0_s_1 = m.Intermediate(occupancy_p * co2_mol0_p_1_s_1 / (room_m3 * room_mol_m_3))
+            co2_gain_ppm_s_1 = m.Intermediate(co2_gain_mol0_s_1 * million)
             m.Equation(co2_ppm.dt() == co2_gain_ppm_s_1 - co2_loss_ppm_s_1)
 
 
