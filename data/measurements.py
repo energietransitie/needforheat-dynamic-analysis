@@ -12,7 +12,7 @@ class Measurements:
     """
         
     @staticmethod    
-    def get_property_ids(property_mapping_dict = None) -> str:
+    def get_property_ids(property_types = None) -> str:
         """
         gets a list of property_ids to speed up the query
         """
@@ -22,7 +22,7 @@ class Measurements:
 
         db = create_engine("mysql+mysqlconnector://"+db_url_env).connect().execution_options(stream_results=True)
         
-        sql_query = "SELECT id FROM property WHERE name IN "+ str(tuple(property_mapping_dict.keys()))
+        sql_query = "SELECT id FROM property WHERE name IN "+ str(tuple(property_types.keys()))
         print(sql_query)
 
         df = pd.DataFrame()
@@ -34,17 +34,23 @@ class Measurements:
 
         
     @staticmethod    
-    def get_raw_measurements(homes,
+    def get_raw_measurements(ids,
                              first_day:datetime=None, last_day:datetime=None,
-                             property_mapping_dict = None,
-                             tz_source:str = 'UTC', tz_home:str = 'Europe/Amsterdam') -> pd.DataFrame:
+                             db_properties = None,
+                             tz_source:str = 'UTC', tz_building:str = 'Europe/Amsterdam') -> pd.DataFrame:
         
         """
         in: 
-        - homes: list of home_ids (aka account.pseudonyms in the twomes database)
+        - ids: list of ids (aka account.pseudonyms in the twomes database)
         - first_day: timezone-aware date
         - last_day: , timezone-aware date; data is extracted until end of day
+        - db_properties: lit of properties to retrieve from database
         out: dataframe with measurements
+        - result.index = ['id', 'device_name', 'source', 'timestamp', 'property']
+        -- id: id of the unit studied (e.g. home / utility building / room) 
+        -- source: device_type from the database
+        -- timestamp: timezone-aware timestamp
+        - columns = ['value', 'unit']:
         """
         db_url_env = os.getenv("TWOMES_DB_URL")
         assert db_url_env, 'Environment variable TWOMES_DB_URL not set. Format: user:pass@host:port/db '
@@ -66,10 +72,10 @@ class Measurements:
             last_str = "'" + extractor_endtime.strftime('%Y-%m-%d') + "'"
             logging.info(f'last_str: {last_str}')
 
-        sql_data_Twomes = """
+        sql_query = """
         SELECT
             m.timestamp AS timestamp,
-            a.pseudonym AS home_id,
+            a.pseudonym AS id,
             d.name AS device_name,
             dt.name AS device_type,
             p.name AS property,
@@ -88,23 +94,23 @@ class Measurements:
         JOIN property p ON
             m.property_id = p.id"""
 
-        match len(homes):
+        match len(ids):
             case 0:
-                logging.warning('empty list of homes')
+                logging.warning('empty list of ids')
             case 1:
-                sql_data_Twomes = sql_data_Twomes + " WHERE a.pseudonym = "+ str(homes[0])
+                sql_query = sql_query + " WHERE a.pseudonym = "+ str(ids[0])
             case _:
-                sql_data_Twomes = sql_data_Twomes + " WHERE a.pseudonym IN "+ f'{tuple(map(str, homes))}'        
+                sql_query = sql_query + " WHERE a.pseudonym IN "+ f'{tuple(map(str, ids))}'        
         
-        match len(property_mapping_dict):
+        match len(db_properties):
             case 0: 
                 logging.warning('empty list of property names')
             case 1:
-                sql_query_properties = "SELECT id FROM property WHERE name = '"+ str(list(property_mapping_dict.keys())[0]) + "'"
+                sql_query_properties = "SELECT id FROM property WHERE name = '"+ db_properties[0] + "'"
                 df_properties = pd.read_sql(sql=sql_query_properties, con=db)
                 logging.info(f'first_day: {sql_query_properties}')
             case _:
-                sql_query_properties = "SELECT id FROM property WHERE name IN "+ str(tuple(property_mapping_dict.keys()))
+                sql_query_properties = "SELECT id FROM property WHERE name IN "+ str(tuple(db_properties))
                 df_properties = pd.read_sql(sql=sql_query_properties, con=db)
                 logging.info(f'first_day: {sql_query_properties}')
             
@@ -112,31 +118,33 @@ class Measurements:
             case 0:
                 logging.warning('empty list of properties found')
             case 1:
-                sql_data_Twomes = sql_data_Twomes + " AND p.id = "+ str(df_properties['id'].iloc[0])
+                sql_query = sql_query + " AND p.id = "+ str(df_properties['id'].iloc[0])
             case _:
-                sql_data_Twomes = sql_data_Twomes + " AND p.id IN "+ str(tuple(df_properties['id']))
+                sql_query = sql_query + " AND p.id IN "+ str(tuple(df_properties['id']))
 
         if first_day is not None: 
-            sql_data_Twomes = sql_data_Twomes + " AND m.timestamp >= "+ first_str
+            sql_query = sql_query + " AND m.timestamp >= "+ first_str
 
         if last_day is not None: 
-            sql_data_Twomes = sql_data_Twomes + " AND m.timestamp <= "+ last_str 
+            sql_query = sql_query + " AND m.timestamp <= "+ last_str 
 
-        logging.info(sql_data_Twomes.replace('\n',' '))
+        logging.info(sql_query.replace('\n',' '))
 
         df = pd.DataFrame()
 
         #TODO: react on tz_source, depending on whether tz_source == 'UTC'. 
-        for chunk in tqdm(pd.read_sql(sql=sql_data_Twomes.replace('\n',' '),
+        for chunk in tqdm(pd.read_sql(sql=sql_query.replace('\n',' '),
                                                con=db,
                                                chunksize = 2000000,
                                                parse_dates={"timestamp": {"utc": "True"}}
                                               )
                                        ):
-            df = pd.concat([df,chunk.astype({'home_id':'category',
+            df = pd.concat([df,chunk.astype({'id':'category',
                                              'device_name':'category',
                                              'device_type':'category',
-                                             'property':'category'}
+                                             'property':'category',
+                                             'unit':'category'
+                                            }
                                            )
                            ]
                           )
@@ -144,25 +152,22 @@ class Measurements:
         db.close()
 
         logging.info("Dropping duplicates...")
-        df.drop_duplicates(subset=['home_id', 'timestamp','device_type', 'device_name', 'property'], keep='first', inplace=True)
+        df.drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property'], keep='first', inplace=True)
         
         logging.info("Setting index...")
-        df = (df.set_index(['home_id',
-                            'timestamp',
-                            'device_type',
-                            'device_name',
-                            'property']
-                          )
+        df = (df.set_index(['id', 'device_name', 'device_type', 'timestamp', 'property'])
               .sort_index()
-              .tz_convert(tz_home, level='timestamp')
+              .tz_convert(tz_building, level='timestamp')
              )
+        
+        df.index.names = ['id', 'device_name', 'source', 'timestamp', 'property']
         
         return df
         
         
     @staticmethod    
     def get_accounts_devices(first_day:datetime=None, last_day:datetime=None,
-                             tz_source:str = 'UTC', tz_home:str = 'Europe/Amsterdam') -> pd.DataFrame:
+                             tz_source:str = 'UTC', tz_building:str = 'Europe/Amsterdam') -> pd.DataFrame:
         
         """
         in: 
@@ -190,7 +195,7 @@ class Measurements:
             last_str = "'" + extractor_endtime.strftime('%Y-%m-%d') + "'"
             logging.info(f'last_str: {last_str}')
 
-        sql_data_B4B = """
+        sql_query = """
             SELECT
                 a.pseudonym AS account_id,
                 d.id AS device_id,
@@ -232,115 +237,29 @@ class Measurements:
             device_name,
             latest_timestamp_UTC DESC"""
 
-#         match len(homes):
-#             case 0:
-#                 logging.info('empty list of homes, selecting all accounts')
-#             case 1:
-#                 sql_data_Twomes = sql_data_Twomes + " WHERE a.pseudonym = "+ str(homes[0])
-#             case _:
-#                 sql_data_Twomes = sql_data_Twomes + " WHERE a.pseudonym IN "+ f'{tuple(map(str, homes))}'        
-        
-#         match len(property_mapping_dict):
-#             case 0: 
-#                 logging.info('empty list of property names, selecting all properties')
-#             case 1:
-#                 sql_query_properties = "SELECT id FROM property WHERE name = '"+ str(list(property_mapping_dict.keys())[0]) + "'"
-#                 df_properties = pd.read_sql(sql=sql_query_properties, con=db)
-#                 logging.info(f'first_day: {sql_query_properties}')
-#             case _:
-#                 sql_query_properties = "SELECT id FROM property WHERE name IN "+ str(tuple(property_mapping_dict.keys()))
-#                 df_properties = pd.read_sql(sql=sql_query_properties, con=db)
-#                 logging.info(f'first_day: {sql_query_properties}')
-            
-#         match len(df_properties.index):
-#             case 0:
-#                 logging.warning('empty list of properties found')
-#             case 1:
-#                 sql_data_Twomes = sql_data_Twomes + " AND p.id = "+ str(df_properties['id'].iloc[0])
-#             case _:
-#                 sql_data_Twomes = sql_data_Twomes + " AND p.id IN "+ str(tuple(df_properties['id']))
-
-#         if first_day is not None: 
-#             sql_data_Twomes = sql_data_Twomes + " AND m.timestamp >= "+ first_str
-
-#         if last_day is not None: 
-#             sql_data_Twomes = sql_data_Twomes + " AND m.timestamp <= "+ last_str 
-
-        logging.info(sql_data_B4B.replace('\n',' '))
+        logging.info(sql_query.replace('\n',' '))
 
         df = pd.DataFrame()
 
         #TODO: react on tz_source, depending on whether tz_source == 'UTC'. 
-        for chunk in tqdm(pd.read_sql(sql=sql_data_B4B.replace('\n',' '),
+        for chunk in tqdm(pd.read_sql(sql=sql_query.replace('\n',' '),
                                                con=db,
                                                chunksize = 2000000,
                                                parse_dates={"timestamp": {"utc": "True"}}
                                               )
                                        ):
-            # df = pd.concat([df, chunk.astype({'home_id':'category','device_type':'category','property':'category'})])
             df = pd.concat([df, chunk])
             
         db.close()
 
-#         logging.info("Dropping duplicates...")
-#         df.drop_duplicates(subset=['home_id', 'timestamp','device_type', 'property'], keep='first', inplace=True)
-        
-#         logging.info("Setting index...")
-#         df = (df.set_index(['home_id',
-#                             'timestamp',
-#                             'device_type',
-#                             'property']
-#                           )
-#               .sort_index()
-#               .tz_convert(tz_home, level='timestamp')
-#              )
         
         return df
         
         
-    @staticmethod    
-    def get_raw_properties(homes,
-                           first_day:datetime=None, last_day:datetime=None,
-                           property_mapping_dict = None,
-                           tz_source:str = 'UTC', tz_home:str = 'Europe/Amsterdam') -> pd.DataFrame:
-        """
-        in: 
-        - homes: list of home_ids (aka account.pseudonyms in the twomes database)
-        - first_day: timezone-aware date
-        - last_day: , timezone-aware date; data is extracted until end of day
-        out:
-        - DataFrame with measurement values in columns
-        """
-
-        df = Measurements.get_raw_measurements(homes,
-                                        first_day, last_day,
-                                        property_mapping_dict,
-                                        tz_source, tz_home)
-        
-        del df['unit']
-        if property_mapping_dict is not None:
-            logging.info("Unstacking properties...")
-            df = df.unstack()
-            df.columns = df.columns.droplevel()
-
-        if ('relativeHumidity' in df.columns) and ('roomTempCO2' in df.columns):
-            logging.info("Swapping relativeHumidity and roomTemp2...")
-            df.rename(columns = {'relativeHumidity':'roomTemp2', 'roomTempCO2':'relativeHumidity'}, inplace = True)
-
-        logging.info("Changing column types...")
-        df = df.astype({k:property_mapping_dict[k] for k in property_mapping_dict.keys() if k in df.columns})
-        if 'listRSSI' in df.columns:
-            df.loc[df['listRSSI'] == 'nan', 'listRSSI'] = ''
-
-        # line below is needed to enable writing these DataFrames to parquet
-        df.columns = df.columns.astype('string')
-
-        return df
-
     @staticmethod
     def get_interpolated_weather_nl(first_day:datetime, last_day:datetime, 
                                     lat:float, lon:float, 
-                                    tz_source:str, tz_home:str, int_intv:str) -> pd.DataFrame:
+                                    tz_source:str, tz_building:str, int_intv:str) -> pd.DataFrame:
         """
         get weather data using a linear geospatial interpolation 
         based on three nearby KNMI weather stations 
@@ -368,13 +287,13 @@ class Measurements:
 
         outdoor_T_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'T', 'T_out_avg_C', 
                                                                                            up, int_intv, 
-                                                                                           tz_source, tz_home)
+                                                                                           tz_source, tz_building)
         windspeed_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'FH', 'wind_avg_m_p_s', 
                                                                                         up, int_intv, 
-                                                                                        tz_source, tz_home)
+                                                                                        tz_source, tz_building)
         irradiation_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'Q', 'irradiation_hor_J_p_h_p_cm2_avg', 
                                                                                           up, int_intv, 
-                                                                                          tz_source, tz_home)
+                                                                                          tz_source, tz_building)
 
 
         # merge weather data in a single dataframe
@@ -395,14 +314,14 @@ class Measurements:
     @staticmethod
     def get_weather_parameter_timeseries_mean(df: pd.DataFrame, parameter: str, seriesname: str, 
                                  up_to: str, int_intv: str,
-                                 tz_source:str, tz_home: str) -> pd.DataFrame:
+                                 tz_source:str, tz_building: str) -> pd.DataFrame:
 
         df = pd.DataFrame(df[parameter])
         logging.info(df)
         # df.set_index('datetime', inplace=True)
 
-        if not(tz_source == tz_home):
-            df = df.tz_convert(tz_home)
+        if not(tz_source == tz_building):
+            df = df.tz_convert(tz_building)
 
         #first sort on datetime index
         df.sort_index(inplace=True)
