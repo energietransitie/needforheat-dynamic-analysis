@@ -44,7 +44,7 @@ class Measurements:
         - ids: list of ids (aka account.pseudonyms in the twomes database)
         - first_day: timezone-aware date
         - last_day: , timezone-aware date; data is extracted until end of day
-        - db_properties: lit of properties to retrieve from database
+        - db_properties: list of properties to retrieve from database
         out: dataframe with measurements
         - result.index = ['id', 'device_name', 'source', 'timestamp', 'property']
         -- id: id of the unit studied (e.g. home / utility building / room) 
@@ -151,20 +151,55 @@ class Measurements:
             
         db.close()
 
-        logging.info("Dropping duplicates...")
-        df.drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property'], keep='first', inplace=True)
+        return (df
+                .drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property', 'value'], keep='first')
+                .drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property', 'value'], keep='first')
+                .rename(columns = {'device_type':'source'}) 
+                .set_index(['id', 'device_name', 'source', 'timestamp', 'property'])
+                .tz_convert(tz_building, level='timestamp')
+                .sort_index()
+               )
         
-        logging.info("Setting index...")
-        df = (df.set_index(['id', 'device_name', 'device_type', 'timestamp', 'property'])
-              .sort_index()
-              .tz_convert(tz_building, level='timestamp')
-             )
+    @staticmethod    
+    def to_properties(df_meas, properties_types = None) -> pd.DataFrame:
         
-        df.index.names = ['id', 'device_name', 'source', 'timestamp', 'property']
+        """
+        in: dataframe with measurements
+        - index = ['id', 'device_name', 'source', 'timestamp', 'property']
+        -- id: id of the unit studied (e.g. home / utility building / room) 
+        -- source: device_type from the database
+        -- timestamp: timezone-aware timestamp
+        - columns = ['value', 'unit']:
+        - properties_types: disctionary that specifies per property (key) which type to apply (value) 
         
-        return df
+        for duplicate measurements (index the same) only the first value is saved
+        properties are unstacked into columns
+        the unit column is dropped
+        the device name is dropped
+        types are applied per column as specified in 
         
+        out: dataframe with
+        - result.index = ['id', 'source', 'timestamp', 'property']
+        -- id: id of the unit studied (e.g. home / utility building / room) 
+        -- source: device_type from the database
+        -- timestamp: timezone-aware timestamp
+        - columns = all properties in the input column
         
+        """
+        measurement_count = df_meas.shape[0]
+        df_prop = (df_meas
+                   .reset_index()
+                   [['id', 'timestamp','source', 'property', 'value']]
+                   # duplicate values for exacly the same time cannot be unstacked we drop the later values
+                   .drop_duplicates(subset=['id', 'timestamp','source', 'property'], keep='first')
+                   .set_index(['id', 'source', 'timestamp', 'property'])
+                  )
+        logging.info(f'Dropped {measurement_count - df_prop.shape[0]} measurements for unstacking')
+        df_prop = df_prop.unstack()
+        df_prop.columns = df_prop.columns.droplevel()
+        
+        return df_prop.astype({k:properties_types[k] for k in properties_types.keys() if k in df_prop.columns})
+    
     @staticmethod    
     def get_accounts_devices(first_day:datetime=None, last_day:datetime=None,
                              tz_source:str = 'UTC', tz_building:str = 'Europe/Amsterdam') -> pd.DataFrame:
