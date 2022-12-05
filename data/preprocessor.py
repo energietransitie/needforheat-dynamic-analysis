@@ -7,13 +7,6 @@ class Preprocessor:
     """
 
     
-#TODO:check if minmaxfilter can be replace by : 
-# df[prop].mask((df[prop] < min_value) | (df[prop] > max_value)) 
-
-#TODO:check if static outliers can be replace by : 
-# df[prop].mask((df[prop] - df[prop].mean()).abs()/df[prop].std() > n_sigma)
-# df[prop].mask(stats.zscore(df[prop]) > n_sigma)  
-
 #TODO:check if dynamic outliers removal done by a DataFrame mask based on a hampel filter
 # (either before interpolation or after interpolation:
 # hampel(df[prop], window_size=5, n=3, imputation=False)
@@ -21,33 +14,74 @@ class Preprocessor:
 
     @staticmethod
     def filter_min_max(df: pd.DataFrame,
-                       prop:str,
-                       min:float=None, max:float=None) -> pd.DataFrame:
+                       col:str,
+                       min:float=None, max:float=None,
+                       inplace=True
+                      ) -> pd.DataFrame:
         
         """
-        Replace outliers in the 'value' column with NaN,
+        Replace outliers in the col column with NaN,
         where outliers are those values more below a minimum value or above a maximum value
+        
+        in: df: pd.DataFrame with
+        - index = ['id', 'source', 'timestamp']
+        -- id: id of the unit studied (e.g. home / utility building / room) 
+        -- source: device_type from the database
+        -- timestamp: timezone-aware timestamp
+        - columns = properties with measurement values
+        
+       
+        out: pd.DataFrame with same structure as df, 
+        - 
+       
         """
-        return df.mask(((min is not None) & (df[prop] < min))
-                       | 
-                       ((max is not None) & (df[prop] > max))
-                      )
+        
+        df_result = df
+        if not len(df):
+            return df_result
+        if (min is None) | (max is None) | (min <= max):
+            if not inplace:
+                df_result = df.copy(deep=True)
+            df_result[col] = df_result[col].mask(
+                ((min is not None) & (df_result[col] < min))
+                |
+                ((max is not None) & (df_result[col] > max))
+                )
+
+        return df_result
 
 
     @staticmethod
     def filter_static_outliers(df: pd.DataFrame,
-                               prop:str,
-                               n_sigma:int=3) -> pd.DataFrame:
+                               col:str,
+                               n_sigma:float=3.0,
+                               per_id=True,
+                               inplace=True
+                              ) -> pd.DataFrame:
 
         """
         Simple procedure to replace outliers in the 'value' column with NaN
         Where outliers are those values more than n_sigma standard deviations away from the average of the property 
         column in a dataframe
         """
-        if len(df):
-            return df.mask(stats.zscore(df[prop]).abs() > n_sigma)            
+        
+        df_result = df
+        if not len(df):
+            return df_result
+        if not inplace:
+            df_result = df.copy(deep=True)
+        if per_id:
+            for id in df.index.unique(level='id'):
+                df_result.loc[id, col] = (df_result
+                                          .loc[id][col]
+                                          .mask(stats.zscore(df_result.loc[id][col], nan_policy='omit').abs() > n_sigma)
+                                         .values)            
         else:
-            return df
+            df_result.loc[col] = (df_result
+                                      .loc[col]
+                                      .mask(stats.zscore(df_result.loc[col], nan_policy='omit').abs() > n_sigma)
+                                     .values)            
+        return df_result
             
     def property_filter(df, parameter:str, prop:str, metertimestamp:str,
                         tz_source:str, tz_home:str,
