@@ -36,18 +36,15 @@ class Preprocessor:
        
         """
         
+        if not len(df) or min is None and max is None:
+            return df
         df_result = df
-        if not len(df):
-            return df_result
-        if (min is None) | (max is None) | (min <= max):
-            if not inplace:
-                df_result = df.copy(deep=True)
-            df_result[col] = df_result[col].mask(
-                ((min is not None) & (df_result[col] < min))
-                |
-                ((max is not None) & (df_result[col] > max))
-                )
-
+        if not inplace:
+            df_result = df.copy(deep=True)
+        if min is not None:
+            df_result[col] = df_result[col].mask(df_result[col] < min)
+        if max is not None:
+            df_result[col] = df_result[col].mask(df_result[col] > max)            
         return df_result
 
 
@@ -65,9 +62,11 @@ class Preprocessor:
         column in a dataframe
         """
         
+        if (not len(df)
+            or
+            (col not in df.columns)):
+            return df
         df_result = df
-        if not len(df):
-            return df_result
         if not inplace:
             df_result = df.copy(deep=True)
         if per_id:
@@ -77,10 +76,9 @@ class Preprocessor:
                                           .mask(stats.zscore(df_result.loc[id][col], nan_policy='omit').abs() > n_sigma)
                                          .values)            
         else:
-            df_result.loc[col] = (df_result
-                                      .loc[col]
-                                      .mask(stats.zscore(df_result.loc[col], nan_policy='omit').abs() > n_sigma)
-                                     .values)            
+            df_result[col] = (df_result[col]
+                              .mask(stats.zscore(df_result[col], nan_policy='omit').abs() > n_sigma)
+                              .values)            
         return df_result
             
     def property_filter(df, parameter:str, prop:str, metertimestamp:str,
