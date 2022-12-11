@@ -36,7 +36,7 @@ class Measurements:
     @staticmethod    
     def get_raw_measurements(ids,
                              first_day:datetime=None, last_day:datetime=None,
-                             db_properties = None,
+                             db_properties = None, property_rename = None,
                              tz_source:str = 'UTC', tz_building:str = 'Europe/Amsterdam') -> pd.DataFrame:
         
         """
@@ -47,7 +47,7 @@ class Measurements:
         - db_properties: list of properties to retrieve from database
         out: dataframe with measurements
         - result.index = ['id', 'device_name', 'source', 'timestamp', 'property']
-        -- id: id of the unit studied (e.g. home / utility building / room) 
+        -- id: id of e.g. home / utility building / room 
         -- source: device_type from the database
         -- timestamp: timezone-aware timestamp
         - columns = ['value', 'unit']:
@@ -150,15 +150,19 @@ class Measurements:
                           )
             
         db.close()
-
-        return (df
-                .drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property', 'value'], keep='first')
+        
+        df = (df
                 .drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property', 'value'], keep='first')
                 .rename(columns = {'device_type':'source'}) 
                 .set_index(['id', 'device_name', 'source', 'timestamp', 'property'])
                 .tz_convert(tz_building, level='timestamp')
-                .sort_index()
                )
+        if property_rename is not None:
+            return df.rename(index=property_rename).sort_index()
+
+        else:
+            return df.sort_index()
+
         
     @staticmethod    
     def to_properties(df_meas, properties_types = None) -> pd.DataFrame:
@@ -166,7 +170,7 @@ class Measurements:
         """
         in: dataframe with measurements
         - index = ['id', 'device_name', 'source', 'timestamp', 'property']
-        -- id: id of the unit studied (e.g. home / utility building / room) 
+        -- id: id of e.g. home / utility building / room 
         -- source: device_type from the database
         -- timestamp: timezone-aware timestamp
         - columns = ['value', 'unit']:
@@ -180,7 +184,7 @@ class Measurements:
         
         out: dataframe with
         - result.index = ['id', 'source', 'timestamp', 'property']
-        -- id: id of the unit studied (e.g. home / utility building / room) 
+        -- id: id of e.g. home / utility building / room 
         -- source: device_type from the database
         -- timestamp: timezone-aware timestamp
         - columns = all properties in the input column
