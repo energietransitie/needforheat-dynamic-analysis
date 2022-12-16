@@ -5,7 +5,6 @@ import numpy as np
 from gekko import GEKKO
 from tqdm.notebook import tqdm
 
-from filewriter import ExcelWriter as ex
 import numbers
 import logging
 
@@ -384,12 +383,6 @@ class Learner():
                         
                         # logging.info(df_results_homeweek_tempsim) 
 
-                        # filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
-                        # ex.write(df_results_homeweek_tempsim, str('{0}-simdata_home-{1}-{2}-{3}.xlsx'.format(home_id,
-                        #                                                                                      filename_prefix, 
-                        #                                                                                      moving_horizon_start.isoformat(),
-                        #                                                                                      moving_horizon_end.isoformat())))
-                        
                         # error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
                         mae_K = (abs(df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])).mean()
                         rmse_K = ((df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])**2).mean()**0.5
@@ -436,11 +429,8 @@ class Learner():
                         logging.error(str('KeyboardInterrupt; home analysis {0} not complete; saving results so far then will exit...'.format(home_id)))
 
                         # do NOT write an empty line for this iteration, to indicate it is not fully processed and we don't know 
-                        # ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
-
                         # but DO include the incomplete home results in the final export
                         df_results = pd.concat([df_results, df_results_home])
-                        # ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
 
                         # only then exit the function and return to caller
                         return  df_results, df_results_allhomes_allweeks_tempsim
@@ -487,11 +477,9 @@ class Learner():
 
                         # do write full line for this iteration, to indicate it is fully processed and we do know 
                         df_results_home = pd.concat([df_results_home, df_result_row])
-                        # ex.write(df_results_home, str(filename_prefix+'-results-aborted-{0}.xlsx'.format(home_id)))
 
                         # and include the incomplete home results in the final export
                         df_results = pd.concat([df_results, df_results_home])
-                        # ex.write(df_results_home, str(filename_prefix+'-results-aborted.xlsx'.format(home_id)))
 
                         # only then exit the function and return to caller
                         return  df_results, df_results_allhomes_allweeks_tempsim
@@ -503,7 +491,6 @@ class Learner():
             logging.info(str('Analysis of all moving horizons for home {0} complete.'.format(home_id)))
             try:
                 df_results = pd.concat([df_results, df_results_home])
-                # ex.write(df_results_home, str(filename_prefix+'-results-{0}.xlsx'.format(home_id)))
                 
                 # label each line in the temperature simulation result dataframa with homepseudonym
                 df_results_home_allweeks_tempsim.insert(loc=0, column='home_id', value=home_id)
@@ -513,7 +500,6 @@ class Learner():
                 
             except KeyboardInterrupt:    
                 logging.error(str('KeyboardInterrupt; home analysis {0} complete; saving results so far then will exit...'.format(home_id)))
-                # ex.write(df_results, (filename_prefix+'-results-aborted.xlsx'))
                 return  df_results, df_results_allhomes_allweeks_tempsim
 
 
@@ -524,23 +510,10 @@ class Learner():
         
         df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim.reset_index().rename(columns = {'index':'timestamp'}).set_index(['home_id', 'timestamp'])
         
-        # print('DONE: Analysis of all homes complete; writing files.')
-        
-        # print(df_results_allhomes_allweeks_tempsim.describe(include='all'))
-        
-        # try:
-        #     ex.write(df_results, (filename_prefix+'-results.xlsx'))
-        # except KeyboardInterrupt:    
-        #     logging.error(str('KeyboardInterrupt; all home analyses complete; will continue saving results and then exit...'.format(home_id)))
-        #     # ex.write(df_results, (filename_prefix+'-results.xlsx'))
-        #     return df_results, df_results_allhomes_allweeks_tempsim
-
         #return simulation results via df_data_homes parameter
         df_data_homes = df_results_allhomes_allweeks_tempsim
         
         filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
-        # ex.write(df_results_allhomes_allweeks_tempsim, str('{0}-data_homes_tempsim.xlsx'.format(filename_prefix)))
-        # print('DONE: all result files written.')
     
         return  df_results, df_results_allhomes_allweeks_tempsim
     
