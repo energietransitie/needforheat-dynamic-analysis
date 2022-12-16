@@ -21,8 +21,8 @@ class Learner():
         - a dataframe with a timezone-aware datetime index and measurement values: with at least the following columns
             [
                 'home_id', 
-                'T_out_e_avg_C', 'irradiation_hor_avg_W_p_m2',
-                'T_in_avg_C', 'gas_sup_avg_W', 'e_remaining_heat_avg_W', 
+                'T_out_e_C', 'irradiation_hor_W_p_m2',
+                'T_in_C', 'gas_sup_W', 'e_remaining_heat_W', 
                 'ev_type'
             ]
         and optionally,
@@ -35,7 +35,7 @@ class Learner():
         - a dataframe with additional columns:
           - 'sanity': none of the required columns in the req_col list are NaN
           - 'interval_s': interval time  in the 
-          - 'T_in_sim_avg_C' best fiting temperature seris for each moving_horizon
+          - 'T_in_sim_C' best fiting temperature seris for each moving_horizon
         """
         
         if not ((hint_A_m2 is None) or isinstance(hint_A_m2, numbers.Number)):
@@ -100,10 +100,10 @@ class Learner():
 
         avg_persons = 2.2  # average number of people in Dutch household
         Q_gain_int_W_p_person = 61  # average heat gain per average person with average behaviour asnd occupancy
-        Q_gain_int_occup_avg_W = Q_gain_int_W_p_person * avg_persons
+        Q_gain_int_occup_W = Q_gain_int_W_p_person * avg_persons
 
         # currently, we use 339 [m^3/a] national average gas usage per year for cooking and DHW, i.e. not for CH
-        gas_no_CH_avg_m3_p_s = (339.0 / s_p_a)  
+        gas_no_CH_m3_p_s = (339.0 / s_p_a)  
 
         # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
@@ -133,31 +133,31 @@ class Learner():
             
             # in a future version we intend to use a value specific per home based on average usage of natural gas in the summer months (June - August) 
            
-            gas_sup_no_CH_avg_W = gas_no_CH_avg_m3_p_s * h_sup_J_p_m3 
+            gas_sup_no_CH_W = gas_no_CH_m3_p_s * h_sup_J_p_m3 
 
-            logging.info('gas_no_CH_avg_m3_p_s: {:.5E}'.format(gas_no_CH_avg_m3_p_s))
-            logging.info('gas_sup_no_CH_avg_W: ', gas_sup_no_CH_avg_W)
+            logging.info('gas_no_CH_m3_p_s: {:.5E}'.format(gas_no_CH_m3_p_s))
+            logging.info('gas_sup_no_CH_W: ', gas_sup_no_CH_W)
 
             # using this average, distribute gas usage over central heating (CH) versus no Central Heating (no_CH)
-            df_data_one_home['gas_sup_no_CH_avg_W'] = gas_sup_no_CH_avg_W
-            df_data_one_home['gas_sup_CH_avg_W'] = df_data_one_home['gas_sup_avg_W'] - gas_sup_no_CH_avg_W
+            df_data_one_home['gas_sup_no_CH_W'] = gas_sup_no_CH_W
+            df_data_one_home['gas_sup_CH_W'] = df_data_one_home['gas_sup_W'] - gas_sup_no_CH_W
 
-            # Avoid negative values for heating; simple fix: negative value with zero in gas_sup_CH_avg_W array
-            df_data_one_home.loc[df_data_one_home.gas_sup_CH_avg_W < 0, 'gas_sup_CH_avg_W'] = 0
+            # Avoid negative values for heating; simple fix: negative value with zero in gas_sup_CH_W array
+            df_data_one_home.loc[df_data_one_home.gas_sup_CH_W < 0, 'gas_sup_CH_W'] = 0
 
-            # Compensate by scaling down gas_sup_CH_avg_W 
-            gas_sup_home_avg_W = df_data_one_home['gas_sup_avg_W'].mean()
-            uncorrected_gas_CH_sup_home_avg_W = df_data_one_home['gas_sup_CH_avg_W'].mean()
-            scaling_factor =   (gas_sup_home_avg_W - gas_sup_no_CH_avg_W) / uncorrected_gas_CH_sup_home_avg_W  
-            df_data_one_home['gas_sup_CH_avg_W'] = df_data_one_home['gas_sup_CH_avg_W'] * scaling_factor
-            corrected_gas_CH_sup_home_avg_W = df_data_one_home['gas_sup_CH_avg_W'].mean()
+            # Compensate by scaling down gas_sup_CH_W 
+            gas_sup_home_W = df_data_one_home['gas_sup_W'].mean()
+            uncorrected_gas_CH_sup_home_W = df_data_one_home['gas_sup_CH_W'].mean()
+            scaling_factor =   (gas_sup_home_W - gas_sup_no_CH_W) / uncorrected_gas_CH_sup_home_W  
+            df_data_one_home['gas_sup_CH_W'] = df_data_one_home['gas_sup_CH_W'] * scaling_factor
+            corrected_gas_CH_sup_home_W = df_data_one_home['gas_sup_CH_W'].mean()
 
             logging.info('home_id: ', home_id)
-            logging.info('gas_sup_home_avg_W: ', gas_sup_home_avg_W)
-            logging.info('uncorrected_gas_CH_sup_home_avg_W: ', uncorrected_gas_CH_sup_home_avg_W)
+            logging.info('gas_sup_home_W: ', gas_sup_home_W)
+            logging.info('uncorrected_gas_CH_sup_home_W: ', uncorrected_gas_CH_sup_home_W)
             logging.info('scaling_factor: ', scaling_factor)
-            logging.info('corrected_gas_CH_sup_home_avg_W: ', corrected_gas_CH_sup_home_avg_W)
-            logging.info('gas_sup_no_CH_avg_W + corrected_gas_CH_sup_home_avg_W: ', gas_sup_no_CH_avg_W + corrected_gas_CH_sup_home_avg_W)
+            logging.info('corrected_gas_CH_sup_home_W: ', corrected_gas_CH_sup_home_W)
+            logging.info('gas_sup_no_CH_W + corrected_gas_CH_sup_home_W: ', gas_sup_no_CH_W + corrected_gas_CH_sup_home_W)
             
             moving_horizon_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
 
@@ -204,35 +204,35 @@ class Learner():
 
                 
                 # T_set_first_C_array = df_moving_horizon['T_set_first_C'].to_numpy()
-                T_in_avg_C_array = df_moving_horizon['T_in_avg_C'].to_numpy()
+                T_in_C_array = df_moving_horizon['T_in_C'].to_numpy()
 
                 step_s = df_moving_horizon['interval_s'].mean()
-                number_of_timesteps = len(T_in_avg_C_array)
+                number_of_timesteps = len(T_in_C_array)
                 duration_s = number_of_timesteps * step_s
 
                 # load data from dataframe into np.arrays
                 # logging.info(df_moving_horizon)
 
 
-                T_out_e_avg_C_array = df_moving_horizon['T_out_e_avg_C'].to_numpy()
-                irradiation_hor_avg_W_p_m2_array = df_moving_horizon['irradiation_hor_avg_W_p_m2'].to_numpy()
-                e_remaining_heat_avg_W_array = df_moving_horizon['e_remaining_heat_avg_W'].to_numpy()
-                gas_sup_no_CH_avg_W_array = df_moving_horizon['gas_sup_no_CH_avg_W'].to_numpy()
-                gas_sup_CH_avg_W_array = df_moving_horizon['gas_sup_CH_avg_W'].to_numpy()
+                T_out_e_C_array = df_moving_horizon['T_out_e_C'].to_numpy()
+                irradiation_hor_W_p_m2_array = df_moving_horizon['irradiation_hor_W_p_m2'].to_numpy()
+                e_remaining_heat_W_array = df_moving_horizon['e_remaining_heat_W'].to_numpy()
+                gas_sup_no_CH_W_array = df_moving_horizon['gas_sup_no_CH_W'].to_numpy()
+                gas_sup_CH_W_array = df_moving_horizon['gas_sup_CH_W'].to_numpy()
                
                 # print length of arrays and check uquality
 
-                # logging.info('#T_in_avg_C_array', len(T_in_avg_C_array))
-                # logging.info('#T_out_e_avg_C_array', len(T_out_e_avg_C_array))
-                # logging.info('#irradiation_hor_avg_W_p_m2_array', len(irradiation_hor_avg_W_p_m2_array))
-                # logging.info('#gas_sup_no_CH_avg_W_array', len(gas_sup_no_CH_avg_W_array))
-                # logging.info('#gas_sup_CH_avg_W_array', len(gas_sup_CH_avg_W_array))
+                # logging.info('#T_in_C_array', len(T_in_C_array))
+                # logging.info('#T_out_e_C_array', len(T_out_e_C_array))
+                # logging.info('#irradiation_hor_W_p_m2_array', len(irradiation_hor_W_p_m2_array))
+                # logging.info('#gas_sup_no_CH_W_array', len(gas_sup_no_CH_W_array))
+                # logging.info('#gas_sup_CH_W_array', len(gas_sup_CH_W_array))
 
                 # check for equal length
 
-                # logging.info(len(T_in_avg_C_array) == len(irradiation_hor_avg_W_p_m2_array) 
-                #       == len(T_out_e_avg_C_array) == len(gas_sup_no_CH_avg_W_array) 
-                #       == len(gas_sup_CH_avg_W_array) == len(e_remaining_heat_avg_W_array))
+                # logging.info(len(T_in_C_array) == len(irradiation_hor_W_p_m2_array) 
+                #       == len(T_out_e_C_array) == len(gas_sup_no_CH_W_array) 
+                #       == len(gas_sup_CH_W_array) == len(e_remaining_heat_W_array))
             
             
                 if (hint_A_m2 is None):
@@ -282,7 +282,7 @@ class Learner():
 
                         
                         ########################################################################################################################
-                        # Equation - Q_gain_CH_avg_W: heat gain from natural gas used for central heating
+                        # Equation - Q_gain_CH_W: heat gain from natural gas used for central heating
                         ########################################################################################################################
 
                         # eta_sup_CH_frac [-]: upper heating efficiency of the central heating system
@@ -296,36 +296,36 @@ class Learner():
                         # Fix eta_sup_CH_frac when a hint is given 
                         eta_sup_CH_frac = m.Param(value=hint_eta_sup_CH_frac)
                         
-                        gas_sup_CH_avg_W = m.MV(value=gas_sup_CH_avg_W_array)
-                        gas_sup_CH_avg_W.STATUS = 0; gas_sup_CH_avg_W.FSTATUS = 1
+                        gas_sup_CH_W = m.MV(value=gas_sup_CH_W_array)
+                        gas_sup_CH_W.STATUS = 0; gas_sup_CH_W.FSTATUS = 1
 
-                        Q_gain_gas_CH_avg_W = m.Intermediate(gas_sup_CH_avg_W * eta_sup_CH_frac)
+                        Q_gain_gas_CH_W = m.Intermediate(gas_sup_CH_W * eta_sup_CH_frac)
                     
                     
                         ########################################################################################################################
-                        # Equation - Q_gain_no_CH_avg_W: heat gain from natural gas used for central heating
+                        # Equation - Q_gain_no_CH_W: heat gain from natural gas used for central heating
                         ########################################################################################################################
 
                         # eta_sup_no_CH_frac [-]: superior efficiency of heating the home indirectly using gas, 
                         # for other primary purposes than heating the home, # eq48, PPT slide 24
                         eta_sup_no_CH_frac = m.Param(value=0.34)
                         
-                        gas_sup_no_CH_avg_W = m.MV(value=gas_sup_no_CH_avg_W_array)
-                        gas_sup_no_CH_avg_W.STATUS = 0; gas_sup_no_CH_avg_W.FSTATUS = 1
+                        gas_sup_no_CH_W = m.MV(value=gas_sup_no_CH_W_array)
+                        gas_sup_no_CH_W.STATUS = 0; gas_sup_no_CH_W.FSTATUS = 1
                         
-                        Q_gain_gas_no_CH_avg_W = m.Intermediate(gas_sup_no_CH_avg_W * eta_sup_no_CH_frac)
+                        Q_gain_gas_no_CH_W = m.Intermediate(gas_sup_no_CH_W * eta_sup_no_CH_frac)
 
                         ########################################################################################################################
-                        # Equation - Q_gain_int_avg_W: Heat gain from internal sources
+                        # Equation - Q_gain_int_W: Heat gain from internal sources
                         ########################################################################################################################
-                        # Manipulated Variable: e_remaining_heat_avg_W: internal heat gain from internally used electricity
-                        e_remaining_heat_avg_W = m.MV(value=e_remaining_heat_avg_W_array)
-                        e_remaining_heat_avg_W.STATUS = 0; e_remaining_heat_avg_W.FSTATUS = 1
+                        # Manipulated Variable: e_remaining_heat_W: internal heat gain from internally used electricity
+                        e_remaining_heat_W = m.MV(value=e_remaining_heat_W_array)
+                        e_remaining_heat_W.STATUS = 0; e_remaining_heat_W.FSTATUS = 1
 
-                        Q_gain_int_avg_W = m.Intermediate(e_remaining_heat_avg_W + Q_gain_int_occup_avg_W + Q_gain_gas_no_CH_avg_W)
+                        Q_gain_int_W = m.Intermediate(e_remaining_heat_W + Q_gain_int_occup_W + Q_gain_gas_no_CH_W)
 
                         ########################################################################################################################
-                        # Equation - Q_gain_sol_avg_W: : heat gain from solar irradiation
+                        # Equation - Q_gain_sol_W: : heat gain from solar irradiation
                         ########################################################################################################################
 
                         # Model parameter/fixed value: A [m^2]: Effective area of the solar aperture
@@ -334,32 +334,32 @@ class Learner():
                         else:
                             A_m2 = m.Param(value=iterator_A_m2)
 
-                        irradiation_hor_avg_W_p_m2 = m.MV(value=irradiation_hor_avg_W_p_m2_array)
-                        irradiation_hor_avg_W_p_m2.STATUS = 0; irradiation_hor_avg_W_p_m2.FSTATUS = 1
+                        irradiation_hor_W_p_m2 = m.MV(value=irradiation_hor_W_p_m2_array)
+                        irradiation_hor_W_p_m2.STATUS = 0; irradiation_hor_W_p_m2.FSTATUS = 1
                         
-                        Q_gain_sol_avg_W = m.Intermediate(irradiation_hor_avg_W_p_m2 * A_m2)
+                        Q_gain_sol_W = m.Intermediate(irradiation_hor_W_p_m2 * A_m2)
                         
                         ########################################################################################################################
-                        # Manipulated Variable (MV): T_out_e_avg_C [°C]: effective outdoor temperature
+                        # Manipulated Variable (MV): T_out_e_C [°C]: effective outdoor temperature
                         ########################################################################################################################
-                        T_out_e_avg_C = m.MV(value=T_out_e_avg_C_array)
-                        T_out_e_avg_C.STATUS = 0; T_out_e_avg_C.FSTATUS = 1
+                        T_out_e_C = m.MV(value=T_out_e_C_array)
+                        T_out_e_C.STATUS = 0; T_out_e_C.FSTATUS = 1
 
                         ########################################################################################################################
-                        # Control Variable T_in_avg_C: Indoor temperature
+                        # Control Variable T_in_C: Indoor temperature
                         ########################################################################################################################
-                        T_in_avg_C = m.CV(value=T_in_avg_C_array)
-                        T_in_avg_C.STATUS = 1; T_in_avg_C.FSTATUS = 1
-                        # T_in_avg_C.MEAS_GAP= 0.25
+                        T_in_C = m.CV(value=T_in_C_array)
+                        T_in_C.STATUS = 1; T_in_C.FSTATUS = 1
+                        # T_in_C.MEAS_GAP= 0.25
                         
 
                         ########################################################################################################################
                         # Main Equations & Solver
                         ########################################################################################################################
-                        Q_gain_W = m.Intermediate(Q_gain_gas_CH_avg_W + Q_gain_sol_avg_W + Q_gain_int_avg_W)
-                        Q_loss_W = m.Intermediate(H_W_p_K * (T_in_avg_C - T_out_e_avg_C)) 
+                        Q_gain_W = m.Intermediate(Q_gain_gas_CH_W + Q_gain_sol_W + Q_gain_int_W)
+                        Q_loss_W = m.Intermediate(H_W_p_K * (T_in_C - T_out_e_C)) 
                         C_J_p_K  = m.Intermediate(H_W_p_K * tau_s) 
-                        m.Equation(T_in_avg_C.dt() == ((Q_gain_W - Q_loss_W) / C_J_p_K))
+                        m.Equation(T_in_C.dt() == ((Q_gain_W - Q_loss_W) / C_J_p_K))
                         
                         m.options.IMODE = 5
                         m.options.EV_TYPE = ev_type # specific objective function (L1-norm vs L2-norm)
@@ -369,23 +369,23 @@ class Learner():
                         #                                                       Result
                         ########################################################################################################################
 
-                        #add simulated indoor temperature for optimized solution to sim_T_in_avg_C column
-                        # logging.info(T_in_avg_C)
-                        # logging.info(len(list(T_in_avg_C.value)))
-                        # logging.info(list(T_in_avg_C.value))
+                        #add simulated indoor temperature for optimized solution to sim_T_in_C column
+                        # logging.info(T_in_C)
+                        # logging.info(len(list(T_in_C.value)))
+                        # logging.info(list(T_in_C.value))
                         
                         # create a deep copy
                         df_results_homeweek_tempsim = df_moving_horizon.copy(deep=True)
 
-                        df_results_homeweek_tempsim['T_in_sim_avg_C'] = list(T_in_avg_C.value)
+                        df_results_homeweek_tempsim['T_in_sim_C'] = list(T_in_C.value)
                         df_results_homeweek_tempsim['A_value_is_fixed'] = not np.isnan(iterator_A_m2)
-                        df_results_homeweek_tempsim['home_solar_irradiation_avg_W'] =  df_results_homeweek_tempsim['irradiation_hor_avg_W_p_m2'] * A_m2.value[0]
+                        df_results_homeweek_tempsim['home_solar_irradiation_W'] =  df_results_homeweek_tempsim['irradiation_hor_W_p_m2'] * A_m2.value[0]
                         
                         # logging.info(df_results_homeweek_tempsim) 
 
                         # error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration_s
-                        mae_K = (abs(df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])).mean()
-                        rmse_K = ((df_results_homeweek_tempsim['T_in_sim_avg_C'] - df_results_homeweek_tempsim['T_in_avg_C'])**2).mean()**0.5
+                        mae_K = (abs(df_results_homeweek_tempsim['T_in_sim_C'] - df_results_homeweek_tempsim['T_in_C'])).mean()
+                        rmse_K = ((df_results_homeweek_tempsim['T_in_sim_C'] - df_results_homeweek_tempsim['T_in_C'])**2).mean()**0.5
 
                         logging.info('duration [s]: ', duration_s)
                         logging.info('OBJFCNVAL: ', m.options.OBJFCNVAL)
@@ -561,8 +561,8 @@ class Learner():
         co2_ext_ppm = 415                                         # Yearly average CO₂ concentration in Europe 
         
         # National averages
-        W_avg_kg = 77.5                                           # average weight of Dutch adult
-        MET_m3_s_1_p_1 = MET_mL_min_1_kg_1_p_1 * W_avg_kg / (s_min_1 * mL_m_3)
+        W_kg = 77.5                                           # average weight of Dutch adult
+        MET_m3_s_1_p_1 = MET_mL_min_1_kg_1_p_1 * W_kg / (s_min_1 * mL_m_3)
         
         MET_mol_s_1_p_1 = MET_m3_s_1_p_1 * std_mol_m_3            # Metabolic Equivalent of Task, per person
         co2_p_o2 = 0.894                                          # fraction molecules CO₂ exhaled versus molecule O₂ inhaled
