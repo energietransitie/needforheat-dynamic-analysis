@@ -26,23 +26,27 @@ class Plot:
         """      
         
         for id in list(df.index.to_frame(index=False).id.unique()):
-            df_plot = df.loc[id].unstack([0])
-            df_plot.columns = df_plot.columns.swaplevel(0,1)
-            df_plot.columns = ['_'.join(col) for col in df_plot.columns.values]
-            props_with_data = [prop for prop in list(df_plot.columns) if df_plot[prop].count()>0] 
-            units_with_data = np.unique(np.array([prop.split('__')[-1] for prop in props_with_data]))
-            unit_tuples = [tuple([prop for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
-            axes = df_plot[props_with_data].plot(
-                subplots = unit_tuples,
-                style='.--',
-                title=f'id: {id}'
-            )
-            for unit in enumerate(units_with_data):
-                if units_to_mathtext is not None:
-                    axes[unit[0]].set_ylabel(units_to_mathtext[unit[1]])
-                else:
-                    axes[unit[0]].set_ylabel(unit[1])
-            plt.show()
+            try:
+                df_plot = df.loc[id].unstack([0])
+                df_plot.columns = df_plot.columns.swaplevel(0,1)
+                df_plot.columns = ['_'.join(col) for col in df_plot.columns.values]
+                props_with_data = [prop for prop in list(df_plot.columns) if df_plot[prop].count()>0] 
+                units_with_data = np.unique(np.array([prop.split('__')[-1] for prop in props_with_data]))
+                unit_tuples = [tuple([prop for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
+                print(f'')
+                axes = df_plot[props_with_data].plot(
+                    subplots = unit_tuples,
+                    style='.--',
+                    title=f'id: {id}'
+                )
+                for unit in enumerate(units_with_data):
+                    if units_to_mathtext is not None:
+                        axes[unit[0]].set_ylabel(units_to_mathtext[unit[1]])
+                    else:
+                        axes[unit[0]].set_ylabel(unit[1])
+                plt.show()
+            except TypeError:
+                print(f'No data for id: {id}')
     
     @staticmethod
     def temperature_and_power_one_home_plot(title:str, 
