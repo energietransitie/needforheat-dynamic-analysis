@@ -202,7 +202,7 @@ class Learner():
                     logging.info(f'For home {id} the longest streak of sane data is less than {sanity_threshold_timedelta} in the period from {learn_period_start} to {learn_period_start}; skipping...')
                     continue
 
-                step__s = ((df_learn.index.max() - df_learn.index.min()).total_seconds()
+                step__s = ((df_learn.get_level_values(level='timestamp').index.max() - df_learn.get_level_values(level='timestamp').index.min()).total_seconds()
                           /
                           (len(df_learn)-1)
                          )
@@ -365,12 +365,10 @@ class Learner():
                         
                         # logging.info(df_results_homeweek_tempsim) 
 
-                        # error_K = (m.options.OBJFCNVAL ** (1/m.options.EV_TYPE))/duration__s
                         mae_K = (abs(df_results_homeweek_tempsim['temp_in_sim__degC'] - df_results_homeweek_tempsim['temp_in__degC'])).mean()
                         rmse_K = ((df_results_homeweek_tempsim['temp_in_sim__degC'] - df_results_homeweek_tempsim['temp_in__degC'])**2).mean()**0.5
 
                         logging.info('duration [s]: ', duration__s)
-                        logging.info('OBJFCNVAL: ', m.options.OBJFCNVAL)
                         logging.info('EV_TYPE: ', m.options.EV_TYPE)
                         logging.info('H [W/K]: ', round(H__W_K_1.value[0], 4))
                         logging.info('tau [h]: ', round(tau__s.value[0] / s_h_1, 2))
@@ -392,7 +390,6 @@ class Learner():
                             'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
                             'interpolation_interval': [int_intv],
                             'duration__s': [duration__s],
-                            'OBJFCNVAL': [m.options.OBJFCNVAL],
                             'EV_TYPE': [m.options.EV_TYPE],
                             'H__W_K_1': [H__W_K_1.value[0]],
                             'tau__h': [tau__s.value[0] / s_h_1],
@@ -432,7 +429,6 @@ class Learner():
                             'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
                             'interpolation_interval': [int_intv],
                             'duration__s': [np.nan],
-                            'OBJFCNVAL': [np.nan],
                             'EV_TYPE': [np.nan],
                             'H__W_K_1': [np.nan],
                             'tau__h': [np.nan],
@@ -501,7 +497,7 @@ class Learner():
     
     
     @staticmethod
-    def learn_room_parameter(df_data_ids:pd.DataFrame, ev_type=2) -> pd.DataFrame:
+    def learn_room_parameters(df_data_ids:pd.DataFrame, ev_type=2) -> pd.DataFrame:
         """
         Input:  
         - a dataframe with a MultiIndex ['id', 'timestamp]; timestamp is timezone-aware
@@ -528,7 +524,7 @@ class Learner():
 
         # Constants
         MET__mL_min_1_kg_1_p_1 = 3.5                                  # Metabolic Equivalent of Task, per kg body weight
-        desk_work = 1.5                                               # MET factor for desk work
+        desk_work__MET = 1.5                                               # MET factor for desk work
         P_std__Pa = 101325                                            # standard gas pressure
         R__m3_Pa_K_1_mol_1 = 8.3145                                   # gas constant
         T_room__degC = 20.0                                           # standard room temperature
@@ -543,12 +539,12 @@ class Learner():
         co2_ext__ppm = 415                                            # Yearly average CO₂ concentration in Europe 
         
         # National averages
-        weight_kg = 77.5                                             # average weight of Dutch adult
-        MET__m3_s_1_p_1 = MET__mL_min_1_kg_1_p_1 * weight_kg / (s_min_1 * mL_m_3)
+        weight__kg = 77.5                                             # average weight of Dutch adult
+        MET__m3_s_1_p_1 = MET__mL_min_1_kg_1_p_1 * weight__kg / (s_min_1 * mL_m_3)
         
         MET_mol_s_1_p_1 = MET__m3_s_1_p_1 * std__mol_m_3              # Metabolic Equivalent of Task, per person
         co2_p_o2 = 0.894                                              # fraction molecules CO₂ exhaled versus molecule O₂ inhaled
-        co2__mol0_p_1_s_1 = co2_p_o2 * desk_work * MET_mol_s_1_p_1    # CO₂ raise by Dutch desk worker [mol/mol]
+        co2__mol0_p_1_s_1 = co2_p_o2 * desk_work__MET * MET_mol_s_1_p_1    # CO₂ raise by Dutch desk worker [mol/mol]
 
         # Room averages
         wind__m_s_1 = 3.0                                             # assumed wind speed for virtual rooms that causes infiltration
@@ -560,12 +556,12 @@ class Learner():
         logging.info('ids to analyze: ', list(ids.values))
 
         for id in tqdm(ids):
-            df = df_data_ids.loc[id]
-            step__s = ((df.index.max() - df.index.min()).total_seconds()
+            df_learn = df_data_ids.loc[id]
+            step__s = ((df_learn.index.get_level_values(level='timestamp').max() - df_learn.index.get_level_values(level='timestamp').min()).total_seconds()
                       /
-                      (len(df)-1)
+                      (len(df_learn)-1)
                      )
-            duration__s = step__s * len(df)
+            duration__s = step__s * len(df_learn)
             
             # Virtual room constants 
             room__m3 = id % 1e3
@@ -580,10 +576,10 @@ class Learner():
 
 
             # GEKKO Manipulated Variables: measured values
-            occupancy__p = m.MV(value = df.occupancy__p.values)
+            occupancy__p = m.MV(value = df_learn.occupancy__p.values)
             occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
 
-            valve_frac__0 = m.MV(value = df.valve_frac__0.values)
+            valve_frac__0 = m.MV(value = df_learn.valve_frac__0.values)
             valve_frac__0.STATUS = 0; valve_frac__0.FSTATUS = 1
 
 
@@ -592,7 +588,7 @@ class Learner():
             infilt__m2.STATUS = 1; infilt__m2.FSTATUS = 0
 
             # GEKKO Control Varibale (predicted variable)
-            co2__ppm = m.CV(value = df.co2__ppm.values) #[ppm]
+            co2__ppm = m.CV(value = df_learn.co2__ppm.values) #[ppm]
             co2__ppm.STATUS = 1; co2__ppm.FSTATUS = 1
 
             # GEKKO - Equations
@@ -623,12 +619,11 @@ class Learner():
                         {
                             'id': [id],
                             'duration__s': [duration__s],
-                            'OBJFCNVAL': [m.options.OBJFCNVAL],
                             'EV_TYPE': [m.options.EV_TYPE],
                             'vent_min__m3_h_1': [vent_min__m3_h_1],
                             'vent_max__m3_h_1': [vent_max__m3_h_1],
-                            'room_true__m3': [room__m3],
-                            'infilt_true__cm2': [vent_min__m3_h_1 / (s_h_1 * wind__m_s_1) * 1e4],
+                            'room_actual__m3': [room__m3],
+                            'infilt_actual__cm2': [vent_min__m3_h_1 / (s_h_1 * wind__m_s_1) * 1e4],
                             'infilt__cm2': [infilt__m2.value[0] * 1e4],
                             'mae__ppm': [mae__ppm],
                             'rmse__ppm': [rmse__ppm]
