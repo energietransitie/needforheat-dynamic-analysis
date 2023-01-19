@@ -12,22 +12,26 @@ class Learner():
     
     @staticmethod
     def learn_home_parameters(df_data_homes:pd.DataFrame,
-                             n_std:int, up_intv:str, gap_n_intv:int, int_intv:str, 
                              learn_period_d=7, 
                              req_col:list = [], sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                              hint_A__m2=None, hint_eta_sup_CH__0=0.97, ev_type=2) -> pd.DataFrame:
         """
         Input:  
-        - a dataframe with a timezone-aware datetime index and measurement values: with at least the following columns
-            [
-                'id', 
-                'temp_out_e__degC', 'ghi__W_m_2',
-                'temp_in__degC', 'g_use__W', 'e_use__W', 'e_ret__W', 
+        - a dataframe with
+            - a MultiIndex ['id', 'source', 'timestamp'], where the column 'timestamp' is timezone-aware
+            - columns:
+                'temp_in__degC',
+                'temp_out__degC',
+                'wind__m_s_1',
+                'ghi__W_m_2',
+                'g_use__W',
+                'e_use__W',
+                'e_ret__W', 
             ]
         and optionally,
         - the number of days to use as learn period in the analysis
         - 'ev_type'
-        - a 'req_col' list: a list of coumn names: if any of the values in this column are NaN, the interval is not considered 'sane'
+        - a 'req_col' list: a list of column names: if any of the values in this column are NaN, the interval is not considered 'sane'
         - a sanity_theshold_timedelta: only the longest streaks with sane data longer than this is considered for analysis during each learn_period
         
         Output:
@@ -58,10 +62,6 @@ class Learner():
         print('Start of analyses: ', start_analysis_period)
         print('End of analyses: ', end_analysis_period)
         print('learn period: ', daterange_frequency)
-        print('#standard deviations for outlier removal: ', n_std)
-        print('Upsampling_interval: ', up_intv)
-        print('#upsampling intervals bridged during interpolation (max): ', gap_n_intv)
-        print('Interpolation interval: ', int_intv)
         print('Hint for effective window are A [m2]: ', hint_A__m2)
         print('Hint for superior heating efficiency eta [-]: ', hint_eta_sup_CH__0)
         print('EV_TYPE: ', ev_type)
@@ -89,9 +89,9 @@ class Learner():
 
         # National averages
 
-        p_hh_1 = 2.2  # average number of people in Dutch household
+        p = 2.2  # average number of people in Dutch household
         Q_gain_int__W_p_1 = 61  # average heat gain per average person with average behaviour and occupancy
-        Q_gain_int_occup__W = Q_gain_int__W_p_1 * p_hh_1
+        Q_gain_int_occup__W = Q_gain_int__W_p_1 * p
 
         # currently, we use 339 [m3/a] national average gas usage per year for cooking and DHW, i.e. not for CH
         g_noCH__m3_s_1 = (339.0 / s_a_1)  
@@ -385,10 +385,6 @@ class Learner():
                             'start_learn_period': [learn_period_start],
                             'end_learn_period': [learn_period_end],
                             'pseudonym': [id],
-                            'n_std_outlier_removal': [n_std], 
-                            'upsampling_interval': [up_intv], 
-                            'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
-                            'interpolation_interval': [int_intv],
                             'duration__s': [duration__s],
                             'EV_TYPE': [m.options.EV_TYPE],
                             'H__W_K_1': [H__W_K_1.value[0]],
@@ -424,10 +420,6 @@ class Learner():
                             'start_learn_period': [learn_period_start],
                             'end_learn_period': [learn_period_end],
                             'pseudonym': [id],
-                            'n_std_outlier_removal': [n_std], 
-                            'upsampling_interval': [up_intv], 
-                            'n_intv_gap_bridge_upper_bound': [gap_n_intv], 
-                            'interpolation_interval': [int_intv],
                             'duration__s': [np.nan],
                             'EV_TYPE': [np.nan],
                             'H__W_K_1': [np.nan],
@@ -500,11 +492,12 @@ class Learner():
     def learn_room_parameters(df_data_ids:pd.DataFrame, ev_type=2) -> pd.DataFrame:
         """
         Input:  
-        - a dataframe with a MultiIndex ['id', 'timestamp]; timestamp is timezone-aware
-        - columns:
-          - 'occupancy__p': average number of people present in the room,
-          - 'co2__ppm': average CO₂-concentration in the room,
-          - 'valve_frac__0' opening fraction of the ventilation valve 
+        - a dataframe with
+            - a MultiIndex ['id', 'source', 'timestamp'], where the column 'timestamp' is timezone-aware
+            - columns:
+              - 'occupancy__p': average number of people present in the room,
+              - 'co2__ppm': average CO₂-concentration in the room,
+              - 'valve_frac__0' opening fraction of the ventilation valve 
         and optionally,
         - 'ev_type': type 2 is usually recommended, since this is typically more than 50 times faster
         
