@@ -11,14 +11,18 @@ import logging
 class Learner():
     
     @staticmethod
-    def learn_home_parameters(df_data_homes:pd.DataFrame,
+    def learn_home_parameters(df_data_ids:pd.DataFrame,
                              learn_period_d=7, 
                              req_col:list = [], sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                              hint_A__m2=None, hint_eta_sup_CH__0=0.97, ev_type=2) -> pd.DataFrame:
         """
         Input:  
-        - a dataframe with
-            - a MultiIndex ['id', 'source', 'timestamp'], where the column 'timestamp' is timezone-aware
+        - a preprocessed dataframe with
+            - a MultiIndex ['id', 'timestamp'], where
+                - the column 'timestamp' is timezone-aware
+                - time intervals between consecutive measurements are constant
+                - but there may be gaps of multiple intervals with no measurements
+                - multiple sources for the same property are already dealth with in preprocessing
             - columns:
                 'temp_in__degC',
                 'temp_out__degC',
@@ -36,41 +40,37 @@ class Learner():
         
         Output:
         - a dataframe with per id and per learn_period the learned parameters
-        - a dataframe with additional columns:
-          - 'sanity': none of the required columns in the req_col list are NaN
-          - 'interval__s': interval timethe 
+        - a dataframe with additional column:
           - 'temp_in_sim__degC' best fitting temperature series for each learn period
         """
         
         if not ((hint_A__m2 is None) or isinstance(hint_A__m2, numbers.Number)):
             raise TypeError('hint_A__m2 parameter must be a number or None')
-        # get starting time of this analysis; to be used as prefix for filenames
-        filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
 
         # set default values for parameters not set
         
         if (learn_period_d is None):
             learn_period_d = 7
 
-        homes_to_analyze= df_data_homes.index.unique('id').dropna()
-        start_analysis_period = df_data_homes.index.unique('timestamp').min().to_pydatetime()
-        end_analysis_period = df_data_homes.index.unique('timestamp').max().to_pydatetime()
+        ids= df_data_ids.index.unique('id').dropna()
+        start_analysis_period = df_data_ids.index.unique('timestamp').min().to_pydatetime()
+        end_analysis_period = df_data_ids.index.unique('timestamp').max().to_pydatetime()
         
         daterange_frequency = str(learn_period_d) + 'D'
 
-        print('Homes to analyse: ', homes_to_analyze)
-        print('Start of analyses: ', start_analysis_period)
-        print('End of analyses: ', end_analysis_period)
-        print('learn period: ', daterange_frequency)
-        print('Hint for effective window are A [m2]: ', hint_A__m2)
-        print('Hint for superior heating efficiency eta [-]: ', hint_eta_sup_CH__0)
-        print('EV_TYPE: ', ev_type)
+        logging.info('Homes to analyse: ', ids)
+        logging.info('Start of analyses: ', start_analysis_period)
+        logging.info('End of analyses: ', end_analysis_period)
+        logging.info('learn period: ', daterange_frequency)
+        logging.info('Hint for effective window are A [m2]: ', hint_A__m2)
+        logging.info('Hint for superior heating efficiency eta [-]: ', hint_eta_sup_CH__0)
+        logging.info('EV_TYPE: ', ev_type)
 
         # perform sanity check; not any required column may be missing a value
         if (req_col == []):
-            df_data_homes.loc[:,'sanity'] = True
+            df_data_ids.loc[:,'sanity'] = True
         else:
-            df_data_homes.loc[:,'sanity'] = ~np.isnan(df_data_homes[req_col]).any(axis="columns")
+            df_data_ids.loc[:,'sanity'] = ~np.isnan(df_data_ids[req_col]).any(axis="columns")
             
         # Conversion factor s_h_1 [s/h]  = 60 [min/h] * 60 [s/min] 
         s_h_1 = (60 * 60) 
@@ -103,7 +103,15 @@ class Learner():
         df_results_allhomes_allweeks_tempsim = pd.DataFrame()
            
         # iterate over homes
-        for id in tqdm(homes_to_analyze):
+        for id in tqdm(ids):
+            
+            if id > 1e6: # This ismeans we're analysing a virtual home constants 
+                actual_H__W_K_1 = id // 1e5
+                actual_tau__h = (id % 1e5) // 1e2
+                actual_tau__s = actual_tau__h * s_h_1
+                actual_A__m2 = id % 1e2
+                actual_C__Wh_K_1 = actual_H__W_K_1 * actual_tau__h
+                actual_C__J_K_1 = actual_H__W_K_1 * actual_tau__s
             
             # create empty dataframe for results of a home
             df_results_home = pd.DataFrame()
@@ -116,20 +124,20 @@ class Learner():
 
             logging.info('Home id: ', id)
 
-            df_data_one_home = df_data_homes.loc[id].copy()
+            df_learn = df_data_ids.loc[id].copy() #TODO: don't work with a copy, nut add learnt data (_sim) to original DataFrame, like in learn_room_parameters
             
             # calculate timedelta for each interval (code is suitable for unevenly spaced measurementes)
-            df_data_one_home['interval__s'] = (df_data_one_home
-                                               .index.to_series()
-                                               .diff()
-                                               .shift(-1)
-                                               .apply(lambda x: x.total_seconds())
-                                               .fillna(0)
-                                               .astype(int)
-                                              )
+            df_learn['interval__s'] = (df_learn
+                                       .index.to_series()
+                                       .diff()
+                                       .shift(-1)
+                                       .apply(lambda x: x.total_seconds())
+                                       .fillna(0)
+                                       .astype(int)
+                                       )
 
-            df_data_one_home['streak_id'] = np.nan
-            df_data_one_home['streak_cumulative_duration__s'] = np.nan
+            df_learn['streak_id'] = np.nan
+            df_learn['streak_cumulative_duration__s'] = np.nan
                         
             # split gas over CH and noCH per home based on the entire period 
             
@@ -141,18 +149,18 @@ class Learner():
             logging.info('g_use_noCH__W: ', g_use_noCH__W)
 
             # using this average, distribute gas usage over central heating (CH) versus no Central Heating (noCH)
-            df_data_one_home['g_use_noCH__W'] = g_use_noCH__W
-            df_data_one_home['g_use_CH__W'] = df_data_one_home['g_use__W'] - g_use_noCH__W
+            df_learn['g_use_noCH__W'] = g_use_noCH__W
+            df_learn['g_use_CH__W'] = df_learn['g_use__W'] - g_use_noCH__W
 
             # Avoid negative values for heating; simple fix: negative value with zero in g_use_CH__W
-            df_data_one_home.loc[df_data_one_home.g_use_CH__W < 0, 'g_use_CH__W'] = 0
+            df_learn.loc[df_learn.g_use_CH__W < 0, 'g_use_CH__W'] = 0
 
             # Compensate by scaling down g_use_CH__W 
-            g_use_home__W = df_data_one_home['g_use__W'].mean()
-            uncorrected_g_use_CH__W = df_data_one_home['g_use_CH__W'].mean()
+            g_use_home__W = df_learn['g_use__W'].mean()
+            uncorrected_g_use_CH__W = df_learn['g_use_CH__W'].mean()
             scaling_factor =   (g_use_home__W - g_use_noCH__W) / uncorrected_g_use_CH__W  
-            df_data_one_home['g_use_CH__W'] = df_data_one_home['g_use_CH__W'] * scaling_factor
-            corrected_g_use_CH__W = df_data_one_home['g_use_CH__W'].mean()
+            df_learn['g_use_CH__W'] = df_learn['g_use_CH__W'] * scaling_factor
+            corrected_g_use_CH__W = df_learn['g_use_CH__W'].mean()
 
             logging.info('id: ', id)
             logging.info('g_use_home__W: ', g_use_home__W)
@@ -171,9 +179,9 @@ class Learner():
                 learn_period_end = min(end_analysis_period, learn_period_start + timedelta(days=learn_period_d))
 
                 if (learn_period_end < end_analysis_period):
-                    df_learn = df_data_one_home[learn_period_start:learn_period_end].iloc[:-1]
+                    df_learn = df_learn[learn_period_start:learn_period_end].iloc[:-1]
                 else:
-                    df_learn = df_data_one_home[learn_period_start:end_analysis_period]
+                    df_learn = df_learn[learn_period_start:end_analysis_period]
                     
                 learn_period_end = df_learn.index.max()
 
@@ -196,13 +204,15 @@ class Learner():
 
                 logging.info('Start datetime longest sane streak: ', learn_period_start)
                 logging.info('End datetime longest sane streak: ', learn_period_end)
+                
+                df_learn = df_learn.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s'])
 
                 # then check whether enough data, if not then skip this homeweek, move on to next
                 if ((learn_period_end - learn_period_start) < sanity_threshold_timedelta):
                     logging.info(f'For home {id} the longest streak of sane data is less than {sanity_threshold_timedelta} in the period from {learn_period_start} to {learn_period_start}; skipping...')
                     continue
 
-                step__s = ((df_learn.get_level_values(level='timestamp').index.max() - df_learn.get_level_values(level='timestamp').index.min()).total_seconds()
+                step__s = ((df_learn.index.max() - df_learn.index.min()).total_seconds()
                           /
                           (len(df_learn)-1)
                          )
@@ -345,8 +355,8 @@ class Learner():
                         ########################################################################################################################
                         Q_gain__W = m.Intermediate(Q_gain_g_CH__W + Q_gain_sol__W + Q_gain_int__W)
                         Q_loss__W = m.Intermediate(H__W_K_1 * (temp_in__degC - temp_out_e__degC)) 
-                        C_J_K_1  = m.Intermediate(H__W_K_1 * tau__s) 
-                        m.Equation(temp_in__degC.dt() == ((Q_gain__W - Q_loss__W) / C_J_K_1))
+                        C__J_K_1  = m.Intermediate(H__W_K_1 * tau__s) 
+                        m.Equation(temp_in__degC.dt() == ((Q_gain__W - Q_loss__W) / C__J_K_1))
                         
                         m.options.IMODE = 5
                         m.options.EV_TYPE = ev_type # specific objective function (L1-norm vs L2-norm)
@@ -358,13 +368,17 @@ class Learner():
 
                         # create a deep copy
                         df_results_homeweek_tempsim = df_learn.copy(deep=True)
-
                         df_results_homeweek_tempsim['temp_in_sim__degC'] = list(temp_in__degC.value)
-                        df_results_homeweek_tempsim['A_is_fixed'] = not np.isnan(iterator_A__m2)
-                        df_results_homeweek_tempsim['home_solar_irradiance__W'] =  df_results_homeweek_tempsim['ghi__W_m_2'] * A__m2.value[0]
-                        
-                        # logging.info(df_results_homeweek_tempsim) 
+                        df_results_homeweek_tempsim['A_is_fixed__bool'] = not np.isnan(iterator_A__m2)
 
+                        # TODO: don't use copy but paste directly into df_learn or df_data_ids
+                        # TODO: determine start and end
+                        # df_learn.loc[start:end, 'temp_in_sim__degC'] = temp_in__degC
+                        # df_learn.loc[start:end, 'A_is_fixed__bool'] = not np.isnan(iterator_A__m2)
+                        # df_data_ids.loc[id, start:end, 'temp_in_sim__degC'] = temp_in__degC
+                        # df_data_ids.loc[id, start:end, 'A_is_fixed__bool'] = not np.isnan(iterator_A__m2)
+
+                        
                         mae_K = (abs(df_results_homeweek_tempsim['temp_in_sim__degC'] - df_results_homeweek_tempsim['temp_in__degC'])).mean()
                         rmse_K = ((df_results_homeweek_tempsim['temp_in_sim__degC'] - df_results_homeweek_tempsim['temp_in__degC'])**2).mean()**0.5
 
@@ -381,21 +395,43 @@ class Learner():
                         
 
                         # Create a results row
-                        df_result_row = pd.DataFrame({
-                            'start_learn_period': [learn_period_start],
-                            'end_learn_period': [learn_period_end],
-                            'pseudonym': [id],
-                            'duration__s': [duration__s],
-                            'EV_TYPE': [m.options.EV_TYPE],
-                            'H__W_K_1': [H__W_K_1.value[0]],
-                            'tau__h': [tau__s.value[0] / s_h_1],
-                            'C__Wh_K_1':[H__W_K_1.value[0] * tau__s.value[0] / s_h_1],
-                            'A__m2': [A__m2.value[0]],
-                            'A__m2_fixed': [not np.isnan(iterator_A__m2)],
-                            'eta_sup__0': [eta_sup_CH__0.value[0]],
-                            'eta_sup_fixed': [True],
-                            'MAE_K': [mae_K],
-                            'RMSE_K': [rmse_K]})
+                        if id > 1e6: # This means we're analysing a virtual home constants 
+                            df_result_row = pd.DataFrame({
+                                'start_learn_period': [learn_period_start],
+                                'end_learn_period': [learn_period_end],
+                                'pseudonym': [id],
+                                'duration__s': [duration__s],
+                                'EV_TYPE': [m.options.EV_TYPE],
+                                'actual_H__W_K_1': [actual_H__W_K_1], 
+                                'actual_tau__h': [actual_tau__h],
+                                'actual_A__m2': [actual_A__m2],
+                                'actual_C__J_K_1': [actual_C__J_K_1],
+                                'H__W_K_1': [H__W_K_1.value[0]],
+                                'tau__h': [tau__s.value[0] / s_h_1],
+                                'C__Wh_K_1':[H__W_K_1.value[0] * tau__s.value[0] / s_h_1],
+                                'A__m2': [A__m2.value[0]],
+                                'A__m2_fixed': [not np.isnan(iterator_A__m2)],
+                                'eta_sup__0': [eta_sup_CH__0.value[0]],
+                                'eta_sup_fixed': [True],
+                                'MAE_K': [mae_K],
+                                'RMSE_K': [rmse_K]})
+                        else:
+                            df_result_row = pd.DataFrame({
+                                'start_learn_period': [learn_period_start],
+                                'end_learn_period': [learn_period_end],
+                                'pseudonym': [id],
+                                'duration__s': [duration__s],
+                                'EV_TYPE': [m.options.EV_TYPE],
+                                'H__W_K_1': [H__W_K_1.value[0]],
+                                'tau__h': [tau__s.value[0] / s_h_1],
+                                'C__Wh_K_1':[H__W_K_1.value[0] * tau__s.value[0] / s_h_1],
+                                'A__m2': [A__m2.value[0]],
+                                'A__m2_fixed': [not np.isnan(iterator_A__m2)],
+                                'eta_sup__0': [eta_sup_CH__0.value[0]],
+                                'eta_sup_fixed': [True],
+                                'MAE_K': [mae_K],
+                                'RMSE_K': [rmse_K]})
+                            
                         df_result_row.set_index(['start_learn_period'], inplace=True)
                         
                         # add week to home results dataframe
@@ -416,21 +452,42 @@ class Learner():
                         
                         logging.error(str('Exception {0} for home {1} in period from {2} to {3}; skipping...'
                                   .format(e, id,learn_period_start,learn_period_end)))
-                        df_result_row = pd.DataFrame({
-                            'start_learn_period': [learn_period_start],
-                            'end_learn_period': [learn_period_end],
-                            'pseudonym': [id],
-                            'duration__s': [np.nan],
-                            'EV_TYPE': [np.nan],
-                            'H__W_K_1': [np.nan],
-                            'tau__h': [np.nan],
-                            'C__Wh_K_1':[np.nan],
-                            'A__m2': [np.nan],
-                            'A__m2_fixed': [not (np.isnan(iterator_A__m2))],
-                            'eta_sup__0': [np.nan],
-                            'eta_sup_fixed': [True],
-                            'MAE_K': [np.nan],
-                            'RMSE_K': [np.nan]})
+                        if id > 1e6: # This means we're analysing a virtual home constants 
+                            df_result_row = pd.DataFrame({
+                                'start_learn_period': [learn_period_start],
+                                'end_learn_period': [learn_period_end],
+                                'pseudonym': [id],
+                                'duration__s': [np.nan],
+                                'EV_TYPE': [np.nan],
+                                'actual_H__W_K_1': [np.nan], 
+                                'actual_tau__h': [np.nan],
+                                'actual_A__m2': [np.nan],
+                                'actual_C__J_K_1': [np.nan],
+                                'H__W_K_1': [np.nan],
+                                'tau__h': [np.nan],
+                                'C__Wh_K_1':[np.nan],
+                                'A__m2': [np.nan],
+                                'A__m2_fixed': [not (np.isnan(iterator_A__m2))],
+                                'eta_sup__0': [np.nan],
+                                'eta_sup_fixed': [True],
+                                'MAE_K': [np.nan],
+                                'RMSE_K': [np.nan]})
+                        else:
+                            df_result_row = pd.DataFrame({
+                                'start_learn_period': [learn_period_start],
+                                'end_learn_period': [learn_period_end],
+                                'pseudonym': [id],
+                                'duration__s': [np.nan],
+                                'EV_TYPE': [np.nan],
+                                'H__W_K_1': [np.nan],
+                                'tau__h': [np.nan],
+                                'C__Wh_K_1':[np.nan],
+                                'A__m2': [np.nan],
+                                'A__m2_fixed': [not (np.isnan(iterator_A__m2))],
+                                'eta_sup__0': [np.nan],
+                                'eta_sup_fixed': [True],
+                                'MAE_K': [np.nan],
+                                'RMSE_K': [np.nan]})
                         df_result_row.set_index(['start_learn_period'], inplace=True)
                         pass
 
@@ -478,13 +535,12 @@ class Learner():
 
         # cols = list(df_results_allhomes_allweeks_tempsim.columns)
         
+        df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim.drop(columns=['sanity'])
         df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim.reset_index().rename(columns = {'index':'timestamp'}).set_index(['id', 'timestamp'])
         
-        #return simulation results via df_data_homes parameter
-        df_data_homes = df_results_allhomes_allweeks_tempsim
+        #return simulation results via df_data_ids parameter
+        df_data_ids = df_results_allhomes_allweeks_tempsim
         
-        filename_prefix = datetime.now().astimezone(pytz.timezone('Europe/Amsterdam')).replace(microsecond=0).isoformat().replace(":","")
-    
         return  df_results, df_results_allhomes_allweeks_tempsim
     
     
@@ -492,6 +548,12 @@ class Learner():
     def learn_room_parameters(df_data_ids:pd.DataFrame, ev_type=2) -> pd.DataFrame:
         """
         Input:  
+        - a preprocessed dataframe with
+            - a MultiIndex ['id', 'timestamp'], where
+                - the column 'timestamp' is timezone-aware
+                - time intervals between consecutive measurements are constant
+                - but there may be gaps of multiple intervals with no measurements
+                - multiple sources for the same property are already dealth with in preprocessing
         - a dataframe with
             - a MultiIndex ['id', 'source', 'timestamp'], where the column 'timestamp' is timezone-aware
             - columns:
@@ -517,7 +579,7 @@ class Learner():
 
         # Constants
         MET__mL_min_1_kg_1_p_1 = 3.5                                  # Metabolic Equivalent of Task, per kg body weight
-        desk_work__MET = 1.5                                               # MET factor for desk work
+        desk_work__MET = 1.5                                          # MET factor for desk work
         P_std__Pa = 101325                                            # standard gas pressure
         R__m3_Pa_K_1_mol_1 = 8.3145                                   # gas constant
         T_room__degC = 20.0                                           # standard room temperature
@@ -536,8 +598,8 @@ class Learner():
         MET__m3_s_1_p_1 = MET__mL_min_1_kg_1_p_1 * weight__kg / (s_min_1 * mL_m_3)
         
         MET_mol_s_1_p_1 = MET__m3_s_1_p_1 * std__mol_m_3              # Metabolic Equivalent of Task, per person
-        co2_p_o2 = 0.894                                              # fraction molecules CO₂ exhaled versus molecule O₂ inhaled
-        co2__mol0_p_1_s_1 = co2_p_o2 * desk_work__MET * MET_mol_s_1_p_1    # CO₂ raise by Dutch desk worker [mol/mol]
+        co2_o2 = 0.894                                              # fraction molecules CO₂ exhaled versus molecule O₂ inhaled
+        co2__mol0_p_1_s_1 = co2_o2 * desk_work__MET * MET_mol_s_1_p_1    # CO₂ raise by Dutch desk worker [mol/mol]
 
         # Room averages
         wind__m_s_1 = 3.0                                             # assumed wind speed for virtual rooms that causes infiltration
@@ -550,7 +612,7 @@ class Learner():
 
         for id in tqdm(ids):
             df_learn = df_data_ids.loc[id]
-            step__s = ((df_learn.index.get_level_values(level='timestamp').max() - df_learn.index.get_level_values(level='timestamp').min()).total_seconds()
+            step__s = ((df_learn.index.max() - df_learn.index.min()).total_seconds()
                       /
                       (len(df_learn)-1)
                      )
@@ -615,8 +677,8 @@ class Learner():
                             'EV_TYPE': [m.options.EV_TYPE],
                             'vent_min__m3_h_1': [vent_min__m3_h_1],
                             'vent_max__m3_h_1': [vent_max__m3_h_1],
-                            'room_actual__m3': [room__m3],
-                            'infilt_actual__cm2': [vent_min__m3_h_1 / (s_h_1 * wind__m_s_1) * 1e4],
+                            'actual_room__m3': [room__m3],
+                            'actual_infilt__cm2': [vent_min__m3_h_1 / (s_h_1 * wind__m_s_1) * 1e4],
                             'infilt__cm2': [infilt__m2.value[0] * 1e4],
                             'mae__ppm': [mae__ppm],
                             'rmse__ppm': [rmse__ppm]
