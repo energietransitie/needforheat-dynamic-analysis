@@ -405,7 +405,7 @@ class Learner():
                                 'actual_H__W_K_1': [actual_H__W_K_1], 
                                 'actual_tau__h': [actual_tau__h],
                                 'actual_A__m2': [actual_A__m2],
-                                'actual_C__J_K_1': [actual_C__J_K_1],
+                                'actual_C__Wh_K_1': [actual_C__Wh_K_1],
                                 'H__W_K_1': [H__W_K_1.value[0]],
                                 'tau__h': [tau__s.value[0] / s_h_1],
                                 'C__Wh_K_1':[H__W_K_1.value[0] * tau__s.value[0] / s_h_1],
