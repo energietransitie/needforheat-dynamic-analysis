@@ -1041,34 +1041,7 @@ class Extractor(Database):
                                           
         return df_all_homes.loc[df_all_homes.index.dropna()]
 
-    @staticmethod
-    def get_virtual_home_data_csv(filename: str, tz_home:str) -> pd.DataFrame:
-        """
-        Obtain data from an csv file with virtual home data 
-        convert timestamps to the tz_home timezone 
-        with outlier removal specific for each property
-        interpolated with the int_intv
-        rendered as a dataframe with a timezone-aware datetime index
-        [
-            'id', 'timestamp',
-            'temp_out__degC','wind__m_s_1', 'ghi__W_m_2',  
-            'temp_in__degC', 'temp_set__degC',
-            'gas_use__W', 'gas_use_noCH__W', 'gas_use_CH__W', 
-            'e_use__W', 'e_ret__W'
-        ]
-        """
-        df_data_virtual_home = pd.read_csv(filename, delimiter=",", skipinitialspace=True, decimal=".", parse_dates=["timestamp_ISO8601"])
-        df_data_virtual_home.rename(columns={"timestamp_ISO8601": "timestamp"}, inplace=True)
-        df_data_virtual_home = df_data_virtual_home.set_index("timestamp")
-        df_data_virtual_home = df_data_virtual_home.loc[df_data_virtual_home.index.dropna()]
-        df_data_virtual_home = df_data_virtual_home.drop('Unnamed: 0', axis=1)
-        df_data_virtual_home.index = pd.to_datetime(df_data_virtual_home.index)
-        df_data_virtual_home.reset_index(inplace=True)
-        cols = list(df_data_virtual_home.columns)
-        df_data_virtual_home = df_data_virtual_home[[cols[1]] + [cols[0]] + cols [2::]]
-        df_data_virtual_home = df_data_virtual_home.set_index(['id', 'timestamp'])
-        df_data_virtual_home = df_data_virtual_home.loc[df_data_virtual_home.index.dropna()]
-        return df_data_virtual_home
+
     
     
 class WeatherExtractor:
