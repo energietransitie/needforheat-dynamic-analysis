@@ -589,7 +589,9 @@ class Learner():
         T_room__K = T_zero__K + T_room__degC                          # standard room temperature [K]
 
         # Approximations
-        room__mol_m_3 = P_std__Pa / (R__m3_Pa_K_1_mol_1 * T_room__K)  # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
+        room_density__mol_m_3 = (P_std__Pa 
+                                 / (R__m3_Pa_K_1_mol_1 * T_room__K)
+                                )                                     # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
         std__mol_m_3 = P_std__Pa / (R__m3_Pa_K_1_mol_1 * T_std__K)    # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
         co2_ext__ppm = 415                                            # Yearly average CO₂ concentration in Europe 
         co2_o2__mol0 = 0.894                                          # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
@@ -601,10 +603,10 @@ class Learner():
                            / s_min_1 
                            * (million * std__mol_m_3 / mL_m_3)
                            )                                          # molar quantity of O₂inhaled by an average Dutch adult at 1 MET [µmol/(p⋅s)]
-        co2__umol_p_1_s_1 = (co2_o2__mol0
-                             * desk_work__MET
-                             * umol_s_1_p_1_MET_1
-                            )                                         # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
+        co2_exhale__umol_p_1_s_1 = (co2_o2__mol0
+                                    * desk_work__MET
+                                    * umol_s_1_p_1_MET_1
+                                   )                                  # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
         # Room averages
         wind__m_s_1 = 3.0                                             # assumed wind speed for virtual rooms that causes infiltration
         
@@ -651,10 +653,11 @@ class Learner():
             co2__ppm.STATUS = 1; co2__ppm.FSTATUS = 1
 
             # GEKKO - Equations
-            co2_loss_vent__ppm_s_1 = m.Intermediate((co2__ppm - co2_ext__ppm) * (vent_max__m3_s_1 * valve_frac__0) / room__m3)
-            co2_loss_wind__ppm_s_1 = m.Intermediate((co2__ppm - co2_ext__ppm) * (wind__m_s_1 * infilt__m2) / room__m3)
+            co2_elevation__ppm = m.Intermediate(co2__ppm - co2_ext__ppm)
+            co2_loss_vent__ppm_s_1 = m.Intermediate(co2_elevation__ppm * (vent_max__m3_s_1 * valve_frac__0) / room__m3)
+            co2_loss_wind__ppm_s_1 = m.Intermediate(co2_elevation__ppm * (wind__m_s_1 * infilt__m2) / room__m3)
             co2_loss__ppm_s_1 = m.Intermediate(co2_loss_vent__ppm_s_1 + co2_loss_wind__ppm_s_1)
-            co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2__umol_p_1_s_1 / (room__m3 * room__mol_m_3))
+            co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale__umol_p_1_s_1 / (room__m3 * room_density__mol_m_3))
             m.Equation(co2__ppm.dt() == co2_gain__ppm_s_1 - co2_loss__ppm_s_1)
 
 
