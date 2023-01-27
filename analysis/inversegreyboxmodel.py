@@ -576,31 +576,35 @@ class Learner():
         s_h_1 = s_min_1 * min_h_1
         mL_m_3 = 1e3 * 1e3
         million = 1e6
+        mL_min_1_kg_1_p_1_MET_1 = 3.5                                 # conversion factor for Metabolic Equivalent of Task [mlO₂‧kg^-1‧min^-1‧MET^-1] 
 
         # Constants
-        MET__mL_min_1_kg_1_p_1 = 3.5                                  # Metabolic Equivalent of Task, per kg body weight
-        desk_work__MET = 1.5                                          # MET factor for desk work
-        P_std__Pa = 101325                                            # standard gas pressure
-        R__m3_Pa_K_1_mol_1 = 8.3145                                   # gas constant
-        T_room__degC = 20.0                                           # standard room temperature
-        T_std__degC = 0.0                                             # standard gas temperature
-        T_zero__K = 273.15                                            # 0 ˚C
-        T_std__K = T_zero__K + T_std__degC                            # standard gas temperature
-        T_room__K = T_zero__K + T_room__degC                          # standard room temperature
+        desk_work__MET = 1.5                                          # Metabolic Equivalent of Task for desk work [MET]
+        P_std__Pa = 101325                                            # standard gas pressure [Pa]
+        R__m3_Pa_K_1_mol_1 = 8.3145                                   # gas constant [m^3⋅Pa⋅K^-1⋅mol^-1)]
+        T_room__degC = 20.0                                           # standard room temperature [°C]
+        T_std__degC = 0.0                                             # standard gas temperature [°C]
+        T_zero__K = 273.15                                            # 0 [°C] = 273.15 [K]
+        T_std__K = T_zero__K + T_std__degC                            # standard gas temperature [K]
+        T_room__K = T_zero__K + T_room__degC                          # standard room temperature [K]
 
         # Approximations
-        room__mol_m_3 = P_std__Pa / (R__m3_Pa_K_1_mol_1 * T_room__K)  # gas molecules in 1 m3 under room conditions 
-        std__mol_m_3 = P_std__Pa / (R__m3_Pa_K_1_mol_1 * T_std__K)    # gas molecules in 1 m3 under standard conditions 
+        room__mol_m_3 = P_std__Pa / (R__m3_Pa_K_1_mol_1 * T_room__K)  # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
+        std__mol_m_3 = P_std__Pa / (R__m3_Pa_K_1_mol_1 * T_std__K)    # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
         co2_ext__ppm = 415                                            # Yearly average CO₂ concentration in Europe 
-        
-        # National averages
-        weight__kg = 77.5                                             # average weight of Dutch adult
-        MET__m3_s_1_p_1 = MET__mL_min_1_kg_1_p_1 * weight__kg / (s_min_1 * mL_m_3)
-        
-        MET_mol_s_1_p_1 = MET__m3_s_1_p_1 * std__mol_m_3              # Metabolic Equivalent of Task, per person
-        co2_o2 = 0.894                                              # fraction molecules CO₂ exhaled versus molecule O₂ inhaled
-        co2__mol0_p_1_s_1 = co2_o2 * desk_work__MET * MET_mol_s_1_p_1    # CO₂ raise by Dutch desk worker [mol/mol]
+        co2_o2__mol0 = 0.894                                          # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
 
+        # National averages
+        weight__kg = 77.5                                             # average weight of Dutch adult [kg]
+        umol_s_1_p_1_MET_1 = (mL_min_1_kg_1_p_1_MET_1
+                           * weight__kg
+                           / s_min_1 
+                           * (million * std__mol_m_3 / mL_m_3)
+                           )                                          # molar quantity of O₂inhaled by an average Dutch adult at 1 MET [µmol/(p⋅s)]
+        co2__umol_p_1_s_1 = (co2_o2__mol0
+                             * desk_work__MET
+                             * umol_s_1_p_1_MET_1
+                            )                                         # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
         # Room averages
         wind__m_s_1 = 3.0                                             # assumed wind speed for virtual rooms that causes infiltration
         
