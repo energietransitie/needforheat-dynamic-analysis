@@ -651,9 +651,10 @@ class Learner():
             co2__ppm.STATUS = 1; co2__ppm.FSTATUS = 1
 
             # GEKKO - Equations
-            co2_loss__ppm_s_1 = m.Intermediate((co2__ppm - co2_ext__ppm) * (vent_max__m3_s_1 * valve_frac__0 + wind__m_s_1 * infilt__m2) / room__m3)
-            co2_gain_mol0_s_1 = m.Intermediate(occupancy__p * co2__mol0_p_1_s_1 / (room__m3 * room__mol_m_3))
-            co2_gain__ppm_s_1 = m.Intermediate(co2_gain_mol0_s_1 * million)
+            co2_loss_vent__ppm_s_1 = m.Intermediate((co2__ppm - co2_ext__ppm) * (vent_max__m3_s_1 * valve_frac__0) / room__m3)
+            co2_loss_wind__ppm_s_1 = m.Intermediate((co2__ppm - co2_ext__ppm) * (wind__m_s_1 * infilt__m2) / room__m3)
+            co2_loss__ppm_s_1 = m.Intermediate(co2_loss_vent__ppm_s_1 + co2_loss_wind__ppm_s_1)
+            co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2__umol_p_1_s_1 / (room__m3 * room__mol_m_3))
             m.Equation(co2__ppm.dt() == co2_gain__ppm_s_1 - co2_loss__ppm_s_1)
 
 
