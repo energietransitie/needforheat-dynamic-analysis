@@ -571,39 +571,42 @@ class Learner():
         
 
         # Conversion factors
-        s_min_1 = 60
-        min_h_1 = 60
-        s_h_1 = s_min_1 * min_h_1
-        mL_m_3 = 1e3 * 1e3
-        million = 1e6
-        mL_min_1_kg_1_p_1_MET_1 = 3.5                                 # conversion factor for Metabolic Equivalent of Task [mlO₂‧kg^-1‧min^-1‧MET^-1] 
+        s_min_1 = 60                                                  # [s] per [min]
+        min_h_1 = 60                                                  # [min] per [h]
+        s_h_1 = s_min_1 * min_h_1                                     # [s] per [h]
+        ml_m_3 = 1e3 * 1e3                                            # [ml] per [m^3]
+        umol_mol_1 = 1e6                                              # [µmol] per [mol]
+        cm2_m_2 = 1e2 * 1e2                                           # [cm^2] per [m^2]
+        O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
 
         # Constants
         desk_work__MET = 1.5                                          # Metabolic Equivalent of Task for desk work [MET]
         P_std__Pa = 101325                                            # standard gas pressure [Pa]
         R__m3_Pa_K_1_mol_1 = 8.3145                                   # gas constant [m^3⋅Pa⋅K^-1⋅mol^-1)]
-        T_room__degC = 20.0                                           # standard room temperature [°C]
-        T_std__degC = 0.0                                             # standard gas temperature [°C]
-        T_zero__K = 273.15                                            # 0 [°C] = 273.15 [K]
-        T_std__K = T_zero__K + T_std__degC                            # standard gas temperature [K]
-        T_room__K = T_zero__K + T_room__degC                          # standard room temperature [K]
+        temp_room__degC = 20.0                                        # standard room temperature [°C]
+        temp_std__degC = 0.0                                          # standard gas temperature [°C]
+        temp_zero__K = 273.15                                         # 0 [°C] = 273.15 [K]
+        temp_std__K = temp_std__degC + temp_zero__K                   # standard gas temperature [K]
+        temp_room__K = temp_room__degC + temp_zero__K                 # standard room temperature [K]
 
         # Approximations
-        room_density__mol_m_3 = (P_std__Pa 
-                                 / (R__m3_Pa_K_1_mol_1 * T_room__K)
-                                )                                     # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
-        std__mol_m_3 = P_std__Pa / (R__m3_Pa_K_1_mol_1 * T_std__K)    # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
+        air_density__mol_m_3 = (P_std__Pa 
+                                / (R__m3_Pa_K_1_mol_1 * temp_room__K)
+                               )                                      # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
+        std__mol_m_3 = (P_std__Pa 
+                        / (R__m3_Pa_K_1_mol_1 * temp_std__K)
+                       )                                              # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
         co2_ext__ppm = 415                                            # Yearly average CO₂ concentration in Europe 
-        co2_o2__mol0 = 0.894                                          # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
+        metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
 
         # National averages
         weight__kg = 77.5                                             # average weight of Dutch adult [kg]
-        umol_s_1_p_1_MET_1 = (mL_min_1_kg_1_p_1_MET_1
+        umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
                            * weight__kg
                            / s_min_1 
-                           * (million * std__mol_m_3 / mL_m_3)
+                           * (umol_mol_1 * std__mol_m_3 / ml_m_3)
                            )                                          # molar quantity of O₂inhaled by an average Dutch adult at 1 MET [µmol/(p⋅s)]
-        co2_exhale__umol_p_1_s_1 = (co2_o2__mol0
+        co2_exhale__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
                                     * desk_work__MET
                                     * umol_s_1_p_1_MET_1
                                    )                                  # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
@@ -657,7 +660,7 @@ class Learner():
             co2_loss_vent__ppm_s_1 = m.Intermediate(co2_elevation__ppm * vent_max__m3_s_1 * valve_frac__0 / room__m3)
             co2_loss_wind__ppm_s_1 = m.Intermediate(co2_elevation__ppm * wind__m_s_1 * infilt__m2 / room__m3)
             co2_loss__ppm_s_1 = m.Intermediate(co2_loss_vent__ppm_s_1 + co2_loss_wind__ppm_s_1)
-            co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale__umol_p_1_s_1 / (room__m3 * room_density__mol_m_3))
+            co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale__umol_p_1_s_1 / (room__m3 * air_density__mol_m_3))
             m.Equation(co2__ppm.dt() == co2_gain__ppm_s_1 - co2_loss__ppm_s_1)
 
 
