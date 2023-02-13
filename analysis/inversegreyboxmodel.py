@@ -640,10 +640,10 @@ class Learner():
 
 
             # GEKKO Manipulated Variables: measured values
-            occupancy__p = m.MV(value = df_learn.occupancy__p.values)
+            occupancy__p = m.MV(value = df_learn.model_occupancy__p.values)
             occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
 
-            valve_frac__0 = m.MV(value = df_learn.valve_frac__0.values)
+            valve_frac__0 = m.MV(value = df_learn.model_valve_frac__0.values)
             valve_frac__0.STATUS = 0; valve_frac__0.FSTATUS = 1
 
 
@@ -652,7 +652,7 @@ class Learner():
             infilt__m2.STATUS = 1; infilt__m2.FSTATUS = 0
 
             # GEKKO Control Varibale (predicted variable)
-            co2__ppm = m.CV(value = df_learn.co2__ppm.values) #[ppm]
+            co2__ppm = m.CV(value = df_learn.model_co2__ppm.values) #[ppm]
             co2__ppm.STATUS = 1; co2__ppm.FSTATUS = 1
 
             # GEKKO - Equations
@@ -674,8 +674,8 @@ class Learner():
 
             logging.info(f'room {id}: effective infiltration area = {infilt__m2.value[0] * 1e4: .2f} [cm2]')
 
-            mae__ppm = (abs(df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id].co2__ppm)).mean()
-            rmse__ppm = ((df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id].co2__ppm)**2).mean()**0.5
+            mae__ppm = (abs(df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id].model_co2__ppm)).mean()
+            rmse__ppm = ((df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id].model_co2__ppm)**2).mean()**0.5
 
             # Create a results row and add to results dataframe
             df_results = pd.concat(
