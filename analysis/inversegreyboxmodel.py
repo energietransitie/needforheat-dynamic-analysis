@@ -549,6 +549,7 @@ class Learner():
                               col_co2__ppm: str, 
                               col_occupancy__p: str, 
                               col_valve_frac__0: str,
+                              subset_ids=[],
                               ev_type=2) -> pd.DataFrame:
         """
         Input:  
@@ -620,8 +621,12 @@ class Learner():
         # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
         
-        ids = df_data_ids.index.unique('id').dropna()
-        logging.info('ids to analyze: ', list(ids.values))
+        if (subset_ids==[]):
+            ids = df_data_ids.index.unique('id').dropna()
+        else:
+            ids = subset_ids
+        logging.info('ids to analyze: ', ids)
+       
 
         for id in tqdm(ids):
             df_learn = df_data_ids.loc[id]
