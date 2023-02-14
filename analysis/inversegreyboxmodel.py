@@ -545,7 +545,12 @@ class Learner():
     
     
     @staticmethod
-    def learn_room_parameters(df_data_ids:pd.DataFrame, ev_type=2) -> pd.DataFrame:
+    def learn_room_parameters(df_data_ids:pd.DataFrame, 
+                              col_co2__ppm: str, 
+                              col_occupancy__p: str, 
+                              col_valve_frac__0: str,
+                              subset_ids=[],
+                              ev_type=2) -> pd.DataFrame:
         """
         Input:  
         - a preprocessed dataframe with
@@ -571,44 +576,57 @@ class Learner():
         
 
         # Conversion factors
-        s_min_1 = 60
-        min_h_1 = 60
-        s_h_1 = s_min_1 * min_h_1
-        mL_m_3 = 1e3 * 1e3
-        million = 1e6
+        s_min_1 = 60                                                  # [s] per [min]
+        min_h_1 = 60                                                  # [min] per [h]
+        s_h_1 = s_min_1 * min_h_1                                     # [s] per [h]
+        ml_m_3 = 1e3 * 1e3                                            # [ml] per [m^3]
+        umol_mol_1 = 1e6                                              # [µmol] per [mol]
+        cm2_m_2 = 1e2 * 1e2                                           # [cm^2] per [m^2]
+        O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
 
         # Constants
-        MET__mL_min_1_kg_1_p_1 = 3.5                                  # Metabolic Equivalent of Task, per kg body weight
-        desk_work__MET = 1.5                                          # MET factor for desk work
-        P_std__Pa = 101325                                            # standard gas pressure
-        R__m3_Pa_K_1_mol_1 = 8.3145                                   # gas constant
-        T_room__degC = 20.0                                           # standard room temperature
-        T_std__degC = 0.0                                             # standard gas temperature
-        T_zero__K = 273.15                                            # 0 ˚C
-        T_std__K = T_zero__K + T_std__degC                            # standard gas temperature
-        T_room__K = T_zero__K + T_room__degC                          # standard room temperature
+        desk_work__MET = 1.5                                          # Metabolic Equivalent of Task for desk work [MET]
+        P_std__Pa = 101325                                            # standard gas pressure [Pa]
+        R__m3_Pa_K_1_mol_1 = 8.3145                                   # gas constant [m^3⋅Pa⋅K^-1⋅mol^-1)]
+        temp_room__degC = 20.0                                        # standard room temperature [°C]
+        temp_std__degC = 0.0                                          # standard gas temperature [°C]
+        temp_zero__K = 273.15                                         # 0 [°C] = 273.15 [K]
+        temp_std__K = temp_std__degC + temp_zero__K                   # standard gas temperature [K]
+        temp_room__K = temp_room__degC + temp_zero__K                 # standard room temperature [K]
 
         # Approximations
-        room__mol_m_3 = P_std__Pa / (R__m3_Pa_K_1_mol_1 * T_room__K)  # gas molecules in 1 m3 under room conditions 
-        std__mol_m_3 = P_std__Pa / (R__m3_Pa_K_1_mol_1 * T_std__K)    # gas molecules in 1 m3 under standard conditions 
+        air_density__mol_m_3 = (P_std__Pa 
+                                / (R__m3_Pa_K_1_mol_1 * temp_room__K)
+                               )                                      # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
+        std__mol_m_3 = (P_std__Pa 
+                        / (R__m3_Pa_K_1_mol_1 * temp_std__K)
+                       )                                              # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
         co2_ext__ppm = 415                                            # Yearly average CO₂ concentration in Europe 
-        
-        # National averages
-        weight__kg = 77.5                                             # average weight of Dutch adult
-        MET__m3_s_1_p_1 = MET__mL_min_1_kg_1_p_1 * weight__kg / (s_min_1 * mL_m_3)
-        
-        MET_mol_s_1_p_1 = MET__m3_s_1_p_1 * std__mol_m_3              # Metabolic Equivalent of Task, per person
-        co2_o2 = 0.894                                              # fraction molecules CO₂ exhaled versus molecule O₂ inhaled
-        co2__mol0_p_1_s_1 = co2_o2 * desk_work__MET * MET_mol_s_1_p_1    # CO₂ raise by Dutch desk worker [mol/mol]
+        metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
 
+        # National averages
+        weight__kg = 77.5                                             # average weight of Dutch adult [kg]
+        umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
+                           * weight__kg
+                           / s_min_1 
+                           * (umol_mol_1 * std__mol_m_3 / ml_m_3)
+                           )                                          # molar quantity of O₂inhaled by an average Dutch adult at 1 MET [µmol/(p⋅s)]
+        co2_exhale__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
+                                    * desk_work__MET
+                                    * umol_s_1_p_1_MET_1
+                                   )                                  # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
         # Room averages
         wind__m_s_1 = 3.0                                             # assumed wind speed for virtual rooms that causes infiltration
         
         # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
         
-        ids = df_data_ids.index.unique('id').dropna()
-        logging.info('ids to analyze: ', list(ids.values))
+        if (subset_ids==[]):
+            ids = df_data_ids.index.unique('id').dropna()
+        else:
+            ids = subset_ids
+        logging.info('ids to analyze: ', ids)
+       
 
         for id in tqdm(ids):
             df_learn = df_data_ids.loc[id]
@@ -631,10 +649,10 @@ class Learner():
 
 
             # GEKKO Manipulated Variables: measured values
-            occupancy__p = m.MV(value = df_learn.occupancy__p.values)
+            occupancy__p = m.MV(value = df_learn[col_occupancy__p].values)
             occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
 
-            valve_frac__0 = m.MV(value = df_learn.valve_frac__0.values)
+            valve_frac__0 = m.MV(value = df_learn[col_valve_frac__0].values)
             valve_frac__0.STATUS = 0; valve_frac__0.FSTATUS = 1
 
 
@@ -643,13 +661,15 @@ class Learner():
             infilt__m2.STATUS = 1; infilt__m2.FSTATUS = 0
 
             # GEKKO Control Varibale (predicted variable)
-            co2__ppm = m.CV(value = df_learn.co2__ppm.values) #[ppm]
+            co2__ppm = m.CV(value = df_learn[col_co2__ppm].values) #[ppm]
             co2__ppm.STATUS = 1; co2__ppm.FSTATUS = 1
 
             # GEKKO - Equations
-            co2_loss__ppm_s_1 = m.Intermediate((co2__ppm - co2_ext__ppm) * (vent_max__m3_s_1 * valve_frac__0 + wind__m_s_1 * infilt__m2) / room__m3)
-            co2_gain_mol0_s_1 = m.Intermediate(occupancy__p * co2__mol0_p_1_s_1 / (room__m3 * room__mol_m_3))
-            co2_gain__ppm_s_1 = m.Intermediate(co2_gain_mol0_s_1 * million)
+            co2_elevation__ppm = m.Intermediate(co2__ppm - co2_ext__ppm)
+            co2_loss_vent__ppm_s_1 = m.Intermediate(co2_elevation__ppm * vent_max__m3_s_1 * valve_frac__0 / room__m3)
+            co2_loss_wind__ppm_s_1 = m.Intermediate(co2_elevation__ppm * wind__m_s_1 * infilt__m2 / room__m3)
+            co2_loss__ppm_s_1 = m.Intermediate(co2_loss_vent__ppm_s_1 + co2_loss_wind__ppm_s_1)
+            co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale__umol_p_1_s_1 / (room__m3 * air_density__mol_m_3))
             m.Equation(co2__ppm.dt() == co2_gain__ppm_s_1 - co2_loss__ppm_s_1)
 
 
@@ -663,8 +683,8 @@ class Learner():
 
             logging.info(f'room {id}: effective infiltration area = {infilt__m2.value[0] * 1e4: .2f} [cm2]')
 
-            mae__ppm = (abs(df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id].co2__ppm)).mean()
-            rmse__ppm = ((df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id].co2__ppm)**2).mean()**0.5
+            mae__ppm = (abs(df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id][col_co2__ppm])).mean()
+            rmse__ppm = ((df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id][col_co2__ppm])**2).mean()**0.5
 
             # Create a results row and add to results dataframe
             df_results = pd.concat(
