@@ -549,7 +549,6 @@ class Learner():
                               col_co2__ppm: str, 
                               col_occupancy__p: str, 
                               col_valve_frac__0: str,
-                              subset_ids=[],
                               ev_type=2) -> pd.DataFrame:
         """
         Input:  
@@ -559,12 +558,12 @@ class Learner():
                 - time intervals between consecutive measurements are constant
                 - but there may be gaps of multiple intervals with no measurements
                 - multiple sources for the same property are already dealth with in preprocessing
-        - a dataframe with
-            - a MultiIndex ['id', 'source', 'timestamp'], where the column 'timestamp' is timezone-aware
+        - a preprocessed dataframe with
+            - a MultiIndex ['id', 'timestamp'], where the column 'timestamp' is timezone-aware
             - columns:
-              - 'occupancy__p': average number of people present in the room,
-              - 'co2__ppm': average CO₂-concentration in the room,
-              - 'valve_frac__0' opening fraction of the ventilation valve 
+              - col_co2__ppm: name of the column to use for measurements of average CO₂-concentration in the room,
+              - col_occupancy__p: name of the column to use for measurements of average number of people present in the room,
+              - col_valve_frac__0: name of the column to use for measurements of opening fraction of the ventilation valve 
         and optionally,
         - 'ev_type': type 2 is usually recommended, since this is typically more than 50 times faster
         
@@ -601,7 +600,7 @@ class Learner():
         std__mol_m_3 = (P_std__Pa 
                         / (R__m3_Pa_K_1_mol_1 * temp_std__K)
                        )                                              # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
-        co2_ext__ppm = 415                                            # Yearly average CO₂ concentration in Europe 
+
         metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
 
         # National averages
@@ -621,10 +620,7 @@ class Learner():
         # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
         
-        if (subset_ids==[]):
-            ids = df_data_ids.index.unique('id').dropna()
-        else:
-            ids = subset_ids
+        ids = df_data_ids.index.unique('id').dropna()
         logging.info('ids to analyze: ', ids)
        
 
@@ -636,11 +632,20 @@ class Learner():
                      )
             duration__s = step__s * len(df_learn)
             
-            # Virtual room constants 
+            # TODO: calculatevalues below only when source = model
+            co2_ext__ppm = 415                                            # Yearly average CO₂ concentration in Europe 
             room__m3 = id % 1e3
             vent_min__m3_h_1 = (id % 1e6) // 1e3
             vent_max__m3_h_1 = id // 1e6
             vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
+            actual_infilt__m2 = vent_min__m3_h_1 / (s_h_1 * wind__m_s_1)
+
+            # TODO: for real measured room, determine room-specific constants
+            # co2_ext__ppm = df_learn[col_co2__ppm].min()-1               # we use the lowest co2__ppm value measured as an approximation 
+            # room__m3 =                                                  # get this parameter from the table passed as dataFrame
+            # vent_max__m3_h_1 =                                          # get this parameter from the table passed as dataFrame
+            # vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
+
             
             ##################################################################################################################
             # Gekko Model - Initialize
@@ -679,14 +684,28 @@ class Learner():
             m.options.NODES = 2
             m.solve(disp = False)
 
-            df_data_ids.loc[id, 'co2_sim__ppm'] = co2__ppm
+            df_data_ids.loc[id, 'sim_co2__ppm'] = co2__ppm
+            # TODO: add learned time-varying parameter
+            # df_data_ids.loc[id, 'sim_valve_frac__0'] = valve_frac__0
+            # TODO: add learned time-varying parameter
+            # df_data_ids.loc[id, 'sim_occupancy__p'] = occupancy__p
 
             logging.info(f'room {id}: effective infiltration area = {infilt__m2.value[0] * 1e4: .2f} [cm2]')
-
-            mae__ppm = (abs(df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id][col_co2__ppm])).mean()
-            rmse__ppm = ((df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id][col_co2__ppm])**2).mean()**0.5
+            
+            # calculating error metrics (mean absolute error for all learned parameters; root mean squared error only for predicted time series)
+            mae_infilt__m2 = abs(infilt__m2.value[0] - actual_infilt__m2)
+            mae_co2__ppm = (abs(df_data_ids.loc[id].sim_co2__ppm - df_data_ids.loc[id][col_co2__ppm])).mean()
+            rmse_co2__ppm = ((df_data_ids.loc[id].sim_co2__ppm - df_data_ids.loc[id][col_co2__ppm])**2).mean()**0.5
+            # TODO: calculate learned variable parameter sim_valve_frac
+            # mae_valve_frac__0 = (abs(df_data_ids.loc[id].sim_valve_frac__0 - df_data_ids.loc[id][col_valve_frac__0])).mean()
+            # rmse_valve_frac__0 = ((df_data_ids.loc[id].sim_valve_frac__0 - df_data_ids.loc[id][col_valve_frac__0])**2).mean()**0.5
+            # TODO: calculate learned variable parameter sim_occupancy__p
+            # mae_occupancy__p = (abs(df_data_ids.loc[id].sim_occupancy__p - df_data_ids.loc[id][col_occupancy__p])).mean()
+            # rmse_occupancy__p = ((df_data_ids.loc[id].sim_occupancy__p - df_data_ids.loc[id][col_occupancy__p])**2).mean()**0.5
 
             # Create a results row and add to results dataframe
+            # TODO: only add actual_infilt__cm2 and mae_infilt__cm2 for virtual rooms, i.e. when source=model
+            # TODO: add learned time varying parameter error metrics
             df_results = pd.concat(
                 [
                     df_results,
@@ -698,10 +717,15 @@ class Learner():
                             'vent_min__m3_h_1': [vent_min__m3_h_1],
                             'vent_max__m3_h_1': [vent_max__m3_h_1],
                             'actual_room__m3': [room__m3],
-                            'actual_infilt__cm2': [vent_min__m3_h_1 / (s_h_1 * wind__m_s_1) * 1e4],
                             'infilt__cm2': [infilt__m2.value[0] * 1e4],
-                            'mae__ppm': [mae__ppm],
-                            'rmse__ppm': [rmse__ppm]
+                            'actual_infilt__cm2': [actual_infilt__m2 * 1e4],
+                            'mae_infilt__cm2': [mae_infilt__m2 * 1e4],
+                            # 'mae_valve_frac__0': [mae_valve_frac__0],
+                            # 'rmse_valve_frac__0': [rmse_valve_frac__0]
+                            # 'mae_co2__ppm': [mae_co2__ppm],
+                            # 'rmse_co2__ppm': [rmse_co2__ppm]
+                            'mae_co2__ppm': [mae_co2__ppm],
+                            'rmse_co2__ppm': [rmse_co2__ppm]
                         }
                     )
                 ]
