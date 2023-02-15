@@ -715,3 +715,178 @@ class Learner():
 
 
         return df_results.set_index('id'), df_data_ids
+    
+    
+    @staticmethod
+    def learn_room_parameters_valve_fraction(df_data_ids:pd.DataFrame, 
+                              col_co2__ppm: str, 
+                              col_occupancy__p: str, 
+                              col_valve_frac__0: str,
+                              subset_ids=[],
+                              ev_type=2) -> pd.DataFrame:
+        """
+        Input:  
+        - a preprocessed dataframe with
+            - a MultiIndex ['id', 'timestamp'], where
+                - the column 'timestamp' is timezone-aware
+                - time intervals between consecutive measurements are constant
+                - but there may be gaps of multiple intervals with no measurements
+                - multiple sources for the same property are already dealth with in preprocessing
+        - a dataframe with
+            - a MultiIndex ['id', 'source', 'timestamp'], where the column 'timestamp' is timezone-aware
+            - columns:
+              - 'occupancy__p': average number of people present in the room,
+              - 'co2__ppm': average CO₂-concentration in the room,
+              - 'valve_frac__0' opening fraction of the ventilation valve 
+        and optionally,
+        - 'ev_type': type 2 is usually recommended, since this is typically more than 50 times faster
+        
+        Output:
+        - a dataframe with per id the learned parameters
+        - a dataframe with additional column(s):
+          - 'co2_sim__ppm' best fiting temperature series for id
+        """
+        
+
+         # Conversion factors
+        s_min_1 = 60                                                  # [s] per [min]
+        min_h_1 = 60                                                  # [min] per [h]
+        s_h_1 = s_min_1 * min_h_1                                     # [s] per [h]
+        ml_m_3 = 1e3 * 1e3                                            # [ml] per [m^3]
+        umol_mol_1 = 1e6                                              # [µmol] per [mol]
+        cm2_m_2 = 1e2 * 1e2                                           # [cm^2] per [m^2]
+        O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
+
+        # Constants
+        desk_work__MET = 1.5                                          # Metabolic Equivalent of Task for desk work [MET]
+        P_std__Pa = 101325                                            # standard gas pressure [Pa]
+        R__m3_Pa_K_1_mol_1 = 8.3145                                   # gas constant [m^3⋅Pa⋅K^-1⋅mol^-1)]
+        temp_room__degC = 20.0                                        # standard room temperature [°C]
+        temp_std__degC = 0.0                                          # standard gas temperature [°C]
+        temp_zero__K = 273.15                                         # 0 [°C] = 273.15 [K]
+        temp_std__K = temp_std__degC + temp_zero__K                   # standard gas temperature [K]
+        temp_room__K = temp_room__degC + temp_zero__K                 # standard room temperature [K]
+
+        # Approximations
+        air_density__mol_m_3 = (P_std__Pa 
+                                / (R__m3_Pa_K_1_mol_1 * temp_room__K)
+                               )                                      # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
+        std__mol_m_3 = (P_std__Pa 
+                        / (R__m3_Pa_K_1_mol_1 * temp_std__K)
+                       )                                              # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
+        co2_ext__ppm = 415                                            # Yearly average CO₂ concentration in Europe 
+        metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
+        infilt__m2 = 0.001                                            # infiltraion area [m^2]
+
+        # National averages
+        weight__kg = 77.5                                             # average weight of Dutch adult [kg]
+        umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
+                           * weight__kg
+                           / s_min_1 
+                           * (umol_mol_1 * std__mol_m_3 / ml_m_3)
+                           )                                          # molar quantity of O₂inhaled by an average Dutch adult at 1 MET [µmol/(p⋅s)]
+        co2_exhale__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
+                                    * desk_work__MET
+                                    * umol_s_1_p_1_MET_1
+                                   )                                  # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
+        # Room averages
+        wind__m_s_1 = 3.0                                             # assumed wind speed for virtual rooms that causes infiltration
+        
+        
+        # Room averages
+        wind__m_s_1 = 3.0                                             # assumed wind speed for virtual rooms that causes infiltration
+        
+        # create empty dataframe for results of all homes
+        df_results = pd.DataFrame()
+        
+        if (subset_ids==[]):
+            ids = df_data_ids.index.unique('id').dropna()
+        else:
+            ids = subset_ids
+        logging.info('ids to analyze: ', ids)
+       
+
+        for id in tqdm(ids):
+            df_learn = df_data_ids.loc[id]
+            step__s = ((df_learn.index.max() - df_learn.index.min()).total_seconds()
+                      /
+                      (len(df_learn)-1)
+                     )
+            duration__s = step__s * len(df_learn)
+            
+            # Virtual room constants 
+            room__m3 = id % 1e3
+            vent_min__m3_h_1 = (id % 1e6) // 1e3
+            vent_max__m3_h_1 = id // 1e6
+            vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
+            
+            ##################################################################################################################
+            # Gekko Model - Initialize
+            m = GEKKO(remote = False)
+            m.time = np.arange(0, duration__s, step__s)
+
+
+            # GEKKO Manipulated Variables: measured values
+            occupancy__p = m.MV(value = df_learn[col_occupancy__p].values)
+            occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
+
+            valve_frac__0 = m.MV(value = df_learn[col_valve_frac__0].values, lb=0, ub=1)
+            valve_frac__0.STATUS = 1; valve_frac__0.FSTATUS = 1
+
+            # GEKKO Control Varibale (predicted variable)
+            co2__ppm = m.CV(value = df_learn[col_co2__ppm].values) #[ppm]
+            co2__ppm.STATUS = 1; co2__ppm.FSTATUS = 1
+
+            # GEKKO - Equations
+            co2_elevation__ppm = m.Intermediate(co2__ppm - co2_ext__ppm)
+            co2_loss_vent__ppm_s_1 = m.Intermediate(co2_elevation__ppm * vent_max__m3_s_1 * valve_frac__0 / room__m3)
+            co2_loss_wind__ppm_s_1 = m.Intermediate(co2_elevation__ppm * wind__m_s_1 * infilt__m2 / room__m3)
+            co2_loss__ppm_s_1 = m.Intermediate(co2_loss_vent__ppm_s_1 + co2_loss_wind__ppm_s_1)
+            co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale__umol_p_1_s_1 / (room__m3 * air_density__mol_m_3))
+            m.Equation(co2__ppm.dt() == co2_gain__ppm_s_1 - co2_loss__ppm_s_1)
+
+
+            # GEKKO - Solver setting
+            m.options.IMODE = 5
+            m.options.EV_TYPE = ev_type
+            m.options.NODES = 2
+            m.options.SOLVER = 3
+            m.solve(disp = False)
+
+            df_data_ids.loc[id, 'co2_sim__ppm'] = co2__ppm
+            df_data_ids.loc[id, 'valve_frac_sim__0'] = valve_frac__0
+
+            # logging.info(f'room {id}: effective infiltration area = {infilt__m2.value[0] * 1e4: .2f} [cm2]')
+
+            mae__ppm = (abs(df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id][col_co2__ppm])).mean()
+            rmse__ppm = ((df_data_ids.loc[id].co2_sim__ppm - df_data_ids.loc[id][col_co2__ppm])**2).mean()**0.5
+
+            # Create a results row and add to results dataframe
+            df_results = pd.concat(
+                [
+                    df_results,
+                    pd.DataFrame(
+                        {
+                            'id': [id],
+                            'duration__s': [duration__s],
+                            'EV_TYPE': [m.options.EV_TYPE],
+                            'vent_min__m3_h_1': [vent_min__m3_h_1],
+                            'vent_max__m3_h_1': [vent_max__m3_h_1],
+                            'actual_room__m3': [room__m3],
+                            # 'actual_infilt__cm2': [vent_min__m3_h_1 / (s_h_1 * wind__m_s_1) * 1e4],
+                            # 'infilt__cm2': [infilt__m2.value[0] * 1e4],
+                            'mae__ppm': [mae__ppm],
+                            'rmse__ppm': [rmse__ppm]
+                        }
+                    )
+                ]
+            )
+            
+            m.cleanup()
+            
+            ##################################################################################################################
+
+
+
+
+        return df_results.set_index('id'), df_data_ids
