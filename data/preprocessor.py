@@ -156,10 +156,14 @@ class Preprocessor:
         
         df_result = df_result.sort_index()                  
         for col in df_result.columns:
-            match property_dict[col]:
-                case 'int'| 'Int8' | 'Int16' | 'Int32'| 'Int64' | 'UInt8' | 'UInt16' | 'UInt32' | 'UInt64':
+            # match property_dict[col]:
+            #     case 'int'| 'Int8' | 'Int16' | 'Int32'| 'Int64' | 'UInt8' | 'UInt16' | 'UInt32' | 'UInt64':
+            #         df_result[col] = df_result[col].round(0).astype(property_dict[col])
+            #     case 'float' | 'float32' | 'float64':
+            #         df_result[col] = df_result[col].astype(property_dict[col])
+            if property_dict[col] in ['int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64']:
                     df_result[col] = df_result[col].round(0).astype(property_dict[col])
-                case 'float' | 'float32' | 'float64':
+            elif property_dict[col] in ['float', 'float32', 'float64']:
                     df_result[col] = df_result[col].astype(property_dict[col])
         return df_result
     
