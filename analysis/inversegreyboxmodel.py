@@ -704,20 +704,21 @@ class Learner():
 
             df_data_ids.loc[id, 'sim_co2__ppm'] = co2__ppm
 
-            # TODO: add learned time-varying parameter
-            # df_data_ids.loc[id, 'sim_valve_frac__0'] = valve_frac__0
+            if learn_valve_frac__0:
+                df_data_ids.loc[id, 'sim_valve_frac__0'] = valve_frac__0
             if learn_occupancy__p:
                 df_data_ids.loc[id, 'sim_occupancy__p'] = occupancy__p
 
-            logging.info(f'room {id}: effective infiltration area = {infilt__m2.value[0] * 1e4: .2f} [cm2]')
-            
+           
             # calculating error metrics (mean absolute error for all learned parameters; root mean squared error only for predicted time series)
             mae_co2__ppm = (abs(df_data_ids.loc[id].sim_co2__ppm - df_data_ids.loc[id][col_co2__ppm])).mean()
             rmse_co2__ppm = ((df_data_ids.loc[id].sim_co2__ppm - df_data_ids.loc[id][col_co2__ppm])**2).mean()**0.5
 
             if learn_infilt__m2:
-                mae_infilt__m2 = abs(infilt__m2.value[0] - actual_infilt__m2)
+                learned_infilt__m2 = infilt__m2.value[0]
+                mae_infilt__m2 = abs(learned_infilt__m2 - actual_infilt__m2)
             else:
+                learned_infilt__m2 = np.nan
                 mae_infilt__m2 = np.nan
 
             if learn_valve_frac__0:
@@ -746,15 +747,15 @@ class Learner():
                             'vent_min__m3_h_1': [vent_min__m3_h_1],
                             'vent_max__m3_h_1': [vent_max__m3_h_1],
                             'actual_room__m3': [room__m3],
-                            'infilt__cm2': [infilt__m2.value[0] * 1e4],
+                            'learned_infilt__cm2': [learned_infilt__m2 * 1e4],
                             'actual_infilt__cm2': [actual_infilt__m2 * 1e4],
                             'mae_infilt__cm2': [mae_infilt__m2 * 1e4],
                             'mae_co2__ppm': [mae_co2__ppm],
                             'rmse_co2__ppm': [rmse_co2__ppm],
                             'mae_valve_frac__0': [mae_valve_frac__0],
                             'rmse_valve_frac__0': [rmse_valve_frac__0],
-                            'mae_co2__ppm': [mae_occupancy__p],
-                            'rmse_co2__ppm': [rmse_occupancy__p]
+                            'mae_occupancy__p': [mae_occupancy__p],
+                            'rmse_occupancy__p': [rmse_occupancy__p]
                         }
                     )
                 ]
