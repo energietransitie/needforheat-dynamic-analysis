@@ -1,5 +1,7 @@
 import pandas as pd
 from scipy import stats
+from tqdm.notebook import tqdm
+
 
 class Preprocessor:
     """
@@ -80,7 +82,89 @@ class Preprocessor:
                               .mask(stats.zscore(df_result[col], nan_policy='omit').abs() > n_sigma)
                               .values)            
         return df_result
-            
+
+    @staticmethod
+    def unstack_prop(df_prop: pd.DataFrame) -> pd.DataFrame:
+        
+        """
+        Unstack a DataFrame resamplingto interpolate__min minutes and linear interpolation,
+        while making sure not to bridge gaps larger than limin__min minutes.
+        The final dataframe has column datatypes as indicated in the property_types dictionary
+        
+        in: df_prop: pd.DataFrame with
+        - index = ['id', 'source', 'timestamp']
+        -- id: id of the unit studied (e.g. home / utility building / room) 
+        -- source: device_type from the database
+        -- timestamp: timezone-aware timestamp
+        - columns = properties with measurement values
+       
+        out: pd.DataFrame with the source names prefixed to column names 
+       
+        """
+        df_prep = df_prop.unstack([1])
+        df_prep.columns = df_prep.columns.swaplevel(0,1)
+        df_prep.columns = ['_'.join(col) for col in df_prep.columns.values]
+        
+        return df_prep.dropna(axis=1, how='all')
+
+    @staticmethod
+    def interpolate_time(df_prop: pd.DataFrame,
+                         property_dict = None,
+                         upsample__min = 5,
+                         interpolate__min = 15,
+                         limit__min = 60,
+                         inplace=False
+                        ) -> pd.DataFrame:
+        
+        """
+        Interpolate a DataFrame by resampling first to upsample_min intervals,
+        then interpolating to interpolate__min minutes using linear interpolation,
+        while making sure not to bridge gaps larger than limin__min minutes,
+        then resampling using interpolate__min
+        The final dataframe has column datatypes as indicated in the property_types dictionary
+        
+        in: df_prop: pd.DataFrame with
+        - index = ['id', 'source', 'timestamp']
+        -- id: id of the unit studied (e.g. home / utility building / room) 
+        -- source: device_type from the database
+        -- timestamp: timezone-aware timestamp
+        - columns = properties with measurement values
+       
+        out: pd.DataFrame with same structure as df_prop 
+       
+        """
+        lim = (limit__min - 1) // upsample__min
+        df_result = pd.DataFrame()
+        for id in tqdm(df_prop.index.unique('id').dropna()):
+            for source in df_prop.loc[id].index.unique('source').dropna():
+                df_interpolated = df_prop.loc[id, source,:].dropna(axis=1, how='all')
+                if not len(df_interpolated):
+                    continue
+                if not inplace:
+                    df_interpolated = df_interpolated.copy(deep=True)
+                df_interpolated = (df_interpolated
+                             .resample(str(upsample__min) + 'T')
+                             .first()
+                             .astype('float32')
+                             .interpolate(method='time', limit=lim)
+                             .resample(str(interpolate__min) + 'T').mean()
+                             .dropna(axis=0, how='all')
+                            )
+                df_interpolated['id'] = id
+                df_interpolated['source'] = source
+                df_result = pd.concat([df_result, df_interpolated.reset_index().set_index(['id','source','timestamp'])])
+        
+        df_result = df_result.sort_index()                  
+        for col in df_result.columns:
+            match property_dict[col]:
+                case 'int'| 'Int8' | 'Int16' | 'Int32'| 'Int64' | 'UInt8' | 'UInt16' | 'UInt32' | 'UInt64':
+                    df_result[col] = df_result[col].round(0).astype(property_dict[col])
+                case 'float' | 'float32' | 'float64':
+                    df_result[col] = df_result[col].astype(property_dict[col])
+        return df_result
+    
+    
+    
     def property_filter(df, parameter:str, prop:str, metertimestamp:str,
                         tz_source:str, tz_home:str,
                         process_meter_reading:bool, 
