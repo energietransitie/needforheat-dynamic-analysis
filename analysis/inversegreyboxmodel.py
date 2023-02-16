@@ -604,6 +604,7 @@ class Learner():
         metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
 
         # National averages
+        co2_ext_2022__ppm = 415                                       # Yearly average CO₂ concentration in Europe in 2022
         weight__kg = 77.5                                             # average weight of Dutch adult [kg]
         umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
                            * weight__kg
@@ -614,9 +615,7 @@ class Learner():
                                     * desk_work__MET
                                     * umol_s_1_p_1_MET_1
                                    )                                  # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
-        # Room averages
-        wind__m_s_1 = 3.0                                             # assumed wind speed for virtual rooms that causes infiltration
-        
+      
         # create empty dataframe for results of all homes
         df_results = pd.DataFrame()
         
@@ -633,7 +632,8 @@ class Learner():
             duration__s = step__s * len(df_learn)
             
             # TODO: calculatevalues below only when source = model
-            co2_ext__ppm = 415                                            # Yearly average CO₂ concentration in Europe 
+            co2_ext__ppm = co2_ext_2022__ppm                              # Average CO₂ concentration in Europe in 2022 
+            wind__m_s_1 = 3.0                                             # assumed wind speed for virtual rooms that causes infiltration
             room__m3 = id % 1e3
             vent_min__m3_h_1 = (id % 1e6) // 1e3
             vent_max__m3_h_1 = id // 1e6
@@ -641,7 +641,8 @@ class Learner():
             actual_infilt__m2 = vent_min__m3_h_1 / (s_h_1 * wind__m_s_1)
 
             # TODO: for real measured room, determine room-specific constants
-            # co2_ext__ppm = df_learn[col_co2__ppm].min()-1               # we use the lowest co2__ppm value measured as an approximation 
+            # co2_ext__ppm = df_learn[col_co2__ppm].min()-1               # use the lowest co2__ppm value measured in the room as an approximation, to compensate sensor drift
+            # wind__m_s_1 = 3.0                                           # assume constant wind speed for real rooms as well, or use geospatially interpolated weather?
             # room__m3 =                                                  # get this parameter from the table passed as dataFrame
             # vent_max__m3_h_1 =                                          # get this parameter from the table passed as dataFrame
             # vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
