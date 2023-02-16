@@ -660,7 +660,7 @@ class Learner():
 
             # GEKKO time-varying variables: measured values or learned
             if learn_occupancy__p:
-                occupancy__p = m.MV(value = df_learn[col_occupancy__p].astype('float32').values, , lb=0, ub=12, integer=True)
+                occupancy__p = m.MV(value = df_learn[col_occupancy__p].astype('float32').values, lb=0, ub=12, integer=True)
                 occupancy__p.STATUS = 1; occupancy__p.FSTATUS = 1
             else:
                 occupancy__p = m.MV(value = df_learn[col_occupancy__p].astype('float32').values)
