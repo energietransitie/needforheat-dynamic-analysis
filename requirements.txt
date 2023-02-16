@@ -21,4 +21,3 @@ SQLAlchemy==2.0.3
 ## however, recently pipreqs said:
 #db==0.1.1
 #mysql_connector_repackaged==0.3.1
-
