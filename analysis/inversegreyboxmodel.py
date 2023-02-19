@@ -12,7 +12,7 @@ class Learner():
     
     @staticmethod
     def learn_home_parameters(df_data_ids:pd.DataFrame,
-                             learn_period_d=7, 
+                             learn_period__d=7, 
                              req_col:list = [], sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                              hint_A__m2=None, hint_eta_sup_CH__0=0.97, ev_type=2) -> pd.DataFrame:
         """
@@ -49,14 +49,14 @@ class Learner():
 
         # set default values for parameters not set
         
-        if (learn_period_d is None):
-            learn_period_d = 7
+        if (learn_period__d is None):
+            learn_period__d = 7
 
         ids= df_data_ids.index.unique('id').dropna()
         start_analysis_period = df_data_ids.index.unique('timestamp').min().to_pydatetime()
         end_analysis_period = df_data_ids.index.unique('timestamp').max().to_pydatetime()
         
-        daterange_frequency = str(learn_period_d) + 'D'
+        daterange_frequency = str(learn_period__d) + 'D'
 
         logging.info('Homes to analyse: ', ids)
         logging.info('Start of analyses: ', start_analysis_period)
@@ -176,7 +176,7 @@ class Learner():
             # iterate over learn periods
             for learn_period_start in learn_period_iterator:
 
-                learn_period_end = min(end_analysis_period, learn_period_start + timedelta(days=learn_period_d))
+                learn_period_end = min(end_analysis_period, learn_period_start + timedelta(days=learn_period__d))
 
                 if (learn_period_end < end_analysis_period):
                     df_learn = df_learn[learn_period_start:learn_period_end].iloc[:-1]
@@ -549,7 +549,7 @@ class Learner():
                               col_co2__ppm: str, 
                               col_occupancy__p: str, 
                               col_valve_frac__0: str,
-                              learn_period_d=7, 
+                              learn_period__d=7, 
                               req_col:list = [],
                               sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                               learn_infilt__m2 = True,
@@ -646,15 +646,15 @@ class Learner():
         ids = df_data_ids.index.unique('id').dropna()
         logging.info('ids to analyze: ', ids)
 
-        if (learn_period_d is None):
-            learn_period_d = 7
+        if (learn_period__d is None):
+            learn_period__d = 7
 
         start_analysis_period = df_data_ids.index.unique('timestamp').min().to_pydatetime()
         end_analysis_period = df_data_ids.index.unique('timestamp').max().to_pydatetime()
         logging.info('Start of analyses: ', start_analysis_period)
         logging.info('End of analyses: ', end_analysis_period)
 
-        daterange_frequency = str(learn_period_d) + 'D'
+        daterange_frequency = str(learn_period__d) + 'D'
         logging.info('learn period: ', daterange_frequency)
        
         # perform sanity check; not any required column may be missing a value
@@ -706,7 +706,7 @@ class Learner():
             for learn_period_start in learn_period_iterator:
                 
 
-                learn_period_end = df_learn_id[df_learn_id.index < (learn_period_start + timedelta(days=learn_period_d))].index.max()
+                learn_period_end = df_learn_id[df_learn_id.index < (learn_period_start + timedelta(days=learn_period__d))].index.max()
                 if learn_period_end > end_analysis_period:
                     learn_period_end = end_analysis_period
                 logging.info('learn_period_start: ', learn_period_start)
