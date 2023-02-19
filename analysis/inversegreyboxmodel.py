@@ -720,7 +720,14 @@ class Learner():
                 logging.info('learn_period_start: ', learn_period_start)
                 logging.info('learn_period_end: ', learn_period_end)
 
-                df = df_learn_id[learn_period_start:learn_period_end]
+                try:
+                    df = df_learn_id[learn_period_start:learn_period_end]
+                except ValueError:
+                    logging.error(ValueError)
+                    print(f'ValueError; id: {id}, learn_period_start: {learn_period_start}')
+                    print(f'ValueError: id: {id}, learn_period_end: {learn_period_end}')
+                    continue
+
                 logging.info('before longest streak analysis')
                 logging.info('#rows in learning period before longest streak analysis: ', len(df))
                
