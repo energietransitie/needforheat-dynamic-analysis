@@ -545,10 +545,11 @@ class Learner():
     
     
     @staticmethod
-    def learn_room_parameters(df_data_ids:pd.DataFrame, 
+    def learn_room_parameters(df_data_ids:pd.DataFrame,
                               col_co2__ppm: str, 
                               col_occupancy__p: str, 
                               col_valve_frac__0: str,
+                              df_room_metadata:pd.DataFrame=None,
                               learn_period__d=7, 
                               req_col:list = [],
                               sanity_threshold_timedelta:timedelta=timedelta(hours=24),
@@ -570,6 +571,9 @@ class Learner():
               - col_co2__ppm: name of the column to use for measurements of average CO₂-concentration in the room,
               - col_occupancy__p: name of the column to use for measurements of average number of people present in the room,
               - col_valve_frac__0: name of the column to use for measurements of opening fraction of the ventilation valve 
+        - a df_room_metadata with index 'id' and columns:
+            - 'room__m3', the volume of the room [m^3]
+            - 'vent_max__m3_h_1', the maximum ventilation rate of the room [m^3/h]
         and optionally,
         - boolean values to indicatete whether certain variables are to be learned (NB you cannot learn valve_frac__0 and occupancy__p at the same time)
         - the number of days to use as learn period in the analysis
@@ -682,21 +686,25 @@ class Learner():
             # TODO: check whether might be needed: remove lines where 'interval__s' == 0)
             # df_data_ids = df_data_ids.drop((df_data_ids.index.get_level_values('id') == id) & (df_data_ids['interval__s'] == 0))
 
-            # TODO: calculatevalues below only when source = model
-            co2_ext__ppm = co2_ext_2022__ppm                              # Average CO₂ concentration in Europe in 2022 
-            wind__m_s_1 = 3.0                                             # assumed wind speed for virtual rooms that causes infiltration
-            room__m3 = id % 1e3
-            vent_min__m3_h_1 = (id % 1e6) // 1e3
-            vent_max__m3_h_1 = id // 1e6
-            vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
-            actual_infilt__m2 = vent_min__m3_h_1 / (s_h_1 * wind__m_s_1)
+            if col_co2__ppm.startswith('model_'):
+                # calculate values from virtual rooms based on id 
+                co2_ext__ppm = co2_ext_2022__ppm                      # Average CO₂ concentration in Europe in 2022 
+                wind__m_s_1 = 3.0                                     # assumed wind speed for virtual rooms that causes infiltration
+                room__m3 = id % 1e3
+                vent_min__m3_h_1 = (id % 1e6) // 1e3
+                vent_max__m3_h_1 = id // 1e6
+                actual_infilt__m2 = vent_min__m3_h_1 / (s_h_1 * wind__m_s_1)
+            else:
+                # get for real measured room, determine room-specific constants
+                co2_ext__ppm = df_learn_id[col_co2__ppm].min()-1      # to compensate for sensor drift use  lowest co2__ppm measured in the room as approximation 
+                wind__m_s_1 = 3.0                                     # |TODO assume this wind speed for real rooms as well, or use geospatially interpolated weather?
+                room__m3 = df_room_metadata.loc[id]['room__m3']       # get this parameter from the table passed as dataFrame
+                                                                      # get this parameter from the table passed as dataFrame
+                vent_max__m3_h_1 = df_room_metadata.loc[id]['vent_max__m3_h_1']
+                vent_min__m3_h_1 = np.nan
+                actual_infilt__m2 = np.nan
 
-            # TODO: for real measured room, determine room-specific constants
-            # co2_ext__ppm = df_learn_id[col_co2__ppm].min()-1     # use the lowest co2__ppm value measured in the room as an approximation, to compensate sensor drift
-            # wind__m_s_1 = 3.0                                           # assume constant wind speed for real rooms as well, or use geospatially interpolated weather?
-            # room__m3 =                                                  # get this parameter from the table passed as dataFrame
-            # vent_max__m3_h_1 =                                          # get this parameter from the table passed as dataFrame
-            # vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
+            vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
 
             learn_period_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
 
@@ -712,7 +720,14 @@ class Learner():
                 logging.info('learn_period_start: ', learn_period_start)
                 logging.info('learn_period_end: ', learn_period_end)
 
-                df = df_learn_id[learn_period_start:learn_period_end]
+                try:
+                    df = df_learn_id[learn_period_start:learn_period_end]
+                except ValueError:
+                    logging.error(ValueError)
+                    print(f'ValueError; id: {id}, learn_period_start: {learn_period_start}')
+                    print(f'ValueError: id: {id}, learn_period_end: {learn_period_end}')
+                    continue
+
                 logging.info('before longest streak analysis')
                 logging.info('#rows in learning period before longest streak analysis: ', len(df))
                

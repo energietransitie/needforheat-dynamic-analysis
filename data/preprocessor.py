@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 from scipy import stats
 from tqdm.notebook import tqdm
 
@@ -167,7 +168,55 @@ class Preprocessor:
                     df_result[col] = df_result[col].astype(property_dict[col])
         return df_result
     
-    
+    @staticmethod
+    def preprocess_room_data(df_prop: pd.DataFrame) -> pd.DataFrame:
+        
+        """
+        Preprocess, iunstack and interpolate room data for the B4B project.
+        Filter co2_ppm: remove outliers below 5 ppm and co2 sensor data that does not vary in a room.
+        
+        in: df: pd.DataFrame with
+        - index = ['id', 'source', 'timestamp']
+        -- id: id of the room studied 
+        -- source: device_type from the database
+        -- timestamp: timezone-aware timestamp
+        - columns = properties with measurement values, including at least co2__ppm
+       
+        out: pd.DataFrame  
+        - unstacked: i.e. with the source names prefixed to column names
+        - interpolated to 15 minute intervals
+               
+        """
+        
+        # first, preprocess co2__ppm data
+        prop = 'co2__ppm'
+        df_prop = Preprocessor.filter_min_max(df_prop, prop, min=5)
+        std = df_prop[prop].groupby(['id', 'source']).transform('std')
+        # set values to np.nan where std is zero
+        mask = std == 0
+        df_prop[mask] = np.nan
+
+        property_types = {
+            'temp_in__degC' : 'float32',
+            'co2__ppm' : 'float32',
+            'rel_humidity__0' : 'float32',
+            'valve_frac__0' : 'float32',
+            'door_open__bool': 'Int8',
+            'window_open__bool': 'Int8',
+            'occupancy__bool': 'Int8',
+            'occupancy__p' : 'Int8'
+        }
+
+        df_interpolated = Preprocessor.interpolate_time(df_prop,
+                                                        property_dict = property_types,
+                                                        upsample__min = 5,
+                                                        interpolate__min = 15,
+                                                        limit__min = 90,
+                                                        inplace=False
+                                                       )
+
+        return Preprocessor.unstack_prop(df_interpolated)
+
     
     def property_filter(df, parameter:str, prop:str, metertimestamp:str,
                         tz_source:str, tz_home:str,
