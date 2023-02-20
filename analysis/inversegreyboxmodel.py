@@ -556,6 +556,7 @@ class Learner():
                               learn_infilt__m2 = True,
                               learn_valve_frac__0 = False,
                               learn_occupancy__p = False,
+                              learn_change_interval__min = None,
                               ev_type=2) -> pd.DataFrame:
         """
         Input:  
@@ -577,6 +578,7 @@ class Learner():
         and optionally,
         - boolean values to indicatete whether certain variables are to be learned (NB you cannot learn valve_frac__0 and occupancy__p at the same time)
         - the number of days to use as learn period in the analysis
+        - learn_change_interval__min: the minimum interval (in minutes) that any time-varying-parameter may change
         - 'ev_type': type 2 is usually recommended, since this is typically more than 50 times faster
         
         Output:
@@ -787,7 +789,16 @@ class Learner():
                           /
                           (learn_period_len-1)
                          )
+                if learn_change_interval__min is None:
+                    learn_change_interval__min = np.nan
+                    MV_STEP_HOR =  1
+                else:
+                    # implement ceiling integer division by 'upside down' floor integer division
+                    MV_STEP_HOR =  -((learn_change_interval__min * 60) // -step__s)
+
                 logging.info('step__s:  ', step__s)
+                logging.info('MV_STEP_HOR: ', MV_STEP_HOR)
+
                 duration__s = step__s * learn_period_len
                 logging.info('duration__s:  ', duration__s)
                 
@@ -808,6 +819,8 @@ class Learner():
                     if learn_occupancy__p:
                         occupancy__p = m.MV(value = df[col_occupancy__p].astype('float32').values, lb=0, ub=12, integer=True)
                         occupancy__p.STATUS = 1; occupancy__p.FSTATUS = 1
+                        if learn_change_interval__min is not None:
+                            occupancy__p.MV_STEP_HOR = MV_STEP_HOR
                     else:
                         occupancy__p = m.MV(value = df[col_occupancy__p].astype('float32').values)
                         occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
@@ -815,6 +828,8 @@ class Learner():
                     if learn_valve_frac__0:
                         valve_frac__0 = m.MV(value = df[col_valve_frac__0].values, lb=0, ub=1)
                         valve_frac__0.STATUS = 1; valve_frac__0.FSTATUS = 1
+                        if learn_change_interval__min is not None:
+                            valve_frac__0.MV_STEP_HOR = MV_STEP_HOR
                     else:
                         valve_frac__0 = m.MV(value = df[col_valve_frac__0].values)
                         valve_frac__0.STATUS = 0; valve_frac__0.FSTATUS = 1
@@ -890,6 +905,8 @@ class Learner():
                                     'id': [id],
                                     'learn_period_start': [learn_period_start],
                                     'learn_period_end': [learn_period_end],
+                                    'step__s': [step__s],
+                                    'learn_change_interval__min': [learn_change_interval__min],
                                     'duration__s': [duration__s],
                                     'EV_TYPE': [m.options.EV_TYPE],
                                     'vent_min__m3_h_1': [vent_min__m3_h_1],
@@ -926,6 +943,8 @@ class Learner():
                                     'id': [id],
                                     'learn_period_start': [learn_period_start],
                                     'learn_period_end': [learn_period_end],
+                                    'step__s': [step__s],
+                                    'learn_change_interval__min': [learn_change_interval__min],
                                     'duration__s': [duration__s],
                                     'EV_TYPE': [m.options.EV_TYPE],
                                     'vent_min__m3_h_1': [vent_min__m3_h_1],
