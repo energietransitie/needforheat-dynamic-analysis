@@ -703,7 +703,6 @@ class Learner():
                 room__m3 = df_room_metadata.loc[id]['room__m3']       # get this parameter from the table passed as dataFrame
                                                                       # get this parameter from the table passed as dataFrame
                 vent_max__m3_h_1 = df_room_metadata.loc[id]['vent_max__m3_h_1']
-                vent_min__m3_h_1 = np.nan
                 actual_infilt__m2 = np.nan
 
             vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
@@ -727,6 +726,7 @@ class Learner():
                 except ValueError:
                     logging.error(ValueError)
                     print(f'ValueError; id: {id}, learn_period_start: {learn_period_start}')
+                    print(f'ValueError; id: {id}, learn_period_start + timedelta(days=learn_period__d): {learn_period_start + timedelta(days=learn_period__d)}')
                     print(f'ValueError: id: {id}, learn_period_end: {learn_period_end}')
                     continue
 
@@ -756,7 +756,6 @@ class Learner():
                 )
                 # logging.info('after streak_cumulative_duration__s assignment: ', df_data_ids.loc[(id,learn_period_start):(id,learn_period_end)])
 
-                # make sure streaks with insane values are not considered
                 df_data_ids.loc[(df_data_ids.index.get_level_values('id') == id) & (df_data_ids['sanity'] == False), 'streak_cumulative_duration__s'] = np.nan
 
                 ## get the longest streak: the part of the dataframe where the streak_id matches the (first) streak_id that has the longest cumulative duration
@@ -909,7 +908,6 @@ class Learner():
                                     'learn_change_interval__min': [learn_change_interval__min],
                                     'duration__s': [duration__s],
                                     'EV_TYPE': [m.options.EV_TYPE],
-                                    'vent_min__m3_h_1': [vent_min__m3_h_1],
                                     'vent_max__m3_h_1': [vent_max__m3_h_1],
                                     'actual_room__m3': [room__m3],
                                     'learned_infilt__cm2': [learned_infilt__m2 * 1e4],
@@ -947,7 +945,6 @@ class Learner():
                                     'learn_change_interval__min': [learn_change_interval__min],
                                     'duration__s': [duration__s],
                                     'EV_TYPE': [m.options.EV_TYPE],
-                                    'vent_min__m3_h_1': [vent_min__m3_h_1],
                                     'vent_max__m3_h_1': [vent_max__m3_h_1],
                                     'actual_room__m3': [room__m3],
                                     'learned_infilt__cm2': [np.nan],
@@ -983,7 +980,6 @@ class Learner():
                                     'learn_period_end': [learn_period_end],
                                     'duration__s': [duration__s],
                                     'EV_TYPE': [m.options.EV_TYPE],
-                                    'vent_min__m3_h_1': [vent_min__m3_h_1],
                                     'vent_max__m3_h_1': [vent_max__m3_h_1],
                                     'actual_room__m3': [room__m3],
                                     'learned_infilt__cm2': [np.nan],
