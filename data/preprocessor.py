@@ -106,7 +106,7 @@ class Preprocessor:
         df_prep.columns = df_prep.columns.swaplevel(0,1)
         df_prep.columns = ['_'.join(col) for col in df_prep.columns.values]
         
-        return df_prep.dropna(axis=1, how='all')
+        return df_prep
 
     @staticmethod
     def interpolate_time(df_prop: pd.DataFrame,
@@ -138,7 +138,7 @@ class Preprocessor:
         df_result = pd.DataFrame()
         for id in tqdm(df_prop.index.unique('id').dropna()):
             for source in df_prop.loc[id].index.unique('source').dropna():
-                df_interpolated = df_prop.loc[id, source,:].dropna(axis=1, how='all')
+                df_interpolated = df_prop.loc[id, source,:]
                 if not len(df_interpolated):
                     continue
                 if not inplace:
@@ -149,7 +149,6 @@ class Preprocessor:
                              .astype('float32')
                              .interpolate(method='time', limit=lim)
                              .resample(str(interpolate__min) + 'T').mean()
-                             .dropna(axis=0, how='all')
                             )
                 df_interpolated['id'] = id
                 df_interpolated['source'] = source
