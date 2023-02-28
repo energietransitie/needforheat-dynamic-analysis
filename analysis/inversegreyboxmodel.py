@@ -9,12 +9,19 @@ import numbers
 import logging
 
 class Learner():
+
     
     @staticmethod
-    def learn_home_parameters(df_data_ids:pd.DataFrame,
-                             learn_period__d=7, 
-                             req_col:list = [], sanity_threshold_timedelta:timedelta=timedelta(hours=24),
-                             hint_A__m2=None, hint_eta_sup_CH__0=0.97, ev_type=2) -> pd.DataFrame:
+    def learn_home_parameters(df_data:pd.DataFrame,
+                              property_sources = None,
+                              df_home_metadata:pd.DataFrame=None,
+                              learn_period__d=7, 
+                              req_col:list = [],
+                              sanity_threshold_timedelta:timedelta=timedelta(hours=24),
+                              hint_A__m2=None,
+                              hint_eta_sup_CH__0=0.97, 
+                              ev_type=2
+                             ) -> pd.DataFrame:
         """
         Input:  
         - a preprocessed dataframe with
@@ -23,25 +30,22 @@ class Learner():
                 - time intervals between consecutive measurements are constant
                 - but there may be gaps of multiple intervals with no measurements
                 - multiple sources for the same property are already dealth with in preprocessing
-            - columns:
-                'temp_in__degC',
-                'temp_out__degC',
-                'wind__m_s_1',
-                'ghi__W_m_2',
-                'g_use__W',
-                'e_use__W',
-                'e_ret__W', 
-            ]
+            - columns: list(property_source.values()) should include:
+                ['temp_out__degC', 'wind__m_s_1', 'ghi__W_m_2', 'g_use__W', 'e_use__W','e_ret__W']
+        - a dictionary that can be used by the source code of this function to map keys to actual property names to be retrieved from the dataframe 
         and optionally,
         - the number of days to use as learn period in the analysis
         - 'ev_type'
-        - a 'req_col' list: a list of column names: if any of the values in this column are NaN, the interval is not considered 'sane'
+        - 'property_sources', a 'req_col' list: a list of column names: 
+            - If any of the values in this column are NaN, the interval is not considered 'sane'.
+            - If you do not specify a value for req_col or specify req_col = None, then all properties from the property_sources dictionary are considered required
+            - to speficy NO volumns are required, specify property_sources = []
         - a sanity_theshold_timedelta: only the longest streaks with sane data longer than this is considered for analysis during each learn_period
         
         Output:
         - a dataframe with per id and per learn_period the learned parameters
         - a dataframe with additional column:
-          - 'temp_in_sim__degC' best fitting temperature series for each learn period
+          - 'sim_temp_in__degC' best fitting temperature series for each learn period
         """
         
         if not ((hint_A__m2 is None) or isinstance(hint_A__m2, numbers.Number)):
@@ -52,9 +56,9 @@ class Learner():
         if (learn_period__d is None):
             learn_period__d = 7
 
-        ids= df_data_ids.index.unique('id').dropna()
-        start_analysis_period = df_data_ids.index.unique('timestamp').min().to_pydatetime()
-        end_analysis_period = df_data_ids.index.unique('timestamp').max().to_pydatetime()
+        ids= df_data.index.unique('id').dropna()
+        start_analysis_period = df_data.index.unique('timestamp').min().to_pydatetime()
+        end_analysis_period = df_data.index.unique('timestamp').max().to_pydatetime()
         
         daterange_frequency = str(learn_period__d) + 'D'
 
@@ -68,9 +72,9 @@ class Learner():
 
         # perform sanity check; not any required column may be missing a value
         if (req_col == []):
-            df_data_ids.loc[:,'sanity'] = True
+            df_data.loc[:,'sanity'] = True
         else:
-            df_data_ids.loc[:,'sanity'] = ~np.isnan(df_data_ids[req_col]).any(axis="columns")
+            df_data.loc[:,'sanity'] = ~np.isnan(df_data[req_col]).any(axis="columns")
             
         # Conversion factor s_h_1 [s/h]  = 60 [min/h] * 60 [s/min] 
         s_h_1 = (60 * 60) 
@@ -97,15 +101,13 @@ class Learner():
         g_noCH__m3_s_1 = (339.0 / s_a_1)  
 
         # create empty dataframe for results of all homes
-        df_results = pd.DataFrame()
+        df_results_per_period = pd.DataFrame()
 
-        # create empty dataframe for temperature simultion results of all homes
-        df_results_allhomes_allweeks_tempsim = pd.DataFrame()
-           
+          
         # iterate over homes
         for id in tqdm(ids):
             
-            if id > 1e6: # This ismeans we're analysing a virtual home constants 
+            if any(df_data.columns.str.startswith('model_')): # This ismeans we're analysing a virtual home constants 
                 actual_H__W_K_1 = id // 1e5
                 actual_tau__h = (id % 1e5) // 1e2
                 actual_tau__s = actual_tau__h * s_h_1
@@ -113,18 +115,7 @@ class Learner():
                 actual_C__Wh_K_1 = actual_H__W_K_1 * actual_tau__h
                 actual_C__J_K_1 = actual_H__W_K_1 * actual_tau__s
             
-            # create empty dataframe for results of a home
-            df_results_home = pd.DataFrame()
-
-            # create empty dataframe for temperature simulation results of a single home
-            df_results_home_allweeks_tempsim = pd.DataFrame()
-            
-            # create empty dataframe for temperature simulation results of a single week of a single home
-            df_results_homeweek_tempsim  = pd.DataFrame()
-
-            logging.info('Home id: ', id)
-
-            df_learn = df_data_ids.loc[id].copy() #TODO: don't work with a copy, nut add learnt data (_sim) to original DataFrame, like in learn_room_parameters
+            df_learn = df_data.loc[id].copy() #TODO: don't work with a copy, nut add learnt data (_sim) to original DataFrame, like in learn_room_parameters
             
             # calculate timedelta for each interval (code is suitable for unevenly spaced measurementes)
             df_learn['interval__s'] = (df_learn
@@ -359,7 +350,7 @@ class Learner():
                         m.Equation(temp_in__degC.dt() == ((Q_gain__W - Q_loss__W) / C__J_K_1))
                         
                         m.options.IMODE = 5
-                        m.options.EV_TYPE = ev_type # specific objective function (L1-norm vs L2-norm)
+                        m.options.EV_TYPE = ev_type # specific objective function (1 = MAE; 2 = RMSE)
                         m.solve(False)      
 
                         ########################################################################################################################
@@ -368,19 +359,19 @@ class Learner():
 
                         # create a deep copy
                         df_results_homeweek_tempsim = df_learn.copy(deep=True)
-                        df_results_homeweek_tempsim['temp_in_sim__degC'] = list(temp_in__degC.value)
+                        df_results_homeweek_tempsim['sim_temp_in__degC'] = list(temp_in__degC.value)
                         df_results_homeweek_tempsim['A_is_fixed__bool'] = not np.isnan(iterator_A__m2)
 
-                        # TODO: don't use copy but paste directly into df_learn or df_data_ids
+                        # TODO: don't use copy but paste directly into df_learn or df_data
                         # TODO: determine start and end
-                        # df_learn.loc[start:end, 'temp_in_sim__degC'] = temp_in__degC
+                        # df_learn.loc[start:end, 'sim_temp_in__degC'] = temp_in__degC
                         # df_learn.loc[start:end, 'A_is_fixed__bool'] = not np.isnan(iterator_A__m2)
-                        # df_data_ids.loc[id, start:end, 'temp_in_sim__degC'] = temp_in__degC
-                        # df_data_ids.loc[id, start:end, 'A_is_fixed__bool'] = not np.isnan(iterator_A__m2)
+                        # df_data.loc[id, start:end, 'sim_temp_in__degC'] = temp_in__degC
+                        # df_data.loc[id, start:end, 'A_is_fixed__bool'] = not np.isnan(iterator_A__m2)
 
                         
-                        mae_K = (abs(df_results_homeweek_tempsim['temp_in_sim__degC'] - df_results_homeweek_tempsim['temp_in__degC'])).mean()
-                        rmse_K = ((df_results_homeweek_tempsim['temp_in_sim__degC'] - df_results_homeweek_tempsim['temp_in__degC'])**2).mean()**0.5
+                        mae_K = (abs(df_results_homeweek_tempsim['sim_temp_in__degC'] - df_results_homeweek_tempsim['temp_in__degC'])).mean()
+                        rmse_K = ((df_results_homeweek_tempsim['sim_temp_in__degC'] - df_results_homeweek_tempsim['temp_in__degC'])**2).mean()**0.5
 
                         logging.info('duration [s]: ', duration__s)
                         logging.info('EV_TYPE: ', m.options.EV_TYPE)
@@ -441,10 +432,10 @@ class Learner():
 
                         # do NOT write an empty line for this iteration, to indicate it is not fully processed and we don't know 
                         # but DO include the incomplete home results in the final export
-                        df_results = pd.concat([df_results, df_results_home])
+                        df_results_per_period = pd.concat([df_results_per_period, df_results_home])
 
                         # only then exit the function and return to caller
-                        return  df_results, df_results_allhomes_allweeks_tempsim
+                        return  df_results_per_period, df_results_allhomes_allweeks_tempsim
 
                     except Exception as e:
                         # do write an empty line for this iteration, to indicate it is fully processed 
@@ -506,10 +497,10 @@ class Learner():
                         df_results_home = pd.concat([df_results_home, df_result_row])
 
                         # and include the incomplete home results in the final export
-                        df_results = pd.concat([df_results, df_results_home])
+                        df_results_per_period = pd.concat([df_results_per_period, df_results_home])
 
                         # only then exit the function and return to caller
-                        return  df_results, df_results_allhomes_allweeks_tempsim
+                        return  df_results_per_period, df_results_allhomes_allweeks_tempsim
 
                 #after a single innerloop for A fixed or learnable
                 logging.info(str('Analysis of all learn periods for a single inner loop for home {0} complete.'.format(id)))
@@ -517,7 +508,7 @@ class Learner():
             #after all learn periods of a single home; after a single innerloop for A fixed or learnable
             logging.info(str('Analysis of all learn periods for home {0} complete.'.format(id)))
             try:
-                df_results = pd.concat([df_results, df_results_home])
+                df_results_per_period = pd.concat([df_results_per_period, df_results_home])
                 
                 # label each line in the temperature simulation result dataframa with homepseudonym
                 df_results_home_allweeks_tempsim.insert(loc=0, column='id', value=id)
@@ -538,20 +529,18 @@ class Learner():
         df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim.drop(columns=['sanity'])
         df_results_allhomes_allweeks_tempsim = df_results_allhomes_allweeks_tempsim.reset_index().rename(columns = {'index':'timestamp'}).set_index(['id', 'timestamp'])
         
-        #return simulation results via df_data_ids parameter
-        df_data_ids = df_results_allhomes_allweeks_tempsim
+        #return simulation results via df_data parameter
+        df_data = df_results_allhomes_allweeks_tempsim
         
         return  df_results, df_results_allhomes_allweeks_tempsim
     
     
     @staticmethod
-    def learn_room_parameters(df_data_ids:pd.DataFrame,
-                              col_co2__ppm: str, 
-                              col_occupancy__p: str, 
-                              col_valve_frac__0: str,
+    def learn_room_parameters(df_data:pd.DataFrame,
+                              property_sources = None,
                               df_room_metadata:pd.DataFrame=None,
                               learn_period__d=7, 
-                              req_col:list = [],
+                              req_col:list = None,
                               sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                               learn_infilt__m2 = True,
                               learn_valve_frac__0 = False,
@@ -569,9 +558,13 @@ class Learner():
         - a preprocessed dataframe with
             - a MultiIndex ['id', 'timestamp'], where the column 'timestamp' is timezone-aware
             - columns:
-              - col_co2__ppm: name of the column to use for measurements of average CO₂-concentration in the room,
-              - col_occupancy__p: name of the column to use for measurements of average number of people present in the room,
-              - col_valve_frac__0: name of the column to use for measurements of opening fraction of the ventilation valve 
+              - property_sources['co2__ppm']: name of the column to use for measurements of average CO₂-concentration in the room,
+              - property_sources['occupancy__p']: name of the column to use for measurements of average number of people present in the room,
+              - property_sources['valve_frac__0']: name of the column to use for measurements of opening fraction of the ventilation valve 
+        - 'property_sources', a 'req_col' list: a list of column names: 
+            - If any of the values in this column are NaN, the interval is not considered 'sane'.
+            - If you do not specify a value for req_col or specify req_col = None, then all properties from the property_sources dictionary are considered required
+            - to speficy NO volumns are required, specify property_sources = []
         - a df_room_metadata with index 'id' and columns:
             - 'room__m3', the volume of the room [m^3]
             - 'vent_max__m3_h_1', the maximum ventilation rate of the room [m^3/h]
@@ -634,29 +627,26 @@ class Learner():
                                    )                                  # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
       
         # create empty dataframe for results of all homes
-        df_results = pd.DataFrame()
+        df_results_per_period = pd.DataFrame()
 
-        # ensure that datafre is sorted
-        if not df_data_ids.index.is_monotonic_increasing:
-            df_data_ids = df_data_ids.sort_index()  
+        # ensure that dataframee is sorted
+        if not df_data.index.is_monotonic_increasing:
+            df_data = df_data.sort_index()  
         
         # add empty columns to store fitting and learning results for time-varying 
-        df_data_ids['sim_co2__ppm'] = np.nan
-        df_data_ids['learned_valve_frac__0'] = np.nan
-        df_data_ids['learned_occupancy__p'] = np.nan
+        df_data['sim_co2__ppm'] = np.nan
+        df_data['learned_valve_frac__0'] = np.nan
+        df_data['learned_occupancy__p'] = np.nan
 
         # add (temporary) empty columns longest streak detection
-        df_data_ids['streak_id'] = np.nan
-        df_data_ids['streak_cumulative_duration__s'] = np.nan
+        df_data['streak_id'] = np.nan
+        df_data['streak_cumulative_duration__s'] = np.nan
         
-        ids = df_data_ids.index.unique('id').dropna()
+        ids = df_data.index.unique('id').dropna()
         logging.info('ids to analyze: ', ids)
 
-        if (learn_period__d is None):
-            learn_period__d = 7
-
-        start_analysis_period = df_data_ids.index.unique('timestamp').min().to_pydatetime()
-        end_analysis_period = df_data_ids.index.unique('timestamp').max().to_pydatetime()
+        start_analysis_period = df_data.index.unique('timestamp').min().to_pydatetime()
+        end_analysis_period = df_data.index.unique('timestamp').max().to_pydatetime()
         logging.info('Start of analyses: ', start_analysis_period)
         logging.info('End of analyses: ', end_analysis_period)
 
@@ -664,18 +654,18 @@ class Learner():
         logging.info('learn period: ', daterange_frequency)
        
         # perform sanity check; not any required column may be missing a value
-        if (req_col == []):
-            df_data_ids.loc[:,'sanity'] = True
+        if req_col is None: # then we assume all properties from property_sources are required
+            req_col = list(property_sources.values())
+        if not req_col: # then the caller explicitly set the list to be empty
+            df_data.loc[:,'sanity'] = True
         else:
-            df_data_ids.loc[:,'sanity'] = ~np.isnan(df_data_ids[req_col]).any(axis="columns")
+            df_data.loc[:,'sanity'] = ~np.isnan(df_data[req_col]).any(axis="columns")
 
         # iterate over ids
         for id in tqdm(ids):
             
-            df_learn_id = df_data_ids.loc[id]
-
             # calculate timedelta for each interval (this code is suitable for unevenly spaced measurementes)
-            df_data_ids.loc[id, 'interval__s'] = (df_learn_id
+            df_data.loc[id, 'interval__s'] = (df_data.loc[id]
                                                   .index.to_series()
                                                   .diff()
                                                   .shift(-1)
@@ -685,10 +675,7 @@ class Learner():
                                                   .to_numpy()
                                                   )
 
-            # TODO: check whether might be needed: remove lines where 'interval__s' == 0)
-            # df_data_ids = df_data_ids.drop((df_data_ids.index.get_level_values('id') == id) & (df_data_ids['interval__s'] == 0))
-
-            if col_co2__ppm.startswith('model_'):
+            if any(df_data.columns.str.startswith('model_')): 
                 # calculate values from virtual rooms based on id 
                 co2_ext__ppm = co2_ext_2022__ppm                      # Average CO₂ concentration in Europe in 2022 
                 wind__m_s_1 = 3.0                                     # assumed wind speed for virtual rooms that causes infiltration
@@ -698,12 +685,11 @@ class Learner():
                 actual_infilt__m2 = vent_min__m3_h_1 / (s_h_1 * wind__m_s_1)
             else:
                 # get for real measured room, determine room-specific constants
-                co2_ext__ppm = df_learn_id[col_co2__ppm].min()-1      # to compensate for sensor drift use  lowest co2__ppm measured in the room as approximation 
-                wind__m_s_1 = 3.0                                     # |TODO assume this wind speed for real rooms as well, or use geospatially interpolated weather?
-                room__m3 = df_room_metadata.loc[id]['room__m3']       # get this parameter from the table passed as dataFrame
-                                                                      # get this parameter from the table passed as dataFrame
-                vent_max__m3_h_1 = df_room_metadata.loc[id]['vent_max__m3_h_1']
-                actual_infilt__m2 = np.nan
+                co2_ext__ppm = df_data.loc[id][property_sources['co2__ppm']].min()-1  # to compensate for sensor drift use  lowest co2__ppm measured in the room as approximation 
+                wind__m_s_1 = 3.0                                                     # TODO assume this wind speed for real rooms as well, or use geospatially interpolated weather?
+                room__m3 = df_room_metadata.loc[id]['room__m3']                       # get this parameter from the table passed as dataFrame
+                vent_max__m3_h_1 = df_room_metadata.loc[id]['vent_max__m3_h_1']       # get this parameter from the table passed as dataFrame
+                actual_infilt__m2 = np.nan                                            # we don't knwo the actual infiltration area for real rooms
 
             vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
 
@@ -717,54 +703,55 @@ class Learner():
 
                 learn_period_end = min(learn_period_start + timedelta(days=learn_period__d), end_analysis_period)
  
-                df = df_learn_id.loc[(df_learn_id.index >= learn_period_start) & (df_learn_id.index < learn_period_end)]
-                learn_period_len = len(df)
+                df_learn = df_data.loc[id].loc[(df_data.loc[id].index >= learn_period_start) & (df_data.loc[id].index < learn_period_end)]
+                learn_period_len = len(df_learn)
                 #check for enough values
                 if learn_period_len <=1:
                     logging.info(f'No values for id: {id} between {learn_period_start} and {learn_period_end}; skipping...')
                     continue
                 #also check whether there are at least two sane values
-                if len(df.query('sanity == True')) <=1:
+                if len(df_learn.query('sanity == True')) <=1:
                     logging.info(f'Less than two sane values for id: {id} between {learn_period_start} and {learn_period_start}; skipping...')
                     continue                       
-                learn_period_start = df.index.min()
-                learn_period_end = df.index.max()
+                learn_period_start = df_learn.index.min()
+                learn_period_end = df_learn.index.max()
                 logging.info(f'id: {id}; learn_period_start: {learn_period_start}')
                 logging.info(f'id: {id}; learn_period_end: {learn_period_end}')
 
                 logging.info('before longest streak analysis')
-                logging.info('#rows in learning period before longest streak analysis: ', len(df))
+                logging.info('#rows in learning period before longest streak analysis: ', len(df_learn))
  
                 # restrict the dataframe to the longest streak of sane data
                 ## give each streak a separate id
-                df_data_ids.loc[(id,learn_period_start):(id,learn_period_end), 'streak_id'] =  np.asarray(
-                    df_data_ids.loc[(id,learn_period_start):(id,learn_period_end)].sanity
-                    .ne(df_data_ids.loc[(id,learn_period_start):(id,learn_period_end)].sanity.shift())
+                df_data.loc[(id,learn_period_start):(id,learn_period_end), 'streak_id'] =  np.asarray(
+                    df_data.loc[(id,learn_period_start):(id,learn_period_end)].sanity
+                    .ne(df_data.loc[(id,learn_period_start):(id,learn_period_end)].sanity.shift())
                     .cumsum()
                 )
-                logging.info('after streak_id assignment: ', df_data_ids.loc[(id,learn_period_start):(id,learn_period_end)])
+                logging.info('after streak_id assignment: ', df_data.loc[(id,learn_period_start):(id,learn_period_end)])
             
-                df_data_ids.loc[(id,learn_period_start):(id,learn_period_end), 'streak_cumulative_duration__s'] = np.asarray(
-                    df_data_ids.loc[(id,learn_period_start):(id,learn_period_end)]
+                df_data.loc[(id,learn_period_start):(id,learn_period_end), 'streak_cumulative_duration__s'] = np.asarray(
+                    df_data.loc[(id,learn_period_start):(id,learn_period_end)]
                     .groupby('streak_id')
                     .interval__s
                     .cumsum()
                 )
-                # logging.info('after streak_cumulative_duration__s assignment: ', df_data_ids.loc[(id,learn_period_start):(id,learn_period_end)])
+                # logging.info('after streak_cumulative_duration__s assignment: ', df_data.loc[(id,learn_period_start):(id,learn_period_end)])
 
-                df_data_ids.loc[(df_data_ids.index.get_level_values('id') == id) & (df_data_ids['sanity'] == False), 'streak_cumulative_duration__s'] = np.nan
+                df_data.loc[(df_data.index.get_level_values('id') == id) & (df_data['sanity'] == False), 'streak_cumulative_duration__s'] = np.nan
 
                 ## get the longest streak: the part of the dataframe where the streak_id matches the (first) streak_id that has the longest cumulative duration
-                longest_streak_idxmax = df_data_ids.loc[(id,learn_period_start):(id,learn_period_end)].streak_cumulative_duration__s.idxmax()
+                longest_streak_idxmax = df_data.loc[(id,learn_period_start):(id,learn_period_end)].streak_cumulative_duration__s.idxmax()
                 logging.info('longest_streak_idxmax: ', longest_streak_idxmax) 
-                longest_streak_query = 'streak_id == ' + str(df_data_ids.loc[longest_streak_idxmax].streak_id)
+                longest_streak_query = 'streak_id == ' + str(df_data.loc[longest_streak_idxmax].streak_id)
                 logging.info('longest_streak_query: ', longest_streak_query) 
-                df = df_data_ids.loc[(id,learn_period_start):(id,learn_period_end)].query(longest_streak_query)
+                
+                df_learn = df_data.loc[(id,learn_period_start):(id,learn_period_end)].query(longest_streak_query)
 
                 # learn the new, potentially more restricted learn_period
-                learn_streak_period_start = df.index.get_level_values('timestamp').min()
-                learn_streak_period_end = df.index.get_level_values('timestamp').max()
-                learn_streak_period_len = len(df)
+                learn_streak_period_start = df_learn.index.get_level_values('timestamp').min()
+                learn_streak_period_end = df_learn.index.get_level_values('timestamp').max()
+                learn_streak_period_len = len(df_learn)
                 logging.info('Start datetime longest sane streak: ', learn_streak_period_start)
                 logging.info('End datetime longest sane streak: ', learn_streak_period_end)
                 logging.info('#rows in longest sane streak: ', learn_streak_period_len)
@@ -773,15 +760,15 @@ class Learner():
                     logging.info(f'id: {id}; {learn_period_len} rows between {learn_period_start} and {learn_period_end}')
                     logging.info(f'id: {id}; {learn_streak_period_len} rows between {learn_streak_period_start} and {learn_streak_period_end} in the longest streak')
                 
-                df_data_ids.loc[id, 'streak_id'] = np.nan
-                df_data_ids.loc[id, 'streak_cumulative_duration__s'] = np.nan
+                df_data.loc[id, 'streak_id'] = np.nan
+                df_data.loc[id, 'streak_cumulative_duration__s'] = np.nan
 
                 # also check whether streak duration is long enough
                 if ((learn_streak_period_end - learn_streak_period_start) < sanity_threshold_timedelta):
                     logging.info(f'Longest streak duration to short for id: {id}; shorter than {sanity_threshold_timedelta} between {learn_streak_period_start} and {learn_streak_period_start}; skipping...')
                     continue
                  
-                logging.info('df:', df)
+                logging.info('df_learn:', df_learn)
 
                 step__s = ((learn_streak_period_end - learn_streak_period_start).total_seconds()
                           /
@@ -801,9 +788,9 @@ class Learner():
                 logging.info('duration__s:  ', duration__s)
                 
                 logging.info('Values going into GEKKO')
-                logging.info('Occupancy values: ', df[col_occupancy__p].astype('float32').values)
-                logging.info('Valve fraction values: ', df[col_valve_frac__0].values)
-                logging.info('CO2 values: ', df[col_co2__ppm].values)
+                logging.info('Occupancy values: ', df_learn[property_sources['occupancy__p']].astype('float32').values)
+                logging.info('Valve fraction values: ', df_learn[property_sources['valve_frac__0']].values)
+                logging.info('CO2 values: ', df_learn[property_sources['co2__ppm']].values)
 
                 try:
             
@@ -815,21 +802,21 @@ class Learner():
 
                     # GEKKO time-varying variables: measured values or learned
                     if learn_occupancy__p:
-                        occupancy__p = m.MV(value = df[col_occupancy__p].astype('float32').values, lb=0, ub=12, integer=True)
+                        occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values, lb=0, ub=12, integer=True)
                         occupancy__p.STATUS = 1; occupancy__p.FSTATUS = 1
                         if learn_change_interval__min is not None:
                             occupancy__p.MV_STEP_HOR = MV_STEP_HOR
                     else:
-                        occupancy__p = m.MV(value = df[col_occupancy__p].astype('float32').values)
+                        occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values)
                         occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
 
                     if learn_valve_frac__0:
-                        valve_frac__0 = m.MV(value = df[col_valve_frac__0].values, lb=0, ub=1)
+                        valve_frac__0 = m.MV(value = df_learn[property_sources['valve_frac__0']].values, lb=0, ub=1)
                         valve_frac__0.STATUS = 1; valve_frac__0.FSTATUS = 1
                         if learn_change_interval__min is not None:
                             valve_frac__0.MV_STEP_HOR = MV_STEP_HOR
                     else:
-                        valve_frac__0 = m.MV(value = df[col_valve_frac__0].values)
+                        valve_frac__0 = m.MV(value = df_learn[property_sources['valve_frac__0']].values)
                         valve_frac__0.STATUS = 0; valve_frac__0.FSTATUS = 1
 
 
@@ -841,7 +828,7 @@ class Learner():
                         infilt__m2 = 0.001  
 
                     # GEKKO Control Varibale (predicted variable for which fit is optimized)
-                    co2__ppm = m.CV(value = df[col_co2__ppm].values) #[ppm]
+                    co2__ppm = m.CV(value = df_learn[property_sources['co2__ppm']].values) #[ppm]
                     co2__ppm.STATUS = 1; co2__ppm.FSTATUS = 1
 
                     # GEKKO - Equations
@@ -861,17 +848,17 @@ class Learner():
                     m.options.NODES = 2
                     m.solve(disp = False)
 
-                    df_data_ids.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'sim_co2__ppm'] = np.asarray(co2__ppm)
+                    df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'sim_co2__ppm'] = np.asarray(co2__ppm)
 
                     if learn_valve_frac__0:
-                        df_data_ids.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_valve_frac__0'] = np.asarray(valve_frac__0)
+                        df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_valve_frac__0'] = np.asarray(valve_frac__0)
                     if learn_occupancy__p:
-                        df_data_ids.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_occupancy__p'] = np.asarray(occupancy__p)
+                        df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_occupancy__p'] = np.asarray(occupancy__p)
 
 
                     # calculating error metrics (mean absolute error for all learned parameters; root mean squared error only for predicted time series)
-                    mae_co2__ppm = (abs(df_data_ids.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'sim_co2__ppm'] - df[col_co2__ppm])).mean()
-                    rmse_co2__ppm = ((df_data_ids.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'sim_co2__ppm'] - df[col_co2__ppm])**2).mean()**0.5
+                    mae_co2__ppm = (abs(df_learn['sim_co2__ppm'] - df_learn[property_sources['co2__ppm']])).mean()
+                    rmse_co2__ppm = ((df_learn['sim_co2__ppm'] - df_learn[property_sources['co2__ppm']])**2).mean()**0.5
 
                     if learn_infilt__m2:
                         learned_infilt__m2 = infilt__m2.value[0]
@@ -881,23 +868,23 @@ class Learner():
                         mae_infilt__m2 = np.nan
 
                     if learn_valve_frac__0:
-                        mae_valve_frac__0 = (abs(df_data_ids.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_valve_frac__0'] - df[col_valve_frac__0])).mean()
-                        rmse_valve_frac__0 = ((df_data_ids.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_valve_frac__0'] - df[col_valve_frac__0])**2).mean()**0.5
+                        mae_valve_frac__0 = (abs(df_learn['learned_valve_frac__0'] - df_learn[property_sources['valve_frac__0']])).mean()
+                        rmse_valve_frac__0 = ((df_learn['learned_valve_frac__0'] - df_learn[property_sources['valve_frac__0']])**2).mean()**0.5
                     else:
                         mae_valve_frac__0 = np.nan
                         rmse_valve_frac__0 = np.nan
 
                     if learn_occupancy__p:
-                        mae_occupancy__p = (abs(df_data_ids.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_occupancy__p'] - df[col_occupancy__p])).mean()
-                        rmse_occupancy__p = ((df_data_ids.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_occupancy__p'] - df[col_occupancy__p])**2).mean()**0.5
+                        mae_occupancy__p = (abs(df_learn['learned_occupancy__p'] - df_learn[property_sources['occupancy__p']])).mean()
+                        rmse_occupancy__p = ((df_learn['learned_occupancy__p'] - df_learn[property_sources['occupancy__p']])**2).mean()**0.5
                     else:
                         mae_occupancy__p = np.nan
                         rmse_occupancy__p = np.nan
 
                     # Create a results row and add to results dataframe
-                    df_results = pd.concat(
+                    df_results_per_period = pd.concat(
                         [
-                            df_results,
+                            df_results_per_period,
                             pd.DataFrame(
                                 {
                                     'id': [id],
@@ -932,9 +919,9 @@ class Learner():
 
                     # do NOT write an empty line for this iteration, to indicate it is not fully processed and we don't know 
                     # but DO include the incomplete home results in the final export
-                    df_results = pd.concat(
+                    df_results_per_period = pd.concat(
                         [
-                            df_results,
+                            df_results_per_period,
                             pd.DataFrame(
                                 {
                                     'id': [id],
@@ -961,7 +948,7 @@ class Learner():
                     )
 
                     # only then exit the function and return to caller
-                    return df_results.set_index('id'), df_data_ids.drop(columns=['sanity'])
+                    return df_results_per_period.set_index('id'), df_data.drop(columns=['sanity'])
 
                 except Exception as e:
                     # do write an empty line for this iteration, to indicate it is fully processed 
@@ -969,9 +956,9 @@ class Learner():
 
                     logging.error(str('Exception {0} for home {1} in period from {2} to {3}; skipping...'
                               .format(e, id,learn_streak_period_start,learn_streak_period_end)))
-                    df_results = pd.concat(
+                    df_results_per_period = pd.concat(
                         [
-                            df_results,
+                            df_results_per_period,
                             pd.DataFrame(
                                 {
                                     'id': [id],
@@ -1003,4 +990,4 @@ class Learner():
             
         # after all ids
 
-        return df_results.set_index('id'), df_data_ids.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
+        return df_results_per_period.set_index('id'), df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
