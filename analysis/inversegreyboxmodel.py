@@ -131,7 +131,7 @@ class Learner():
             - to speficy NO volumns are required, specify property_sources = []
         - a df_metadata with index 'id' and columns:
         - hints: a dictionary that maps keys to fixed values to be used for analysis (set value for None to learn it):
-            - 'A__m2': apparent solar aperture [m^2]
+            - 'A_sol__m2': apparent solar aperture [m^2]
             - 'eta_sup_CH__0': superior efficiency [-] of the heating system (in NL 0.97 is a reasonable hint)
             - 'g_noCH__m3_a_1': average yearly gas use for other purposes than heating (in NL 334 [m^3/a] is a reasonable hint)
             - 'eta_sup_noCH__0': superior efficiency [-] of heating the home indirectly using gas (in NL 0.34 uis a reasonable hint)
@@ -148,7 +148,7 @@ class Learner():
         """
         
         # check presence of hints
-        mandatory_hints = ['A__m2',
+        mandatory_hints = ['A_sol__m2',
                            'eta_sup_CH__0',
                            'eta_sup_noCH__0',
                            'g_noCH__m3_a_1',
@@ -223,14 +223,14 @@ class Learner():
                 # calculate values from virtual home based on id 
                 actual_H__W_K_1 = id // 1e5
                 actual_tau__h = (id % 1e5) // 1e2
-                actual_A__m2 = id % 1e2
+                actual_A_sol__m2 = id % 1e2
                 actual_C__Wh_K_1 = actual_H__W_K_1 * actual_tau__h
                 actual_eta_sup_CH__0 = 0.97 # efficiency used for calculating virtual room values)
                 actual_wind_chill__degC_s_m_1 = 0.67 # efficiency used for calculating virtual room values)
             else:
                 actual_H__W_K_1 = np.nan
                 actual_tau__h = np.nan
-                actual_A__m2 = np.nan
+                actual_A_sol__m2 = np.nan
                 actual_C__Wh_K_1 = np.nan
                 actual_eta_sup_CH__0 = np.nan
                 actual_wind_chill__degC_s_m_1 = np.nan
@@ -315,8 +315,8 @@ class Learner():
                 learned_C__Wh_K_1 = np.nan
                 mae_C__Wh_K_1 = np.nan
 
-                learned_A__m2 = np.nan
-                mae_A__m2 = np.nan
+                learned_A_sol__m2 = np.nan
+                mae_A_sol__m2 = np.nan
 
                 learned_eta_sup_CH__0 = np.nan
                 mae_eta_sup_CH__0 = np.nan
@@ -371,18 +371,19 @@ class Learner():
                     # Q_gain_int [W]: calculated heat gain from internal sources
                     Q_gain_int__W = m.Intermediate(e_use__W - e_ret__W + Q_gain_int_occup__W + Q_gain_g_noCH__W)
 
-                    if 'A__m2' in learn:
-                        A__m2 = m.FV(value = hints['A__m2'], lb=1, ub=100); A__m2.STATUS = 1; A__m2.FSTATUS = 0
+                    # A_sol__m2 [m^2]: calculated heat gain from internal sources
+                    if 'A_sol__m2' in learn:
+                        A_sol__m2 = m.FV(value = hints['A_sol__m2'], lb=1, ub=100); A_sol__m2.STATUS = 1; A_sol__m2.FSTATUS = 0
                     else:
-                        A__m2 = m.Param(value = hints['A__m2'])
-                        learned_A__m2 = np.nan
+                        A_sol__m2 = m.Param(value = hints['A_sol__m2'])
+                        learned_A_sol__m2 = np.nan
 
                     # ghi [W/m^2]: measured global horizontal irradiation
                     ghi__W_m_2 = m.MV(value = df_learn[property_sources['ghi__W_m_2']].astype('float32').values)
                     ghi__W_m_2.STATUS = 0; ghi__W_m_2.FSTATUS = 1
 
                     # Q_gain_sol [W]: calculated heat gain from solar irradiation
-                    Q_gain_sol__W = m.Intermediate(ghi__W_m_2 * A__m2)
+                    Q_gain_sol__W = m.Intermediate(ghi__W_m_2 * A_sol__m2)
                     
                     # temp_out [°C]: measured outdoor temperature
                     temp_out__degC = m.MV(value = df_learn[property_sources['temp_out__degC']].astype('float32').values)
@@ -439,9 +440,9 @@ class Learner():
                     learned_C__Wh_K_1 = learned_H__W_K_1 * learned_tau__h
                     mae_C__Wh_K_1 = abs(learned_C__Wh_K_1 - actual_C__Wh_K_1)
 
-                    if 'A__m2' in learn:
-                        learned_A__m2 = A__m2.value[0]
-                        mae_A__m2 = abs(learned_A__m2 - actual_A__m2) # evaluates to np.nan if no actual value
+                    if 'A_sol__m2' in learn:
+                        learned_A_sol__m2 = A_sol__m2.value[0]
+                        mae_A_sol__m2 = abs(learned_A_sol__m2 - actual_A_sol__m2) # evaluates to np.nan if no actual value
 
                     if 'eta_sup_CH__0' in learn:
                         learned_eta_sup_CH__0 = eta_sup_CH__0.value[0]
@@ -474,9 +475,9 @@ class Learner():
                                     'learned_C__Wh_K_1':[learned_C__Wh_K_1],
                                     'actual_C__Wh_K_1':[actual_C__Wh_K_1],
                                     'mae_C__Wh_K_1': [mae_C__Wh_K_1],
-                                    'learned_A__m2': [learned_A__m2],
-                                    'actual_A__m2': [actual_A__m2],
-                                    'mae_A__m2': [mae_A__m2],
+                                    'learned_A_sol__m2': [learned_A_sol__m2],
+                                    'actual_A_sol__m2': [actual_A_sol__m2],
+                                    'mae_A_sol__m2': [mae_A_sol__m2],
                                     'learned_eta_sup_CH__0': [learned_eta_sup_CH__0],
                                     'actual_eta_sup_CH__0': [actual_eta_sup_CH__0],
                                     'mae_eta_sup_CH__0': [mae_eta_sup_CH__0],
