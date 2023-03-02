@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
-import pytz
+from typing import List
 import pandas as pd
 import numpy as np
+import math
 from gekko import GEKKO
 from tqdm.notebook import tqdm
 
@@ -96,27 +97,67 @@ class Learner():
             return None
 
         return df_learn
+    
+    def gas_split_simple(df_data_id_g_use__W:pd.DataFrame,
+                         avg_g_use_noCH__W:float) -> pd.DataFrame:
+        """
+        Input:  
+        - df_data_id_g_use__W: DataFrae of a single id with only g_use__W values; e.g. df_data.loc[id][property_sources['g_use__W']]
+        - 'avg_g_use_noCH__W': average gas power flow for other purposes than heating
+          (be sure to use upper heating value of on the conversion of [m^3/a] to [J/s])
+        
+        Output:
+        - a dataframe with the same length os df_data_id with two column(s):
+            - 'g_use_noCH__W' estimate of gas power NOT used as input for other purposes than central heatig (e.g. DHW, cooking)
+            - 'g_use_CH__W' estimate of gas power used as input for central heating
+        """
+        # create empty dataframe for the results
+        df_result = pd.DataFrame()
+
+        #substract fixed amount of noCH use from gas use
+        df_result['g_use_CH__W'] =  df_data_id_g_use__W
+        df_result['g_use_CH__W'] = df_result['g_use_CH__W'] - avg_g_use_noCH__W
+        #prevent negative gas use
+        df_result[df_result < 0] = 0
+
+        # Compensate for missed gas use by scaling down the remaining g_use_CH__W 
+        avg_g_use__W = df_data_id_g_use__W.mean()
+
+        uncorrected_g_use_CH__W = df_result['g_use_CH__W'].mean()
+        scaling_factor =  (avg_g_use__W - avg_g_use_noCH__W) / uncorrected_g_use_CH__W  
+        
+        df_result['g_use_CH__W'] = df_result['g_use_CH__W'] * scaling_factor
+
+        df_result['g_use_noCH__W'] = avg_g_use_noCH__W
+
+        # check whether split was done connectly in the sense that no gas use is lost
+        if not math.isclose(df_data_id_g_use__W.mean(), (df_result['g_use_noCH__W'].mean() + df_result['g_use_CH__W'].mean())):
+            logging.error(f'ERROR splitting gas: before {avg_g_use__W:.2f} W, split: {df_result.g_use_noCH__W.mean():.2f} + {df_result.g_use_CH__W.mean():2f} = {df_result.g_use_noCH__W.mean() + df_result.g_use_CH__W.mean():.2f}')
+        else:
+            logging.info(f'correct gas split: before {avg_g_use__W:.2f} W, split: {df_result.g_use_noCH__W.mean():.2f} + {df_result.g_use_CH__W.mean():2f} = {df_result.g_use_noCH__W.mean() + df_result.g_use_CH__W.mean():.2f}')
+
+        return df_result
+
+
                     
     @staticmethod
     def learn_home_parameters(df_data:pd.DataFrame,
                               property_sources = None,
                               df_metadata:pd.DataFrame=None,
                               hints:dict = None,
-                              learn:list[str] = None,
+                              learn:List[str] = None,
                               learn_period__d=7, 
                               req_col:list = None,
                               sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                               ev_type=2) -> pd.DataFrame:
         """
         Input:  
-        - a preprocessed dataframe with
+        - a preprocessed pandas DataFrame with
             - a MultiIndex ['id', 'timestamp'], where
                 - the column 'timestamp' is timezone-aware
                 - time intervals between consecutive measurements are constant
                 - but there may be gaps of multiple intervals with no measurements
                 - multiple sources for the same property are already dealth with in preprocessing
-        - a preprocessed dataframe with
-            - a MultiIndex ['id', 'timestamp'], where the column 'timestamp' is timezone-aware
             - columns:
               - property_sources['temp_out__degC']: 
               - property_sources['wind__m_s_1']:
@@ -172,20 +213,18 @@ class Learner():
                 raise LearnError(f'No support for learning {param} (yet).')
 
         # Conversion factors
-        s_min_1 = 60                                                  # [s] per [min]
-        min_h_1 = 60                                                  # [min] per [h]
-        s_h_1 = s_min_1 * min_h_1                                     # [s] per [h]
-        s_d_1 = (24 * s_h_1)                                          # [s] per [d]
-        s_a_1 = (365.25 * s_d_1)                                      # [s] per [a] 
+        s_min_1 = 60                # [s] per [min]
+        min_h_1 = 60                # [min] per [h]
+        s_h_1 = s_min_1 * min_h_1   # [s] per [h]
+        s_d_1 = (24 * s_h_1)        # [s] per [d]
+        s_a_1 = (365.25 * s_d_1)    # [s] per [a] 
 
-        J_kWh_1 = 1000 * s_h_1                                        # [J] per [kWh]
+        J_kWh_1 = 1000 * s_h_1      # [J] per [kWh]
 
         # National averages
-        h_sup_J_m_3 = 35.17e6                               # superior calorific value of natural gas from the Groningen field
-        g_noCH__m3_s_1 = (hints['g_noCH__m3_a_1'] / s_a_1)  # average gas usage per year for cooking and DHW, i.e. not for CH  
-        occupancy__p = hints['occupancy__p']                # average household occupancy
-        Q_gain_int__W_p_1 = hints['Q_gain_int__W_p_1']           # average heat gain per occupant
-        Q_gain_int_occup__W = Q_gain_int__W_p_1 * occupancy__p
+        h_sup_J_m_3 = 35.17e6                                                       # superior calorific value of natural gas from the Groningen field
+        avg_g_use_noCH__W = hints['g_noCH__m3_a_1'] * h_sup_J_m_3 / s_a_1           # average gas usage per year for cooking and DHW, i.e. not for CH  
+        Q_gain_int_occup__W = hints['Q_gain_int__W_p_1'] * hints['occupancy__p']    # average heat gain per occupant
       
         # create empty dataframe for results of all homes
         df_results_per_period = pd.DataFrame()
@@ -235,43 +274,7 @@ class Learner():
                 actual_eta_sup_CH__0 = np.nan
                 actual_wind_chill__degC_s_m_1 = np.nan
 
-            # TODO: refactor code, such the code below runs as a separate function 
-            # split gas over CH and noCH per home based on the entire period 
-            # in a future version we intend to use a value specific per home based on average usage of natural gas in the summer months (June - August) 
-            g_use_noCH__W = g_noCH__m3_s_1 * h_sup_J_m_3 
-
-            logging.info(f'id: {id}')
-            logging.info(f'g_noCH__m3_s_1: {g_noCH__m3_s_1:.5E}')
-            logging.info(f'g_use_noCH__W: {g_use_noCH__W}')
-
-            # using this average, distribute gas usage over central heating (CH) versus no Central Heating (noCH)
-            id_period_start = df_data.loc[id].index.min()
-            id_period_end = df_data.loc[id].index.max()
-            logging.info(f'id_period_start: {id_period_start}')
-            logging.info(f'id_period_end: {id_period_end}')
-
-            df_data.loc[(id,id_period_start):(id,id_period_end), 'g_use_noCH__W'] = g_use_noCH__W
-            
-            arr_g_use_CH__W = np.asarray(df_data.loc[id][property_sources['g_use__W']] - g_use_noCH__W)
-            arr_g_use_CH__W[arr_g_use_CH__W < 0] = 0
-            df_data.loc[(id,id_period_start):(id,id_period_end), 'g_use_CH__W'] = arr_g_use_CH__W
-            
-            # # Avoid negative values for heating; simple fix: negative value with zero in g_use_CH__W
-            # df_data.loc[(df_data.index.get_level_values('id') == id) & (df_data['g_use_CH__W'] < 0), 'g_use_CH__W'] = 0
-
-            # Compensate by scaling down g_use_CH__W 
-            g_use_home__W = df_data.loc[id][property_sources['g_use__W']].mean()
-            uncorrected_g_use_CH__W = df_data.loc[id]['g_use_CH__W'].mean()
-            scaling_factor =   (g_use_home__W - g_use_noCH__W) / uncorrected_g_use_CH__W  
-            
-            df_data.loc[(id,id_period_start):(id,id_period_end), 'g_use_CH__W'] = np.asarray(df_data.loc[id]['g_use_CH__W'] * scaling_factor)
-            corrected_g_use_CH__W = df_data.loc[id]['g_use_CH__W'].mean()
-
-            logging.info(f'g_use_home__W: {g_use_home__W}')
-            logging.info(f'uncorrected_g_use_CH__W: {uncorrected_g_use_CH__W}')
-            logging.info(f'scaling_factor: {scaling_factor}')
-            logging.info(f'corrected_g_use_CH__W: {corrected_g_use_CH__W}')
-            logging.info(f'g_use_noCH__W + corrected_g_use_CH__W: {g_use_noCH__W + corrected_g_use_CH__W}')
+            df_data.loc[id, ['g_use_CH__W', 'g_use_noCH__W']] = Learner.gas_split_simple(df_data.loc[id][property_sources['g_use__W']], avg_g_use_noCH__W).values
 
             learn_period_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
 
@@ -516,11 +519,11 @@ class Learner():
                               property_sources = None,
                               df_metadata:pd.DataFrame=None,
                               hints:dict = None,
-                              learn:list[str] = None,
+                              learn:List[str] = None,
                               learn_period__d=7, 
                               req_col:list = None,
                               sanity_threshold_timedelta:timedelta=timedelta(hours=24),
-                              learn_infilt__m2 = True,
+                              learn_A_inf__m2 = True,
                               learn_valve_frac__0 = False,
                               learn_occupancy__p = False,
                               learn_change_interval__min = None,
@@ -561,7 +564,7 @@ class Learner():
 
         """
         # check presence of hints
-        mandatory_hints = ['infilt__m2'
+        mandatory_hints = ['A_inf__m2'
                           ]
         for hint in mandatory_hints:
             if not (hint in hints or isinstance(hints[hint], numbers.Number)):
@@ -657,14 +660,14 @@ class Learner():
                 room__m3 = id % 1e3
                 vent_min__m3_h_1 = (id % 1e6) // 1e3
                 vent_max__m3_h_1 = id // 1e6
-                actual_infilt__m2 = vent_min__m3_h_1 / (s_h_1 * wind__m_s_1)
+                actual_A_inf__m2 = vent_min__m3_h_1 / (s_h_1 * wind__m_s_1)
             else:
                 # get for real measured room, determine room-specific constants
                 co2_ext__ppm = df_data.loc[id][property_sources['co2__ppm']].min()-1  # to compensate for sensor drift use  lowest co2__ppm measured in the room as approximation 
                 wind__m_s_1 = 3.0                                                     # TODO assume this wind speed for real rooms as well, or use geospatially interpolated weather?
                 room__m3 = df_metadata.loc[id]['room__m3']                            # get this parameter from the table passed as dataFrame
                 vent_max__m3_h_1 = df_metadata.loc[id]['vent_max__m3_h_1']            # get this parameter from the table passed as dataFrame
-                actual_infilt__m2 = np.nan                                            # we don't knwo the actual infiltration area for real rooms
+                actual_A_inf__m2 = np.nan                                            # we don't knwo the actual infiltration area for real rooms
 
             vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
 
@@ -707,8 +710,8 @@ class Learner():
                 logging.info(f'duration__s:  {duration__s}')
                 
                 # setup learned_ and mae_ variables
-                learned_infilt__m2 = np.nan
-                mae_infilt__m2 = np.nan
+                learned_A_inf__m2 = np.nan
+                mae_A_inf__m2 = np.nan
 
                 mae_valve_frac__0 = np.nan
                 rmse_valve_frac__0 = np.nan
@@ -745,11 +748,11 @@ class Learner():
 
 
                     # GEKKO time-independent variables: approximated or learned
-                    if 'infilt__m2' in learn:
-                        infilt__m2 = m.FV(value = hints['infilt__m2'], lb = 0)
-                        infilt__m2.STATUS = 1; infilt__m2.FSTATUS = 0
+                    if 'A_inf__m2' in learn:
+                        A_inf__m2 = m.FV(value = hints['A_inf__m2'], lb = 0)
+                        A_inf__m2.STATUS = 1; A_inf__m2.FSTATUS = 0
                     else:
-                        infilt__m2 = hints['infilt__m2']  
+                        A_inf__m2 = hints['A_inf__m2']  
 
                     # GEKKO Control Varibale (predicted variable for which fit is optimized)
                     co2__ppm = m.CV(value = df_learn[property_sources['co2__ppm']].values) #[ppm]
@@ -758,7 +761,7 @@ class Learner():
                     # GEKKO - Equations
                     co2_elevation__ppm = m.Intermediate(co2__ppm - co2_ext__ppm)
                     co2_loss_vent__ppm_s_1 = m.Intermediate(co2_elevation__ppm * vent_max__m3_s_1 * valve_frac__0 / room__m3)
-                    co2_loss_wind__ppm_s_1 = m.Intermediate(co2_elevation__ppm * wind__m_s_1 * infilt__m2 / room__m3)
+                    co2_loss_wind__ppm_s_1 = m.Intermediate(co2_elevation__ppm * wind__m_s_1 * A_inf__m2 / room__m3)
                     co2_loss__ppm_s_1 = m.Intermediate(co2_loss_vent__ppm_s_1 + co2_loss_wind__ppm_s_1)
                     co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale__umol_p_1_s_1 / (room__m3 * air_density__mol_m_3))
                     m.Equation(co2__ppm.dt() == co2_gain__ppm_s_1 - co2_loss__ppm_s_1)
@@ -777,9 +780,9 @@ class Learner():
                     mae_co2__ppm = Learner.mae(co2__ppm, df_learn[property_sources['co2__ppm']])
                     rmse_co2__ppm = Learner.rmse(co2__ppm, df_learn[property_sources['co2__ppm']])
 
-                    if 'infilt__m2' in learn:
-                        learned_infilt__m2 = infilt__m2.value[0]
-                        mae_infilt__m2 = abs(learned_infilt__m2 - actual_infilt__m2)
+                    if 'A_inf__m2' in learn:
+                        learned_A_inf__m2 = A_inf__m2.value[0]
+                        mae_A_inf__m2 = abs(learned_A_inf__m2 - actual_A_inf__m2)
 
                     if 'valve_frac__0' in learn:
                         df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_valve_frac__0'] = np.asarray(valve_frac__0)
@@ -806,9 +809,9 @@ class Learner():
                                     'EV_TYPE': [m.options.EV_TYPE],
                                     'vent_max__m3_h_1': [vent_max__m3_h_1],
                                     'actual_room__m3': [room__m3],
-                                    'learned_infilt__cm2': [learned_infilt__m2 * 1e4],
-                                    'actual_infilt__cm2': [actual_infilt__m2 * 1e4],
-                                    'mae_infilt__cm2': [mae_infilt__m2 * 1e4],
+                                    'learned_A_inf__cm2': [learned_A_inf__m2 * 1e4],
+                                    'actual_A_inf__cm2': [actual_A_inf__m2 * 1e4],
+                                    'mae_A_inf__cm2': [mae_A_inf__m2 * 1e4],
                                     'mae_co2__ppm': [mae_co2__ppm],
                                     'rmse_co2__ppm': [rmse_co2__ppm],
                                     'mae_valve_frac__0': [mae_valve_frac__0],
