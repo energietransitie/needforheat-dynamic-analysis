@@ -171,12 +171,13 @@ class Learner():
             - If you do not specify a value for req_col or specify req_col = None, then all properties from the property_sources dictionary are considered required
             - to speficy NO volumns are required, specify property_sources = []
         - a df_metadata with index 'id' and columns:
+            - none (this feature is not used in the current implementation yet, but added here for consistentcy with the learn_room_parameters() function)
         - hints: a dictionary that maps keys to fixed values to be used for analysis (set value for None to learn it):
             - 'A_sol__m2': apparent solar aperture [m^2]
             - 'eta_sup_CH__0': superior efficiency [-] of the heating system (in NL 0.97 is a reasonable hint)
             - 'g_noCH__m3_a_1': average yearly gas use for other purposes than heating (in NL 334 [m^3/a] is a reasonable hint)
-            - 'eta_sup_noCH__0': superior efficiency [-] of heating the home indirectly using gas (in NL 0.34 uis a reasonable hint)
-            - 'wind_chill__degC_s_m_1': (in NL typically 0.67)
+            - 'eta_sup_noCH__0': superior efficiency [-] of heating the home indirectly using gas (in NL 0.34 is a reasonable hint)
+            - 'wind_chill__degC_s_m_1': (in NL typically 0.67, according to KNMI: https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub219.pdf)
         and optionally,
         - the number of days to use as learn period in the analysis
         - 'ev_type': type 2 is usually recommended, since this is typically more than 50 times faster
@@ -229,7 +230,7 @@ class Learner():
         # create empty dataframe for results of all homes
         df_results_per_period = pd.DataFrame()
 
-        # ensure that dataframee is sorted
+        # ensure that dataframe is sorted
         if not df_data.index.is_monotonic_increasing:
             df_data = df_data.sort_index()  
         
@@ -327,10 +328,12 @@ class Learner():
                 learned_wind_chill__degC_s_m_1 = np.nan
                 mae_wind_chill__degC_s_m_1 = np.nan
                 
+                ##################################################################################################################
+                # GEKKO code
+
                 try:
             
-                    ##################################################################################################################
-                    # Gekko Model - Initialize
+                    # GEKKO Model - Initialize
                     m = GEKKO(remote=False)
                     m.time = np.arange(0, duration__s, step__s)
 
@@ -402,7 +405,7 @@ class Learner():
                         wind_chill__degC_s_m_1 = m.FV(value = hints['wind_chill__degC_s_m_1'], lb=0, ub=5.0)
                         wind_chill__degC_s_m_1.STATUS = 1; wind_chill__degC_s_m_1.FSTATUS = 0
                     else:
-                        # set fixed wind chill factor based on hint in home_metadata
+                        # set fixed wind chill factor based on hint
                         wind_chill__degC_s_m_1 = m.Param(value = hints['wind_chill__degC_s_m_1'])
                         learned_wind_chill__degC_s_m_1 = np.nan
 
@@ -455,7 +458,17 @@ class Learner():
                         learned_wind_chill__degC_s_m_1 = wind_chill__degC_s_m_1.value[0]
                         mae_wind_chill__degC_s_m_1 = abs(learned_wind_chill__degC_s_m_1 - actual_wind_chill__degC_s_m_1) # evaluates to np.nan if no actual value
 
-                    # create a results row and add to results dataframe
+
+                except KeyboardInterrupt:    
+                    logging.error(f'KeyboardInterrupt; home analysis {id} not complete; saving results so far then will exit...')
+                    # only then exit the function and return to caller
+                    return df_results_per_period.set_index('id'), df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
+
+                except Exception as e:
+                    logging.error(f'Exception {e} for home {id} in period from {learn_streak_period_start} to {learn_streak_period_end}; skipping...')
+                
+                finally:
+                    # create a results row and add to results per period dataframe
                     df_results_per_period = pd.concat(
                         [
                             df_results_per_period,
@@ -492,19 +505,7 @@ class Learner():
                     )
 
                     m.cleanup()
-                    ##################################################################################################################
-
-                except KeyboardInterrupt:    
-                    logging.error(f'KeyboardInterrupt; home analysis {id} not complete; saving results so far then will exit...')
-                    # only then exit the function and return to caller
-                    return df_results_per_period.set_index('id'), df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
-                    # return df_results_per_period.set_index('id'), df_data.drop(columns=['interval__s', 'sanity'])
-
-                except Exception as e:
-                    logging.error(f'Exception {e} for home {id} in period from {learn_streak_period_start} to {learn_streak_period_end}; skipping...')
-                    # only then exit the function and return to caller
-                    return df_results_per_period.set_index('id'), df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
-                    # return df_results_per_period.set_index('id'), df_data.drop(columns=['interval__s', 'sanity'])
+                ##################################################################################################################
 
             # after all learn periods of a single id
             
@@ -523,9 +524,6 @@ class Learner():
                               learn_period__d=7, 
                               req_col:list = None,
                               sanity_threshold_timedelta:timedelta=timedelta(hours=24),
-                              learn_A_inf__m2 = True,
-                              learn_valve_frac__0 = False,
-                              learn_occupancy__p = False,
                               learn_change_interval__min = None,
                               ev_type=2) -> pd.DataFrame:
         """
@@ -598,9 +596,9 @@ class Learner():
         temp_room__K = temp_room__degC + temp_zero__K                 # standard room temperature [K]
 
         # Approximations
-        air_density__mol_m_3 = (P_std__Pa 
-                                / (R__m3_Pa_K_1_mol_1 * temp_room__K)
-                               )                                      # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
+        air__mol_m_3 = (P_std__Pa
+                         / (R__m3_Pa_K_1_mol_1 * temp_room__K)
+                        )                                             # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
         std__mol_m_3 = (P_std__Pa 
                         / (R__m3_Pa_K_1_mol_1 * temp_std__K)
                        )                                              # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
@@ -623,15 +621,10 @@ class Learner():
         # create empty dataframe for results of all homes
         df_results_per_period = pd.DataFrame()
 
-        # ensure that dataframee is sorted
+        # ensure that dataframe is sorted
         if not df_data.index.is_monotonic_increasing:
             df_data = df_data.sort_index()  
         
-        # # add empty columns to store fitting and learning results for time-varying 
-        # df_data['sim_co2__ppm'] = np.nan
-        # df_data['learned_valve_frac__0'] = np.nan
-        # df_data['learned_occupancy__p'] = np.nan
-       
         ids = df_data.index.unique('id').dropna()
 
         start_analysis_period = df_data.index.unique('timestamp').min().to_pydatetime()
@@ -664,10 +657,10 @@ class Learner():
             else:
                 # get for real measured room, determine room-specific constants
                 co2_ext__ppm = df_data.loc[id][property_sources['co2__ppm']].min()-1  # to compensate for sensor drift use  lowest co2__ppm measured in the room as approximation 
-                wind__m_s_1 = 3.0                                                     # TODO assume this wind speed for real rooms as well, or use geospatially interpolated weather?
+                wind__m_s_1 = 3.0                                                     # TODO add option to use geospatially interpolated weather from KNMI?
                 room__m3 = df_metadata.loc[id]['room__m3']                            # get this parameter from the table passed as dataFrame
                 vent_max__m3_h_1 = df_metadata.loc[id]['vent_max__m3_h_1']            # get this parameter from the table passed as dataFrame
-                actual_A_inf__m2 = np.nan                                            # we don't knwo the actual infiltration area for real rooms
+                actual_A_inf__m2 = np.nan                                             # we don't know the actual infiltration area for real rooms
 
             vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
 
@@ -719,16 +712,17 @@ class Learner():
                 mae_occupancy__p = np.nan
                 rmse_occupancy__p = np.nan
 
+                ##################################################################################################################
+                # GEKKO code
+                
                 try:
             
-                    ##################################################################################################################
-                    # Gekko Model - Initialize
+                    # GEKKO Model - Initialize
                     m = GEKKO(remote = False)
                     m.time = np.arange(0, duration__s, step__s)
 
-
                     # GEKKO time-varying variables: measured values or learned
-                    if learn_occupancy__p:
+                    if 'occupancy__p' in learn:
                         occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values, lb=0, ub=12, integer=True)
                         occupancy__p.STATUS = 1; occupancy__p.FSTATUS = 1
                         if learn_change_interval__min is not None:
@@ -737,7 +731,7 @@ class Learner():
                         occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values)
                         occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
 
-                    if learn_valve_frac__0:
+                    if 'valve_frac__0' in learn:
                         valve_frac__0 = m.MV(value = df_learn[property_sources['valve_frac__0']].values, lb=0, ub=1)
                         valve_frac__0.STATUS = 1; valve_frac__0.FSTATUS = 1
                         if learn_change_interval__min is not None:
@@ -745,7 +739,6 @@ class Learner():
                     else:
                         valve_frac__0 = m.MV(value = df_learn[property_sources['valve_frac__0']].values)
                         valve_frac__0.STATUS = 0; valve_frac__0.FSTATUS = 1
-
 
                     # GEKKO time-independent variables: approximated or learned
                     if 'A_inf__m2' in learn:
@@ -761,18 +754,16 @@ class Learner():
                     # GEKKO - Equations
                     co2_elevation__ppm = m.Intermediate(co2__ppm - co2_ext__ppm)
                     co2_loss_vent__ppm_s_1 = m.Intermediate(co2_elevation__ppm * vent_max__m3_s_1 * valve_frac__0 / room__m3)
-                    co2_loss_wind__ppm_s_1 = m.Intermediate(co2_elevation__ppm * wind__m_s_1 * A_inf__m2 / room__m3)
-                    co2_loss__ppm_s_1 = m.Intermediate(co2_loss_vent__ppm_s_1 + co2_loss_wind__ppm_s_1)
-                    co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale__umol_p_1_s_1 / (room__m3 * air_density__mol_m_3))
+                    co2_loss_inf__ppm_s_1 = m.Intermediate(co2_elevation__ppm * wind__m_s_1 * A_inf__m2 / room__m3)
+                    co2_loss__ppm_s_1 = m.Intermediate(co2_loss_vent__ppm_s_1 + co2_loss_inf__ppm_s_1)
+                    co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale__umol_p_1_s_1 / (room__m3 * air__mol_m_3))
                     m.Equation(co2__ppm.dt() == co2_gain__ppm_s_1 - co2_loss__ppm_s_1)
-
 
                     # GEKKO - Solver setting
                     m.options.IMODE = 5
-                    if (learn_occupancy__p or learn_valve_frac__0):
-                        m.options.SOLVER = 3
+                    if (('occupancy__p' in learn) or ('valve_frac__0' in learn)): m.options.SOLVER = 3
                     m.options.EV_TYPE = ev_type
-                    m.options.NODES = 2
+                    m.options.NODES = 2                              # specific objective function (1 = MAE; 2 = RMSE)
                     m.solve(disp = False)
 
                     # setting learned values and calculating error metrics
@@ -794,7 +785,16 @@ class Learner():
                         mae_occupancy__p = Learner.mae(occupancy__p, df_learn[property_sources['occupancy__p']])
                         rmse_occupancy__p = Learner.rmse(occupancy__p, df_learn[property_sources['occupancy__p']])
 
-                    # Create a results row and add to results dataframe
+
+                except KeyboardInterrupt:    
+                    logging.error(f'KeyboardInterrupt; home analysis {id} not complete; saving results so far then will exit...')
+                    return df_results_per_period.set_index('id'), df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
+
+                except Exception as e:
+                    logging.error(f'Exception {e} for home {id} in period from {learn_streak_period_start} to {learn_streak_period_end}; skipping...')
+                
+                finally:
+                    # Create a results row and add to results per period dataframe
                     df_results_per_period = pd.concat(
                         [
                             df_results_per_period,
@@ -809,9 +809,9 @@ class Learner():
                                     'EV_TYPE': [m.options.EV_TYPE],
                                     'vent_max__m3_h_1': [vent_max__m3_h_1],
                                     'actual_room__m3': [room__m3],
-                                    'learned_A_inf__cm2': [learned_A_inf__m2 * 1e4],
-                                    'actual_A_inf__cm2': [actual_A_inf__m2 * 1e4],
-                                    'mae_A_inf__cm2': [mae_A_inf__m2 * 1e4],
+                                    'learned_A_inf__cm2': [learned_A_inf__m2 * cm2_m_2],
+                                    'actual_A_inf__cm2': [actual_A_inf__m2 * cm2_m_2],
+                                    'mae_A_inf__cm2': [mae_A_inf__m2 * cm2_m_2],
                                     'mae_co2__ppm': [mae_co2__ppm],
                                     'rmse_co2__ppm': [rmse_co2__ppm],
                                     'mae_valve_frac__0': [mae_valve_frac__0],
@@ -825,18 +825,9 @@ class Learner():
 
                     m.cleanup()
 
-                    ##################################################################################################################
-
-                except KeyboardInterrupt:    
-                    logging.error(f'KeyboardInterrupt; home analysis {id} not complete; saving results so far then will exit...')
-                    return df_results_per_period.set_index('id'), df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
-
-                except Exception as e:
-                    logging.error(f'Exception {e} for home {id} in period from {learn_streak_period_start} to {learn_streak_period_end}; skipping...')
-                    return df_results_per_period.set_index('id'), df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
+                ##################################################################################################################
                     
             # after all learn periods of a single id
-
             
         # after all ids
 
