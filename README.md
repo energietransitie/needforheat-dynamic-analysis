@@ -73,7 +73,7 @@ This will install all the required dependencies listed in the [`requirements.txt
 
 ## Deploying
 
-This section describes how you can use the IPython notebooks, without changing the Python code. After installing JupyterLab as described above, you can run the software by opening up `.ipynb ` files and run the contents from the [`/example/`](/example/) folder. We've created example files based on or work in multiple projects:
+This section describes how you can use the IPython notebooks, without changing the Python code. After installing JupyterLab as described above, you can run the software by opening up `.ipynb ` files and run the contents from the [`/examples/`](/examples/) folder. We've created example files based on or work in multiple projects:
 
 - `<Project>ExtractionBackup.ipynb` files contain code you can run to extract measurement data from a Twomes server and save it as [parquet](https://parquet.apache.org/) files. These .ipynb files only work when you run the code in a JupyterLab environment that has [access](https://github.com/energietransitie/twomes-backoffice-configuration#twomes_db_url-1) to the [MariaDB database](https://github.com/energietransitie/twomes-backoffice-configuration#twomes_db_url-1) on a [Twomes backoffice server](https://github.com/energietransitie/twomes-backoffice-configuration).
 - `<Project>_to_CSV.ipynb` files contain code you can run to convert a parquet file containing DataFrames to multiple [zip](https://en.wikipedia.org/wiki/ZIP_(file_format))ped [csv](https://en.wikipedia.org/wiki/Comma-separated_values) files, a single file containing all measurements and one zipped csv file per id. Parquet files load faster and are smaller than zipped csv files. Nevertheless, for backward compatibility with data analytics tools that are not yet able to process parquet files, we used the code in these .ipynb files to create the contents for the open data repositories. You can find ore information about the formatting of DataFrames with measurements and DataFrames with properties, as well as the open data itself in the repositories [twomes-dataset-assendorp2021](https://github.com/energietransitie/twomes-dataset-assendorp2021) and [brains4buildings-dataset-windesheim2022](https://github.com/energietransitie/brains4buildings-dataset-windesheim2022). 
@@ -91,7 +91,7 @@ This section describes how you can change the source code. You can do this using
 Should you find any issues or bugs in our code, please report them via the [issues](/issues) tab of this repository.
 
 To change the code, we recommend:
-- Try out your changes using the various `.ipynb ` files from the [`/example/`](/example/) folder. The section [Deploying](#deploying) contains a high level description of these files.
+- Try out your changes using the various `.ipynb ` files from the [`/examples/`](/examples/) folder. The section [Deploying](#deploying) contains a high level description of these files.
 - Migrate stable code to functions in Python files.
 - Should you have extensions or bug fixes that could be useful for other users of the repository as well, please fork this reposotory and make a Pull Request on this repository. 
 
