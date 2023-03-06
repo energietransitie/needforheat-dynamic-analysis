@@ -77,13 +77,13 @@ This section describes how you can use the IPython notebooks, without changing t
 - `<Project>_analysis_real_ds.ipynb` files contain the functions `learn_home_parameters()` or `learn_room_parameters()` from [`analysis\inversegreyboxmodel.py`](analysis\inversegreyboxmodel.py) to perform grey-box analysis, on datasets with real measurements. Currently, we set up these analysis functions to perform various steps:
 	- Read the parquet files from `<Project>ExtractionBackup.ipynb`, which contains a properties DataFrame.
 	- Preprocess the data to make it suitable for analysis, which involves both outlier removal and time-based interpolation and which ultimately results in a preprocessed DataFrame. 
-	- Perform the analysis over consecutive learning periods, e.g. 7 days or 3 days, resulting in both a DataFrame with learned variables and error metrics per id per learning period and a DataFrame with the resuling optimal time series for the property used as the fitting objective and the values of any learned time-dependent properties.
+	- Perform the analysis over consecutive learning periods, e.g. 7 days or 3 days, resulting in both a DataFrame with learned variables and error metrics per id per learning period and a DataFrame with the resulting optimal time series for the property used as the fitting objective and the values of any learned time-dependent properties.
 	- Visualize the analysis results in graphs.
 
 ## Developing
 This section describes how you can change the source code. You can do this using JupyterLab, as described in the section [Deploying](#deploying). Other development environments, such as [PyCharm](https://www.jetbrains.com/pycharm/download/#section=windows) and [Visual Studio Code](https://code.visualstudio.com/) may work as well, but we do not include documentation for this here. 
 
-Should you find any issues or bugs in our code, please report them via the [issues](/issues) tab of this repository.
+Should you find any issues or bugs in our code, please report them via the [issues](https://github.com/energietransitie/twomes-inverse-grey-box-analysis/issues) tab of this repository.
 
 To change the code, we recommend:
 - Try out your changes using the various `.ipynb ` files from the [`/example/`](/example/) folder. The section [Deploying](#deploying) contains a high level description of these files.
@@ -96,8 +96,8 @@ Features include:
 * data preprocessing: measurement outlier removal and interpolation;
 * `learn_home_parameters()` function in [analysis\inversegreyboxmodel.py](analysis\inversegreyboxmodel.py) that uses a GEKKO model and code to learn building model parameters such as specific heat loss [W/K], thermal intertia [h], thermal ass [Wh/K] and apparent solar aperture [m<sup>2</sup>] of a building;
 * `learn_room_parameters()` function in [analysis\inversegreyboxmodel.py](analysis\inversegreyboxmodel.py) that uses a GEKKO model and code to learn:
-	* apparent infiltration area [m<sup>2</sup>] and ventilation rates [m<sup>3</sup>/h] from CO<sub>2</sub> concentration and occupancy [p] time series data;
-	* apparent infiltration area [m<sup>2</sup>] and occupancy [p] from from CO<sub>2</sub> concentration and ventilation rates [m<sup>3</sup>/h]  time series data;
+	* apparent infiltration area [m<sup>2</sup>] and ventilation rates [m<sup>3</sup>/h] from CO<sub>2</sub> concentration [ppm] and occupancy [p] time series data;
+	* apparent infiltration area [m<sup>2</sup>] and occupancy [p] from from CO<sub>2</sub> concentration [ppm] and ventilation rates [m<sup>3</sup>/h]  time series data;
 
 To-do:
 * update code in the `learn_home_parameters()` function to align with the newer code and preprocessing tools used in the `learn_room_parameters()` function;
