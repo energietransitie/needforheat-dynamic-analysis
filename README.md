@@ -48,6 +48,11 @@ pip install jupyterlab-git
 
 Once you've installed JupyterLab, you can launch JupyterLab by running the following command in your terminal:
 
+> **Note**
+> In the step after this, we explain how to clone this repository from within jupyter-lab.
+> If you are working locally and are familiar with using git, you can manually clone this repository,
+> and open a terminal in the cloned directory before running the command below. You can then skip step 3.
+
 ```
 jupyter-lab
 ```
