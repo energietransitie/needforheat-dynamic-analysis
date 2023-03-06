@@ -3,3 +3,6 @@
 *.xls
 *.xlsx
 *.csv
+
+# Ignore log files as long as they follow the naming scheme below:
+log_*.txt
