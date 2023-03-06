@@ -31,7 +31,7 @@ As an alternative, you can also [install and use JupyterLab in a docker containe
 To use JupyterLab on your local machine, make sure you have the following software properly installed and configured on your machine:
 
 ### Step 1: Install Python
-If you haven't already installed it, go to [Python](https://www.python.org/downloads/) and install at least version 3.8, which comes pre-installed with `pip`, the package manager you need in the steps below.     
+If you haven't already installed it, go to [Python](https://www.python.org/downloads/) and install at least version 3.8, which includes `pip`, the package manager you need in the steps below.
 
 ### Step 2: Install and Launch JupyterLab
 
