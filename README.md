@@ -73,25 +73,25 @@ This will install all the required dependencies listed in the [`requirements.txt
 
 ## Deploying
 
-This section describes how you can use the IPython notebooks, without changing the Python code. After installing JupyterLab as described above, you can run the software by opening up `.ipynb ` files and run the contents from the [`/examples/`](/examples/) folder. We've created example files based on or work in multiple projects:
+This section describes how you can use the IPython notebooks, without changing the Python code. After installing JupyterLab as described above, you can run the software by opening up `.ipynb ` files and run the contents from the [`examples`](/examples/) folder. We've created example files based on or work in multiple projects:
 
-- `<Project>ExtractionBackup.ipynb` files contain code you can run to extract measurement data from a Twomes server and save it as [parquet](https://parquet.apache.org/) files. These .ipynb files only work when you run the code in a JupyterLab environment that has [access](https://github.com/energietransitie/twomes-backoffice-configuration#twomes_db_url-1) to the [MariaDB database](https://github.com/energietransitie/twomes-backoffice-configuration#twomes_db_url-1) on a [Twomes backoffice server](https://github.com/energietransitie/twomes-backoffice-configuration).
+- `<Project>ExtractionBackup.ipynb` files contain code you can run to extract measurement data from a Twomes server and save it as [parquet](https://parquet.apache.org/) files. These .ipynb files only work when you run the code in a JupyterLab environment that has access to the [MariaDB database](https://github.com/energietransitie/twomes-backoffice-configuration#twomes_db_url-1) on a [Twomes backoffice server](https://github.com/energietransitie/twomes-backoffice-configuration).
 - `<Project>_to_CSV.ipynb` files contain code you can run to convert a parquet file containing DataFrames to multiple [zip](https://en.wikipedia.org/wiki/ZIP_(file_format))ped [csv](https://en.wikipedia.org/wiki/Comma-separated_values) files, a single file containing all measurements and one zipped csv file per id. Parquet files load faster and are smaller than zipped csv files. Nevertheless, for backward compatibility with data analytics tools that are not yet able to process parquet files, we used the code in these .ipynb files to create the contents for the open data repositories. You can find more information about the formatting of DataFrames with measurements and DataFrames with properties, as well as the open data itself in the repositories [twomes-dataset-assendorp2021](https://github.com/energietransitie/twomes-dataset-assendorp2021) and [brains4buildings-dataset-windesheim2022](https://github.com/energietransitie/brains4buildings-dataset-windesheim2022). 
-- `<Project>_analysis_virtual_ds.ipynb` files contain code you can run to verify whether a mathematical model is properly implemented in GEKKO code the functions `learn_home_parameters()` or `learn_room_parameters()` from [`analysis\inversegreyboxmodel.py`](analysis\inversegreyboxmodel.py). To perform the validation, we created 'virtual data', i.e. time series data for a virtual home or virtual room that behaves exactly according to the the mathematical model and has no measurement errors nor measurement hickups. This 'virtual data' was generated using an Excel implementation of the same mathematical model. You can find the virtual data in the `/data/<project>_virtual_ds/` folders.
-- `<Project>_PlotTest.ipynb` files contain example code that demonstrate the various ways you can plot (parts of) a DataFrame contraining properties or preprocessed data, using the functions `dataframe_properties_plot()` and `dataframe_preprocessed_plot()`, respectively, from [`view\plotter.py`](view\plotter.py).
-- `<Project>_analysis_real_ds.ipynb` files contain the functions `learn_home_parameters()` or `learn_room_parameters()` from [`analysis\inversegreyboxmodel.py`](analysis\inversegreyboxmodel.py) to perform grey-box analysis, on datasets with real measurements. Currently, we set up these analysis functions to perform various steps:
+- `<Project>_analysis_virtual_ds.ipynb` files contain code you can run to verify whether a mathematical model is properly implemented in GEKKO code the functions `learn_home_parameters()` or `learn_room_parameters()` from [`inversegreyboxmodel.py`](./analysis/inversegreyboxmodel.py). To perform the validation, we created 'virtual data', i.e. time series data for a virtual home or virtual room that behaves exactly according to the the mathematical model and has no measurement errors nor measurement hickups. This 'virtual data' was generated using an Excel implementation of the same mathematical model. You can find the virtual data in the `/data/<project>_virtual_ds/` folders.
+- `<Project>_PlotTest.ipynb` files contain example code that demonstrate the various ways you can plot (parts of) a DataFrame contraining properties or preprocessed data, using the functions `dataframe_properties_plot()` and `dataframe_preprocessed_plot()`, respectively, from [`plotter.py`](./view/plotter.py).
+- `<Project>_analysis_real_ds.ipynb` files contain the functions `learn_home_parameters()` or `learn_room_parameters()` from [`inversegreyboxmodel.py`](./analysis/inversegreyboxmodel.py) to perform grey-box analysis, on datasets with real measurements. Currently, we set up these analysis functions to perform various steps:
 	- Read the parquet files from `<Project>ExtractionBackup.ipynb`, which contains a properties DataFrame.
 	- Preprocess the data to make it suitable for analysis, which involves both outlier removal and time-based interpolation and which ultimately results in a preprocessed DataFrame. 
-	- Perform the analysis over consecutive learning periods, e.g. 7 days or 3 days, resulting in both a DataFrame with learned variables and error metrics per id per learning period and a DataFrame with the resuling optimal time series for the property used as the fitting objective and the values of any learned time-dependent properties.
+	- Perform the analysis over consecutive learning periods, e.g. 7 days or 3 days, resulting in both a DataFrame with learned variables and error metrics per id per learning period and a DataFrame with the resulting optimal time series for the property used as the fitting objective and the values of any learned time-dependent properties.
 	- Visualize the analysis results in graphs.
 
 ## Developing
 This section describes how you can change the source code. You can do this using JupyterLab, as described in the section [Deploying](#deploying). Other development environments, such as [PyCharm](https://www.jetbrains.com/pycharm/download/#section=windows) and [Visual Studio Code](https://code.visualstudio.com/) may work as well, but we do not include documentation for this here. 
 
-Should you find any issues or bugs in our code, please report them via the [issues](/issues) tab of this repository.
+Should you find any issues or bugs in our code, please report them via the [issues](https://github.com/energietransitie/twomes-inverse-grey-box-analysis/issues) tab of this repository.
 
 To change the code, we recommend:
-- Try out your changes using the various `.ipynb ` files from the [`/examples/`](/examples/) folder. The section [Deploying](#deploying) contains a high level description of these files.
+- Try out your changes using the various `.ipynb ` files from the [`examples`](./examples) folder. The section [Deploying](#deploying) contains a high level description of these files.
 - Migrate stable code to functions in Python files.
 - Should you have extensions or bug fixes that could be useful for other users of the repository as well, please fork this reposotory and make a Pull Request on this repository. 
 
@@ -99,10 +99,10 @@ To change the code, we recommend:
 Features include:
 * data extraction;
 * data preprocessing: measurement outlier removal and interpolation;
-* `learn_home_parameters()` function in [analysis\inversegreyboxmodel.py](analysis\inversegreyboxmodel.py) that uses a GEKKO model and code to learn building model parameters such as specific heat loss [W/K], thermal intertia [h], thermal ass [Wh/K] and apparent solar aperture [m<sup>2</sup>] of a building;
-* `learn_room_parameters()` function in [analysis\inversegreyboxmodel.py](analysis\inversegreyboxmodel.py) that uses a GEKKO model and code to learn:
-	* apparent infiltration area [m<sup>2</sup>] and ventilation rates [m<sup>3</sup>/h] from CO<sub>2</sub> concentration and occupancy [p] time series data;
-	* apparent infiltration area [m<sup>2</sup>] and occupancy [p] from from CO<sub>2</sub> concentration and ventilation rates [m<sup>3</sup>/h]  time series data;
+* `learn_home_parameters()` function in [`inversegreyboxmodel.py`](./analysis/inversegreyboxmodel.py) that uses a GEKKO model and code to learn building model parameters such as specific heat loss [W/K], thermal intertia [h], thermal ass [Wh/K] and apparent solar aperture [m<sup>2</sup>] of a building;
+* `learn_room_parameters()` function in [`inversegreyboxmodel.py`](./analysis/inversegreyboxmodel.py) that uses a GEKKO model and code to learn:
+	* apparent infiltration area [m<sup>2</sup>] and ventilation rates [m<sup>3</sup>/h] from CO<sub>2</sub> concentration [ppm] and occupancy [p] time series data;
+	* apparent infiltration area [m<sup>2</sup>] and occupancy [p] from from CO<sub>2</sub> concentration [ppm] and ventilation rates [m<sup>3</sup>/h]  time series data;
 
 To-do:
 * update code in the `learn_home_parameters()` function to align with the newer code and preprocessing tools used in the `learn_room_parameters()` function;
