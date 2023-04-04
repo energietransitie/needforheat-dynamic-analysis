@@ -761,9 +761,9 @@ class Learner():
 
                     # GEKKO - Solver setting
                     m.options.IMODE = 5
-                    if (('occupancy__p' in learn) or ('valve_frac__0' in learn)): m.options.SOLVER = 3
-                    m.options.EV_TYPE = ev_type
-                    m.options.NODES = 2                              # specific objective function (1 = MAE; 2 = RMSE)
+                    m.options.SOLVER = 3
+                    m.options.EV_TYPE = ev_type    # specific objective function (1 = MAE; 2 = RMSE)
+                    m.options.NODES = 2
                     m.solve(disp = False)
 
                     # setting learned values and calculating error metrics
@@ -781,7 +781,7 @@ class Learner():
                         rmse_valve_frac__0 = Learner.rmse(valve_frac__0, df_learn[property_sources['valve_frac__0']])
 
                     if 'occupancy__p'in learn:
-                        df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_occupancy__p'] = np.asarray(occupancy__p)
+                        df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_occupancy__p'] = np.round(np.asarray(occupancy__p))
                         mae_occupancy__p = Learner.mae(occupancy__p, df_learn[property_sources['occupancy__p']])
                         rmse_occupancy__p = Learner.rmse(occupancy__p, df_learn[property_sources['occupancy__p']])
 
@@ -830,6 +830,9 @@ class Learner():
             # after all learn periods of a single id
             
         # after all ids
+        
+        if 'occupancy__p'in learn:
+            df_data['learned_occupancy__p'] = df_data['learned_occupancy__p'].astype('Int64')
 
         return df_results_per_period.set_index('id'), df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
 
