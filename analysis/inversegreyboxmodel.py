@@ -723,7 +723,7 @@ class Learner():
 
                     # GEKKO time-varying variables: measured values or learned
                     if 'occupancy__p' in learn:
-                        occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values, lb=0, ub=12, integer=True)
+                        occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values, lb=0, ub=12)
                         occupancy__p.STATUS = 1; occupancy__p.FSTATUS = 1
                         if learn_change_interval__min is not None:
                             occupancy__p.MV_STEP_HOR = MV_STEP_HOR
