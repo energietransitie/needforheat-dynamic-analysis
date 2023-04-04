@@ -662,8 +662,6 @@ class Learner():
                 vent_max__m3_h_1 = df_metadata.loc[id]['vent_max__m3_h_1']            # get this parameter from the table passed as dataFrame
                 actual_A_inf__m2 = np.nan                                             # we don't know the actual infiltration area for real rooms
 
-            vent_max__m3_s_1 = vent_max__m3_h_1 / s_h_1
-
             learn_period_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
 
             learn_period_iterator = tqdm(learn_period_starts)
@@ -752,10 +750,11 @@ class Learner():
                     co2__ppm.STATUS = 1; co2__ppm.FSTATUS = 1
 
                     # GEKKO - Equations
+                    air_changes_vent__h_1 = m.Intermediate(vent_max__m3_h_1 * valve_frac__0 / room__m3)
+                    air_changes_inf__h_1 = m.Intermediate(wind__m_s_1 * s_h_1 * A_inf__m2 / room__m3)
+                    air_changes__h_1 = m.Intermediate(air_changes_vent__h_1 + air_changes_inf__h_1)
                     co2_elevation__ppm = m.Intermediate(co2__ppm - co2_ext__ppm)
-                    co2_loss_vent__ppm_s_1 = m.Intermediate(co2_elevation__ppm * vent_max__m3_s_1 * valve_frac__0 / room__m3)
-                    co2_loss_inf__ppm_s_1 = m.Intermediate(co2_elevation__ppm * wind__m_s_1 * A_inf__m2 / room__m3)
-                    co2_loss__ppm_s_1 = m.Intermediate(co2_loss_vent__ppm_s_1 + co2_loss_inf__ppm_s_1)
+                    co2_loss__ppm_s_1 = m.Intermediate(co2_elevation__ppm * air_changes__h_1 / s_h_1)
                     co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale__umol_p_1_s_1 / (room__m3 * air__mol_m_3))
                     m.Equation(co2__ppm.dt() == co2_gain__ppm_s_1 - co2_loss__ppm_s_1)
 
