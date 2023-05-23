@@ -308,3 +308,10 @@ class Plot:
                    rot=35,
                    title=parameter)
             )
+
+    @staticmethod
+    def learned_parameters_boxplot_b4b(df_results_model_parameters: pd.DataFrame, parameter: str):
+        """
+        Visualize results of all learned model parameters of all homes in one box plot
+        """
+        df_results_model_parameters.boxplot(by='id', column=parameter)
