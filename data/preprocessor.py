@@ -2,7 +2,9 @@ import pandas as pd
 import numpy as np
 from scipy import stats
 from tqdm.notebook import tqdm
-
+import pytz
+from datetime import datetime, timedelta
+from extractor import WeatherExtractor
 
 class Preprocessor:
     """
@@ -168,10 +170,13 @@ class Preprocessor:
         return df_result
     
     @staticmethod
-    def preprocess_room_data(df_prop: pd.DataFrame) -> pd.DataFrame:
+    def preprocess_room_data(df_prop: pd.DataFrame,
+                             lat, lon : float,
+                             timezone_ids = 'Europe/Amsterdam'
+                            ) -> pd.DataFrame:
         
         """
-        Preprocess, iunstack and interpolate room data for the B4B project.
+        Preprocess, iunstack and interpolate room data for the B4B project and add weather data.
         Filter co2_ppm: remove outliers below 5 ppm and co2 sensor data that does not vary in a room.
         
         in: df: pd.DataFrame with
@@ -183,7 +188,8 @@ class Preprocessor:
        
         out: pd.DataFrame  
         - unstacked: i.e. with the source names prefixed to column names
-        - interpolated to 15 minute intervals
+        - interpolated_min: interpolation interval with 15 minute as default
+        - KNMI weather data for lat, lon merged 'temp_out__degC', 'wind__m_s_1', 'ghi__W_m_2'
                
         """
         
@@ -206,15 +212,64 @@ class Preprocessor:
             'occupancy__p' : 'Int8'
         }
 
+        interpolate__min = 15
+        
         df_interpolated = Preprocessor.interpolate_time(df_prop,
                                                         property_dict = property_types,
                                                         upsample__min = 5,
-                                                        interpolate__min = 15,
+                                                        interpolate__min = interpolate__min,
                                                         limit__min = 90,
                                                         inplace=False
                                                        )
+        
+        df_prep = Preprocessor.unstack_prop(df_interpolated)
 
-        return Preprocessor.unstack_prop(df_interpolated)
+        return Preprocessor.merge_weather_data_nl(df_prep, lat, lon, interpolate__min, timezone_ids)
+
+
+    
+    @staticmethod
+    def merge_weather_data_nl(df_prep: pd.DataFrame,
+                           lat, lon : float,
+                           interpolate__min = 15,
+                           timezone_ids = 'Europe/Amsterdam'
+                           ) -> pd.DataFrame:
+        
+        """
+        Add weather data to a preprocessed properties DataFrame.
+        
+        in: df: pd.DataFrame with
+        - index = ['id', 'timestamp']
+        -- id: id of the room studied 
+        -- timestamp: timezone-aware timestamp
+        - columns = properties with measurement values
+        interpolate__min = 15,
+        lat, lon: latitude and logitude of the weather location
+        timezone_ids = timezone of the objects, defaults to 'Europe/Amsterdam'
+       
+        out: pd.DataFrame with weather data attached
+               
+        """
+        
+        # get geospatially interpolated weather from KNMI
+        # get the dataframe only once for all homes to save time
+
+        tz_knmi='Europe/Amsterdam'
+
+        # Extract earliest and latest timestamps
+        earliest_timestamp = (df_prep.index.get_level_values('timestamp').min() + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0)
+        latest_timestamp = (df_prep.index.get_level_values('timestamp').max() +  + timedelta(minutes=30)).replace(minute=0, second=0, microsecond=0)
+        
+        df_weather = WeatherExtractor.get_interpolated_weather_nl(
+            earliest_timestamp, 
+            latest_timestamp, 
+            lat, lon, 
+            tz_knmi, 
+            timezone_ids, 
+            str(interpolate__min) + 'T'
+        ).rename_axis('timestamp')
+
+        return df_prep.reset_index().merge(df_weather, on='timestamp').set_index(['id', 'timestamp']).sort_index()  
 
     
     def property_filter(df, parameter:str, prop:str, metertimestamp:str,
