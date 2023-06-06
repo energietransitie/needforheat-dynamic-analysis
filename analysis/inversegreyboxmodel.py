@@ -525,6 +525,7 @@ class Learner():
                               req_col:list = None,
                               sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                               learn_change_interval__min = None,
+                              co2_min_margin__ppm = 1,
                               ev_type=2) -> pd.DataFrame:
         """
         Input:  
@@ -656,7 +657,7 @@ class Learner():
                 actual_A_inf__m2 = vent_min__m3_h_1 / (s_h_1 * wind__m_s_1)
             else:
                 # get for real measured room, determine room-specific constants
-                co2_ext__ppm = df_data.loc[id][property_sources['co2__ppm']].min()-1  # to compensate for sensor drift use  lowest co2__ppm measured in the room as approximation 
+                co2_ext__ppm = df_data.loc[id][property_sources['co2__ppm']].min()-co2_min_margin__ppm  # to compensate for sensor drift use  lowest co2__ppm measured in the room as approximation 
                 wind__m_s_1 = 3.0                                                     # TODO add option to use geospatially interpolated weather from KNMI?
                 room__m3 = df_metadata.loc[id]['room__m3']                            # get this parameter from the table passed as dataFrame
                 vent_max__m3_h_1 = df_metadata.loc[id]['vent_max__m3_h_1']            # get this parameter from the table passed as dataFrame
