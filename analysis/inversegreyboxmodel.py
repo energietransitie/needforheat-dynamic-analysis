@@ -711,6 +711,9 @@ class Learner():
 
                 mae_occupancy__p = np.nan
                 rmse_occupancy__p = np.nan
+                
+                mae_co2__ppm = np.nan
+                rmse_co2__ppm = np.nan
 
                 ##################################################################################################################
                 # GEKKO code
