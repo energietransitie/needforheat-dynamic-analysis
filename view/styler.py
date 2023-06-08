@@ -9,6 +9,12 @@ def formatted_error_dataframe(df, per_id=False, thresholds=None, formats=None):
         'rmse_valve_frac__0': None,
         'rmse_occupancy__p': None
     }
+    
+    default_formats = {
+        '__ppm': '{:.0f}',
+        '__0': '{:.0%}',
+        '__p': '{:.1f}'
+    }
 
     if per_id:
         # Calculate essential statistics for the error values, per id
@@ -25,11 +31,7 @@ def formatted_error_dataframe(df, per_id=False, thresholds=None, formats=None):
         thresholds = {**default_thresholds, **thresholds}
 
     if formats is None:
-        formats = {
-            '__ppm': '{:.0f}',
-            '__0': '{:.0%}',
-            '__p': '{:.1f}'
-        }
+        formats = default_formats
         
     def color_cells(column):
         if column.name.startswith('mae_'):
