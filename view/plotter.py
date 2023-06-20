@@ -4,6 +4,7 @@ from importlib import reload
 from datetime import datetime, timedelta
 import numpy as np
 import pylab as plt
+import seaborn as sns
 
 
 class Plot:
@@ -309,12 +310,16 @@ class Plot:
                    title=parameter)
             )
             
+        
     @staticmethod
-    def learned_parameters_boxplot_b4b(df_results_model_parameters: pd.DataFrame, parameter: str):
+    def learned_parameters_boxplot_b4b(df_results_model_parameters: pd.DataFrame, parameter: str, actual_val):
         """
         Visualize results of all learned model parameters of all homes in one box plot
         """
-        df_results_model_parameters.boxplot(by='id', column=parameter)
+        ax = df_results_model_parameters.boxplot(by='id', column=parameter)
+        if actual_val is not None:
+            ax.axhline(y=actual_val, color='red', linestyle='--')
+
         
         
     @staticmethod
@@ -323,3 +328,21 @@ class Plot:
         Visualize results of all learned model parameters of all homes in one box plot
         """
         df.plot.scatter(parameters[0], parameters[1])
+        
+        
+        
+    @staticmethod
+    def features_scatter_plot(df: pd.DataFrame, features: list):
+        """
+        Visualize results of all learned model parameters of all homes in one box plot
+        """
+        colors = ['black', 'red', 'green']
+        
+        index_column_data = df.index.get_level_values(0)
+        num = list(dict.fromkeys(index_column_data.to_list()))
+
+        for i in range (len(num)):
+            g = sns.PairGrid(df.loc[num[i]][features])
+            g.map(sns.scatterplot)
+            g.fig.suptitle(num[i])
+
