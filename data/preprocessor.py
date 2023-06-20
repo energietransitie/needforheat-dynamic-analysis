@@ -87,6 +87,40 @@ class Preprocessor:
         return df_result
 
     @staticmethod
+    def co2_baseline_adjustment(df: pd.DataFrame,
+                                col:str,
+                                co2_ext__ppm: int = 415,
+                                co2_min_margin__ppm = 1,
+                                inplace=True
+                                ) -> pd.DataFrame:
+
+        """
+        This function adjusts the baseline of all CO₂ measurements, on a per id and per source id basis.
+        As a result, the minimum of CO₂ measurements in the col column will be co2_ext__ppm + co2_min_margin__ppm.
+        The co2_min_margin__ppm helps to to avoid co2_elevations (typically calculated as co2__ppm - co2_ext__ppm) to be zero during analysis.
+        Use case:
+        CO₂ sensors are subject to long term drift. Some CO₂ sensors provide automatic occasional recalibration to a pre-determined CO₂ level.
+        Not all CO₂ sensors used in a study may have this feature, some may have this turned off (sometimes deliberately, to avoid sudden jumps).
+        Some CO₂ sensor may have been calibrated once, but not all in the same circumstances.
+        """
+        
+        if (not len(df)
+            or
+            (col not in df.columns)):
+            return df
+        df_result = df
+        if not inplace:
+            df_result = df.copy(deep=True)
+        for id_val in df.index.unique(level='id'):
+            for source in df.loc[id_val].index.unique(level='source'):
+                min__ppm = df_result.loc[(id_val, source), col].min()
+                baseline_adjustment__ppm = (co2_ext__ppm + co2_min_margin__ppm) - min__ppm 
+                # Only perform if baseline_adjustment__ppm is not NaN
+                if not np.isnan(baseline_adjustment__ppm):
+                    df_result.loc[(id_val, source), col] = (df_result.loc[(id_val, source), col] + baseline_adjustment__ppm).values
+        return df_result
+
+    @staticmethod
     def unstack_prop(df_prop: pd.DataFrame) -> pd.DataFrame:
         
         """
@@ -195,11 +229,23 @@ class Preprocessor:
         
         # first, preprocess co2__ppm data
         prop = 'co2__ppm'
+        
+        # filter out clearly wrong measurements (< 5 ppm)
         df_prop = Preprocessor.filter_min_max(df_prop, prop, min=5)
+
+        # also filter out measurements by CO₂sensors that are always constant
         std = df_prop[prop].groupby(['id', 'source']).transform('std')
         # set values to np.nan where std is zero
         mask = std == 0
         df_prop[mask] = np.nan
+        
+        # adjust the CO₂ baseline, on a per room and per source basis
+        df_prop = Preprocessor.co2_baseline_adjustment(df_prop,
+                                                       prop,
+                                                       co2_ext__ppm = 415,
+                                                       co2_min_margin__ppm = 1
+                                                      )
+
 
         property_types = {
             'temp_in__degC' : 'float32',
