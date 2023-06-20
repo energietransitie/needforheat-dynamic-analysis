@@ -312,13 +312,11 @@ class Plot:
             
         
     @staticmethod
-    def learned_parameters_boxplot_b4b(df_results_model_parameters: pd.DataFrame, parameter: str, actual_val):
+    def learned_parameters_boxplot_b4b(df_results_model_parameters: pd.DataFrame, parameter: str):
         """
         Visualize results of all learned model parameters of all homes in one box plot
         """
         ax = df_results_model_parameters.boxplot(by='id', column=parameter)
-        if actual_val is not None:
-            ax.axhline(y=actual_val, color='red', linestyle='--')
 
         
         
