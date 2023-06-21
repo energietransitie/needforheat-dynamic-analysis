@@ -317,7 +317,6 @@ class Plot:
         Visualize results of all learned model parameters of all homes in one box plot
         """
         ax = df_results_model_parameters.boxplot(by='id', column=parameter)
-
         
         
     @staticmethod
