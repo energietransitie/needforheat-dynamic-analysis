@@ -312,12 +312,61 @@ class Plot:
             
         
     @staticmethod
-    def learned_parameters_boxplot_b4b(df_results_model_parameters: pd.DataFrame, parameter: str):
+    def learned_parameters_boxplot_b4b(df_results_model_parameters: pd.DataFrame, learned: str, actual: str):
         """
         Visualize results of all learned model parameters of all homes in one box plot
         """
-        ax = df_results_model_parameters.boxplot(by='id', column=parameter)
         
+        # Group the DataFrame by 'id'
+        grouped = df_results_model_parameters.groupby(level='id')
+
+        # Create the figure and axes objects
+        fig, ax = plt.subplots()
+
+        # Create a box plot for the learned values
+        boxplot_positions = np.arange(1, len(grouped) + 1) * 2 - 1
+        bp = ax.boxplot([group['learned_A_inf__cm2'] for _, group in grouped],
+                        positions=boxplot_positions,
+                        boxprops={'facecolor': 'white', 'edgecolor': 'green'},
+                        patch_artist=True,
+                        showmeans=True,
+                        meanline=True,
+                        meanprops={'linestyle': '--', 'color': 'green'},
+                        medianprops={'visible': False}
+                       )        
+        actual_line = dict(marker='<', markersize=8, linestyle='', color='red')
+
+        if actual is not None:
+            # Get the unique actual values
+            actual_values = grouped[actual].unique()
+
+            # Plot the actual values as red dots on top of the box plot
+            ax.plot(np.arange(1, len(grouped) + 1) * 2, actual_values, **actual_line)
+
+        # Set the x-axis labels
+        ax.set_xticks(np.arange(1, len(grouped) + 1) * 2 - 0.5)
+        ax.set_xticklabels(grouped.groups.keys())
+
+        # Remove the tick lines
+        ax.tick_params(axis='x', length=0)
+
+        # Add vertical dashed lines between the box plots
+        for i in range(len(grouped) - 1):
+            ax.axvline((i + 1) * 2 + 0.5, linestyle='--', color='gray')
+            
+        # Create the legend
+        legend_elements = []
+        # Add the green box plot color and label for the learned values
+        legend_elements.append(plt.Line2D([0], [0], color='green', lw=1, label=learned))
+        # Add the red marker and label for the actual values if actual is not None
+        if actual is not None:
+            legend_elements.append(plt.Line2D([0], [0], **actual_line, label=actual))
+            
+        # Add the legend to the plot
+        ax.legend(handles=legend_elements)            
+        
+        # Show the plot
+        plt.show()
         
     @staticmethod
     def learned_parameters_scatterplot(df: pd.DataFrame, parameters: list):
