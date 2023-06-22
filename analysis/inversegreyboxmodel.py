@@ -525,7 +525,7 @@ class Learner():
                               req_col:list = None,
                               sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                               learn_change_interval__min = None,
-                              co2_min_margin__ppm = 1,
+                              co2_ext__ppm = 415,
                               ev_type=2) -> pd.DataFrame:
         """
         Input:  
@@ -549,9 +549,10 @@ class Learner():
             - 'room__m3', the volume of the room [m^3]
             - 'vent_max__m3_h_1', the maximum ventilation rate of the room [m^3/h]
         and optionally,
-        - boolean values to indicatete whether certain variables are to be learned (NB you cannot learn valve_frac__0 and occupancy__p at the same time)
+        - boolean values to indicate whether certain variables are to be learned (NB you cannot learn valve_frac__0 and occupancy__p at the same time)
         - the number of days to use as learn period in the analysis
         - learn_change_interval__min: the minimum interval (in minutes) that any time-varying-parameter may change
+        - 'co2_ext__ppm', the assumed external CO₂ concentration (415 ppm if not specified),
         - 'ev_type': type 2 is usually recommended, since this is typically more than 50 times faster
         
         Output:
@@ -649,15 +650,12 @@ class Learner():
             
             if any(df_data.columns.str.startswith('model_')): 
                 # calculate values from virtual rooms based on id 
-                co2_ext__ppm = co2_ext_2022__ppm                      # Average CO₂ concentration in Europe in 2022 
                 wind__m_s_1 = 3.0                                     # assumed wind speed for virtual rooms that causes infiltration
                 room__m3 = id % 1e3
                 vent_min__m3_h_1 = (id % 1e6) // 1e3
                 vent_max__m3_h_1 = id // 1e6
                 actual_A_inf__m2 = vent_min__m3_h_1 / (s_h_1 * wind__m_s_1)
             else:
-                # get for real measured room, determine room-specific constants
-                co2_ext__ppm = df_data.loc[id][property_sources['co2__ppm']].min()-co2_min_margin__ppm  # to compensate for sensor drift use  lowest co2__ppm measured in the room as approximation 
                 wind__m_s_1 = 3.0                                                     # TODO add option to use geospatially interpolated weather from KNMI?
                 room__m3 = df_metadata.loc[id]['room__m3']                            # get this parameter from the table passed as dataFrame
                 vent_max__m3_h_1 = df_metadata.loc[id]['vent_max__m3_h_1']            # get this parameter from the table passed as dataFrame
