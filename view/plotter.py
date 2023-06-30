@@ -325,7 +325,8 @@ class Plot:
 
         # Create a box plot for the learned values
         boxplot_positions = np.arange(1, len(grouped) + 1) * 2 - 1
-        bp = ax.boxplot([group['learned_A_inf__cm2'] for _, group in grouped],
+        learned_values = [group[learned].dropna() for _, group in grouped]  # Drop NaN values
+        bp = ax.boxplot(learned_values,
                         positions=boxplot_positions,
                         boxprops={'facecolor': 'white', 'edgecolor': 'green'},
                         patch_artist=True,
