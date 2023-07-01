@@ -782,7 +782,7 @@ class Learner():
                     # GEKKO - Solver setting
                     m.options.IMODE = 5
                     m.options.SOLVER = 3
-                    m.options.EV_TYPE = ev_type    # specific objective function (1 = MAE; 2 = RMSE)
+                    m.options.EV_TYPE = ev_type    # specific objective function (1 ~ MAE; 2 ~ RMSE)
                     m.options.NODES = 2
                     m.solve(disp = False)
 
