@@ -746,7 +746,11 @@ class Learner():
                         occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
 
                     if 'valve_frac__0' in learn:
-                        valve_frac__0 = m.MV(value = df_learn[property_sources['valve_frac__0']].values, lb=0, ub=1)
+                        if any(df_learn.columns.str.startswith('model_')): 
+                            valve_frac__0 = m.MV(value = df_learn[property_sources['valve_frac__0']].values, lb=0, ub=1)
+                        else:
+                            valve_frac__0 = m.MV(value = df_learn[property_sources['valve_frac__0']].values, lb=0.0, ub=1)
+
                         valve_frac__0.STATUS = 1; valve_frac__0.FSTATUS = 1
                         if learn_change_interval__min is not None:
                             valve_frac__0.MV_STEP_HOR = MV_STEP_HOR
