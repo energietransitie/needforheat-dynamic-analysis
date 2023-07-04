@@ -3,7 +3,7 @@ import pandas as pd
 def formatted_error_dataframe(df, per_id=False, thresholds=None, formats=None):
     default_thresholds = {
         'mae_co2__ppm': (25, 75),
-        'mae_valve_frac__0': (10/100, 20/100),
+        'rmae_valve_frac__0': (10/100, 20/100),
         'mae_occupancy__p': (1.0, 2.0),
         'rmse_co2__ppm': None,
         'rmse_valve_frac__0': None,
@@ -18,13 +18,13 @@ def formatted_error_dataframe(df, per_id=False, thresholds=None, formats=None):
 
     if per_id:
         # Calculate essential statistics for the error values, per id
-        df_stats = df.groupby('id').describe().stack().filter(regex='^mae_|^rmse_')
+        df_stats = df.groupby('id').describe().stack().filter(regex='^mae_|^rmae_|^rmse_')
         df_stats = df_stats.loc[df_stats.index.get_level_values(1).isin(['mean', 'min', 'max'])]
     else:
         # Calculate essential statistics for all errors
-        df_stats = df.describe().filter(regex='^mae_|^rmse')
+        df_stats = df.describe().filter(regex='^mae_|^rmae_|^rmse_')
         df_stats = df_stats.loc[df_stats.index.get_level_values(0).isin(['mean', 'min', 'max'])]
-
+    
     if thresholds is None:
         thresholds = default_thresholds
     else:
@@ -34,7 +34,9 @@ def formatted_error_dataframe(df, per_id=False, thresholds=None, formats=None):
         formats = default_formats
         
     def color_cells(column):
-        if column.name.startswith('mae_'):
+        if column.name == 'rmse_valve_frac__0':
+            threshold_key = 'rmae_valve_frac__0'
+        elif (column.name.startswith('mae_') or column.name.startswith('rmae_')):
             threshold_key = column.name
         else:
             threshold_key = column.name.replace('rmse_', 'mae_')
@@ -50,7 +52,7 @@ def formatted_error_dataframe(df, per_id=False, thresholds=None, formats=None):
 
     columns_to_style = [col for col in df_stats.columns if any(col.endswith(suffix) for suffix in formats)]
     styled_df = df_stats.style.apply(color_cells, axis=0, subset=columns_to_style)
-
+        
     # Create dictionary of column formatting
     column_formatting = {}
     for col in df_stats.columns:

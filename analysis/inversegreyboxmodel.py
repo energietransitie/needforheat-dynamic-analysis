@@ -19,6 +19,18 @@ class Learner():
         arr_predicted = np.asarray(predicted)
         arr_actual = np.asarray(actual)
         return np.mean(abs(arr_predicted - arr_actual))
+    
+    def rmae(predicted, actual, window_size):
+        arr_predicted = np.asarray(predicted)
+        arr_actual = np.asarray(actual)
+
+        # Calculate rolling window averages
+        rolling_predicted = pd.Series(arr_predicted).rolling(window=window_size, min_periods=window_size).mean()
+        rolling_actual = pd.Series(arr_actual).rolling(window=window_size, min_periods=window_size).mean()
+
+        # Calculate the mean absolute error between the rolling averages
+        rmae = np.mean(np.abs(rolling_predicted - rolling_actual))
+        return rmae
         
     def rmse(predicted, actual) -> float:
         arr_predicted = np.asarray(predicted)
@@ -260,13 +272,13 @@ class Learner():
         for id in tqdm(ids):
             
             if any(df_data.columns.str.startswith('model_')): 
-                # calculate values from virtual home based on id 
+                # calculate values from synthetic home based on id 
                 actual_H__W_K_1 = id // 1e5
                 actual_tau__h = (id % 1e5) // 1e2
                 actual_A_sol__m2 = id % 1e2
                 actual_C__Wh_K_1 = actual_H__W_K_1 * actual_tau__h
-                actual_eta_sup_CH__0 = 0.97 # efficiency used for calculating virtual room values)
-                actual_wind_chill__degC_s_m_1 = 0.67 # efficiency used for calculating virtual room values)
+                actual_eta_sup_CH__0 = 0.97 # efficiency used for calculating synthetic home values)
+                actual_wind_chill__degC_s_m_1 = 0.67 # efficiency used for calculating synthetic home values)
             else:
                 actual_H__W_K_1 = np.nan
                 actual_tau__h = np.nan
@@ -649,8 +661,8 @@ class Learner():
         for id in tqdm(ids):
             
             if any(df_data.columns.str.startswith('model_')): 
-                # calculate values from virtual rooms based on id 
-                wind__m_s_1 = 3.0                                     # assumed wind speed for virtual rooms that causes infiltration
+                # calculate values from synthetic rooms based on id 
+                wind__m_s_1 = 3.0                                     # assumed wind speed for synthetic rooms that causes infiltration
                 room__m3 = id % 1e3
                 vent_min__m3_h_1 = (id % 1e6) // 1e3
                 vent_max__m3_h_1 = id // 1e6
@@ -705,7 +717,7 @@ class Learner():
                 learned_A_inf__m2 = np.nan
                 mae_A_inf__m2 = np.nan
 
-                mae_valve_frac__0 = np.nan
+                rmae_valve_frac__0 = np.nan
                 rmse_valve_frac__0 = np.nan
 
                 mae_occupancy__p = np.nan
@@ -725,7 +737,7 @@ class Learner():
 
                     # GEKKO time-varying variables: measured values or learned
                     if 'occupancy__p' in learn:
-                        occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values, lb=0, ub=12)
+                        occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values, lb=0, ub=6)
                         occupancy__p.STATUS = 1; occupancy__p.FSTATUS = 1
                         if learn_change_interval__min is not None:
                             occupancy__p.MV_STEP_HOR = MV_STEP_HOR
@@ -734,7 +746,11 @@ class Learner():
                         occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
 
                     if 'valve_frac__0' in learn:
-                        valve_frac__0 = m.MV(value = df_learn[property_sources['valve_frac__0']].values, lb=0, ub=1)
+                        if any(df_learn.columns.str.startswith('model_')): 
+                            valve_frac__0 = m.MV(value = df_learn[property_sources['valve_frac__0']].values, lb=0, ub=1)
+                        else:
+                            valve_frac__0 = m.MV(value = df_learn[property_sources['valve_frac__0']].values, lb=0.0, ub=1)
+
                         valve_frac__0.STATUS = 1; valve_frac__0.FSTATUS = 1
                         if learn_change_interval__min is not None:
                             valve_frac__0.MV_STEP_HOR = MV_STEP_HOR
@@ -744,7 +760,7 @@ class Learner():
 
                     # GEKKO time-independent variables: approximated or learned
                     if 'A_inf__m2' in learn:
-                        A_inf__m2 = m.FV(value = hints['A_inf__m2'], lb = 0)
+                        A_inf__m2 = m.FV(value = hints['A_inf__m2'], lb = 0, ub = (25 / 1e4)) # ub = 25 [cm^2] 
                         A_inf__m2.STATUS = 1; A_inf__m2.FSTATUS = 0
                     else:
                         A_inf__m2 = hints['A_inf__m2']  
@@ -766,7 +782,7 @@ class Learner():
                     # GEKKO - Solver setting
                     m.options.IMODE = 5
                     m.options.SOLVER = 3
-                    m.options.EV_TYPE = ev_type    # specific objective function (1 = MAE; 2 = RMSE)
+                    m.options.EV_TYPE = ev_type    # specific objective function (1 ~ MAE; 2 ~ RMSE)
                     m.options.NODES = 2
                     m.solve(disp = False)
 
@@ -781,7 +797,7 @@ class Learner():
 
                     if 'valve_frac__0' in learn:
                         df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_valve_frac__0'] = np.asarray(valve_frac__0)
-                        mae_valve_frac__0 = Learner.mae(valve_frac__0, df_learn[property_sources['valve_frac__0']])
+                        rmae_valve_frac__0 = Learner.rmae(valve_frac__0, df_learn[property_sources['valve_frac__0']], 2)
                         rmse_valve_frac__0 = Learner.rmse(valve_frac__0, df_learn[property_sources['valve_frac__0']])
 
                     if 'occupancy__p'in learn:
@@ -818,7 +834,7 @@ class Learner():
                                     'mae_A_inf__cm2': [mae_A_inf__m2 * cm2_m_2],
                                     'mae_co2__ppm': [mae_co2__ppm],
                                     'rmse_co2__ppm': [rmse_co2__ppm],
-                                    'mae_valve_frac__0': [mae_valve_frac__0],
+                                    'rmae_valve_frac__0': [rmae_valve_frac__0],
                                     'rmse_valve_frac__0': [rmse_valve_frac__0],
                                     'mae_occupancy__p': [mae_occupancy__p],
                                     'rmse_occupancy__p': [rmse_occupancy__p]
