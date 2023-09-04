@@ -597,7 +597,9 @@ class Learner():
         ml_m_3 = 1e3 * 1e3                                            # [ml] per [m^3]
         umol_mol_1 = 1e6                                              # [µmol] per [mol]
         cm2_m_2 = 1e2 * 1e2                                           # [cm^2] per [m^2]
-        O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
+        # O2ml_min_1_kg_1_p_1_MET_1 = 3.5                             # [mlO₂‧kg^-1‧min^-1] per [MET] 
+        co2_exhale_rest__g_p_1_h_1 = 28.7                             # CO₂ exhalation rate at rest per person (from https://doi.org/10.1016/j.scitotenv.2022.155241)
+        
 
         # Constants
         desk_work__MET = 1.5                                          # Metabolic Equivalent of Task for desk work [MET]
@@ -608,6 +610,8 @@ class Learner():
         temp_zero__K = 273.15                                         # 0 [°C] = 273.15 [K]
         temp_std__K = temp_std__degC + temp_zero__K                   # standard gas temperature [K]
         temp_room__K = temp_room__degC + temp_zero__K                 # standard room temperature [K]
+        co2__g_mol_1 = 44.0095                                        # molar mass of CO₂
+
 
         # Approximations
         air__mol_m_3 = (P_std__Pa
@@ -617,21 +621,24 @@ class Learner():
                         / (R__m3_Pa_K_1_mol_1 * temp_std__K)
                        )                                              # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
 
-        metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
+        # metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
 
         # National averages
         co2_ext_2022__ppm = 415                                       # Yearly average CO₂ concentration in Europe in 2022
-        weight__kg = 77.5                                             # average weight of Dutch adult [kg]
-        umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
-                           * weight__kg
-                           / s_min_1 
-                           * (umol_mol_1 * std__mol_m_3 / ml_m_3)
-                           )                                          # molar quantity of O₂inhaled by an average Dutch adult at 1 MET [µmol/(p⋅s)]
-        co2_exhale__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
-                                    * desk_work__MET
-                                    * umol_s_1_p_1_MET_1
-                                   )                                  # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
-      
+        # weight__kg = 77.5                                             # average weight of Dutch adult [kg]
+        # umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
+        #                    * weight__kg
+        #                    / s_min_1 
+        #                    * (umol_mol_1 * std__mol_m_3 / ml_m_3)
+        #                    )                                          # molar quantity of O₂inhaled by an average Dutch adult at 1 MET [µmol/(p⋅s)]
+        # co2_exhale__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
+        #                             * desk_work__MET
+        #                             * umol_s_1_p_1_MET_1
+        #                            )                                  # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
+
+        co2_exhale_rest__umol_p_1_s_1 = co2_exhale_rest__g_p_1_h_1 / co2__g_mol_1 * umol_mol_1 / s_h_1
+        co2_exhale__umol_p_1_s_1 = (10 * round(co2_exhale_rest__umol_p_1_s_1 * desk_work__MET / 10))        # CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s), rounded to nearest multiple of 10
+
         # create empty dataframe for results of all homes
         df_results_per_period = pd.DataFrame()
 
