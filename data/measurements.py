@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta
 import pytz
 from tqdm.notebook import tqdm
-from sqlalchemy import create_engine, engine
+from sqlalchemy import create_engine, text
 import logging
 
 class Measurements:
@@ -20,15 +20,13 @@ class Measurements:
         db_url_env = os.getenv("TWOMES_DB_URL")
         assert db_url_env, 'Environment variable TWOMES_DB_URL not set. Format: user:pass@host:port/db '
 
-        db = create_engine("mysql+mysqlconnector://"+db_url_env).connect().execution_options(stream_results=True)
+        db = create_engine("mysql+mysqlconnector://"+db_url_env)
         
         sql_query = "SELECT id FROM property WHERE name IN "+ str(tuple(property_types.keys()))
         print(sql_query)
 
         df = pd.DataFrame()
-        df = pd.read_sql(sql=sql_query, con=db)
-            
-        db.close()   
+        df = pd.read_sql(sql=sql_query, con=db.connect().execution_options(stream_results=True))
         
         return str(tuple(df['id']))
 
@@ -55,8 +53,8 @@ class Measurements:
         db_url_env = os.getenv("TWOMES_DB_URL")
         assert db_url_env, 'Environment variable TWOMES_DB_URL not set. Format: user:pass@host:port/db '
 
-        db = create_engine("mysql+mysqlconnector://"+db_url_env).connect().execution_options(stream_results=True)
-        
+        db = create_engine("mysql+mysqlconnector://"+db_url_env)
+
         largest_measurement_interval = timedelta(hours=1)
         # convert starttime & endtime to database timezone; extend on both sides with interval of one 
         if first_day is not None: 
@@ -107,11 +105,11 @@ class Measurements:
                 logging.warning('empty list of property names')
             case 1:
                 sql_query_properties = "SELECT id FROM property WHERE name = '"+ db_properties[0] + "'"
-                df_properties = pd.read_sql(sql=sql_query_properties, con=db)
+                df_properties = pd.read_sql(sql=text(sql_query_properties), con=db.connect())
                 logging.info(f'first_day: {sql_query_properties}')
             case _:
                 sql_query_properties = "SELECT id FROM property WHERE name IN "+ str(tuple(db_properties))
-                df_properties = pd.read_sql(sql=sql_query_properties, con=db)
+                df_properties = pd.read_sql(sql=text(sql_query_properties), con=db.connect())
                 logging.info(f'first_day: {sql_query_properties}')
             
         match len(df_properties.index):
@@ -133,8 +131,8 @@ class Measurements:
         df = pd.DataFrame()
 
         #TODO: react on tz_source, depending on whether tz_source == 'UTC'. 
-        for chunk in tqdm(pd.read_sql(sql=sql_query.replace('\n',' '),
-                                               con=db,
+        for chunk in tqdm(pd.read_sql(sql=text(sql_query.replace('\n',' ')),
+                                               con=db.connect().execution_options(stream_results=True),
                                                chunksize = 2000000,
                                                parse_dates={"timestamp": {"utc": "True"}}
                                               )
@@ -148,8 +146,6 @@ class Measurements:
                                            )
                            ]
                           )
-            
-        db.close()
         
         df = (df
                 .drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property', 'value'], keep='first')
@@ -217,7 +213,7 @@ class Measurements:
         db_url_env = os.getenv("TWOMES_DB_URL")
         assert db_url_env, 'Environment variable TWOMES_DB_URL not set. Format: user:pass@host:port/db '
 
-        db = create_engine("mysql+mysqlconnector://"+db_url_env).connect().execution_options(stream_results=True)
+        db = create_engine("mysql+mysqlconnector://"+db_url_env)
         
         largest_measurement_interval = timedelta(hours=1)
         # convert starttime & endtime to database timezone; extend on both sides with interval of one 
@@ -281,16 +277,13 @@ class Measurements:
         df = pd.DataFrame()
 
         #TODO: react on tz_source, depending on whether tz_source == 'UTC'. 
-        for chunk in tqdm(pd.read_sql(sql=sql_query.replace('\n',' '),
-                                               con=db,
+        for chunk in tqdm(pd.read_sql(sql=text(sql_query.replace('\n',' ')),
+                                               con=db.connect().execution_options(stream_results=True),
                                                chunksize = 2000000,
                                                parse_dates={"timestamp": {"utc": "True"}}
                                               )
                                        ):
             df = pd.concat([df, chunk])
-            
-        db.close()
-
         
         return df
         
