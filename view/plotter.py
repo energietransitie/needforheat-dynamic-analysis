@@ -33,8 +33,10 @@ class Plot:
                 df_plot.columns = ['_'.join(col) for col in df_plot.columns.values]
                 props_with_data = [prop for prop in list(df_plot.columns) if df_plot[prop].count()>0] 
                 units_with_data = np.unique(np.array([prop.split('__')[-1] for prop in props_with_data]))
-                unit_tuples = [tuple([prop for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
-                print(f'')
+                unit_tuples = [tuple([prop.split('__')[0] for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
+                props_with_data = [prop.split('__')[0] for prop in props_with_data]
+                labels = [col.split('__')[0] for col in df_plot.columns]
+                df_plot.columns = labels
                 axes = df_plot[props_with_data].plot(
                     subplots = unit_tuples,
                     style='.--',
@@ -67,13 +69,12 @@ class Plot:
         for id in list(df.index.to_frame(index=False).id.unique()):
             try:
                 df_plot = df.loc[id]
-                # df_plot = df.loc[id].unstack([0])
-                # df_plot.columns = df_plot.columns.swaplevel(0,1)
-                # df_plot.columns = ['_'.join(col) for col in df_plot.columns.values]
                 props_with_data = [prop for prop in list(df_plot.columns) if df_plot[prop].count()>0] 
                 units_with_data = np.unique(np.array([prop.split('__')[-1] for prop in props_with_data]))
-                unit_tuples = [tuple([prop for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
-                print(f'')
+                unit_tuples = [tuple([prop.split('__')[0] for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
+                props_with_data = [prop.split('__')[0] for prop in props_with_data]
+                labels = [col.split('__')[0] for col in df_plot.columns]
+                df_plot.columns = labels
                 axes = df_plot[props_with_data].plot(
                     subplots = unit_tuples,
                     style='.--',
@@ -312,7 +313,7 @@ class Plot:
             
         
     @staticmethod
-    def learned_parameters_boxplot_b4b(df_results_model_parameters: pd.DataFrame, learned: str, actual: str):
+    def learned_parameters_boxplot_b4b(df_results_model_parameters: pd.DataFrame, learned: str, actual: str, units_to_mathtext = None):
         """
         Visualize results of all learned model parameters of all homes in one box plot
         """
@@ -358,13 +359,14 @@ class Plot:
         # Create the legend
         legend_elements = []
         # Add the green box plot color and label for the learned values
-        legend_elements.append(plt.Line2D([0], [0], color='green', lw=1, label=learned))
+        legend_elements.append(plt.Line2D([0], [0], color='green', lw=1, label=learned.split('__')[0]))
         # Add the red marker and label for the actual values if actual is not None
         if actual is not None:
-            legend_elements.append(plt.Line2D([0], [0], **actual_line, label=actual))
+            legend_elements.append(plt.Line2D([0], [0], **actual_line, label=actual.split('__')[0]))
             
         # Add the legend to the plot
-        ax.legend(handles=legend_elements)            
+        ax.legend(handles=legend_elements)
+        plt.ylabel(units_to_mathtext[learned.split('__')[-1]] )
         
         # Show the plot
         plt.show()
