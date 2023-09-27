@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import numpy as np
 import pylab as plt
 import seaborn as sns
+from preprocessor import Preprocessor
 
 
 class Plot:
@@ -22,8 +23,7 @@ class Plot:
             - timestamp: timezone-aware timestamp
         - columns = all properties in the input column
             - unit types are encoded as last part of property name, searated by '__'
-        
-
+        - units_to_mathtext: table tat translates property unit postfixes to mathtext.
         """      
         
         for id in list(df.index.to_frame(index=False).id.unique()):
@@ -62,8 +62,7 @@ class Plot:
             - timestamp: timezone-aware timestamp
         - columns = all properties in the input column
             - unit types are encoded as last part of property name, searated by '__'
-        
-
+        - units_to_mathtext: table tat translates property unit postfixes to mathtext.
         """      
         
         for id in list(df.index.to_frame(index=False).id.unique()):
@@ -88,6 +87,42 @@ class Plot:
                 plt.show()
             except TypeError:
                 print(f'No data for id: {id}')
+                
+    @staticmethod
+    def same_unit_property_histogram(df_prop: pd.DataFrame, regex_filter: str, units_to_mathtext = None, bins = 200, per_id= True):
+        """
+        Plot a histogram of all property columns, filtered by regex (all properties need to have the same unit. 
+        
+        in: dataframe with
+        - index = ['id', 'source', 'timestamp']
+            - id: id of e.g. home / utility building / room 
+            - source: device_type from the database
+            - timestamp: timezone-aware timestamp
+        - columns = all properties in the input column
+            - unit types are encoded as last part of property name, searated by '__'
+            
+        - regex_filer: regular expression used to filter property columns 
+        - units_to_mathtext: table tat translates property unit postfixes to mathtext.
+        - per_id: boolean that signals whether the plot should split the units per if
+
+        action: histogram of CO₂ measurements per id
+        """
+        
+        if per_id:
+            df_hist = Preprocessor.unstack_prop(df_prop).filter(regex=regex_filter).dropna(axis=1, how='all').unstack([0])
+
+            df_hist.columns = df_hist.columns.swaplevel(0,1)
+
+            df_hist.columns = ['_'.join(map(str, col)) for col in df_hist.columns.values]
+        else:
+            df_hist = df_prop.filter(regex=regex_filter)
+
+        labels = [col.split('__')[0] for col in df_hist.columns]
+        units = [col.split('__')[-1] for col in df_hist.columns]
+        df_hist.columns = labels
+        df_hist.plot.hist(bins=bins, alpha=0.5)
+        plt.xlabel(f'[{units_to_mathtext[units[0]]}]')
+        plt.show()
 
     @staticmethod
     def temperature_and_power_one_home_plot(title:str, 
