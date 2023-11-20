@@ -6,3 +6,6 @@
 
 # Ignore log files as long as they follow the naming scheme below:
 log_*.txt
+
+# Ignore historic dutch weather install
+/src/historicdutchweather/
