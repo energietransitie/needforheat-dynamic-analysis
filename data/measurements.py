@@ -227,35 +227,23 @@ class Measurements:
             case 0:
                 logging.warning('empty list of ids')
             case 1:
-                sql_query = sql_query + " WHERE a.pseudonym = "+ str(ids[0])
+                sql_query = sql_query + " WHERE a.id = "+ str(ids[0])
             case _:
-                sql_query = sql_query + " WHERE a.pseudonym IN "+ f'{tuple(map(str, ids))}'        
+                sql_query = sql_query + " WHERE a.id IN "+ f'{tuple(map(str, ids))}'        
         
         match len(db_properties):
-            case 0: 
-                logging.warning('empty list of property names')
-            case 1:
-                sql_query_properties = "SELECT id FROM property WHERE name = '"+ db_properties[0] + "'"
-                df_properties = pd.read_sql(sql=text(sql_query_properties), con=db.connect())
-                logging.info(f'first_day: {sql_query_properties}')
-            case _:
-                sql_query_properties = "SELECT id FROM property WHERE name IN "+ str(tuple(db_properties))
-                df_properties = pd.read_sql(sql=text(sql_query_properties), con=db.connect())
-                logging.info(f'first_day: {sql_query_properties}')
-            
-        match len(df_properties.index):
             case 0:
                 logging.warning('empty list of properties found')
             case 1:
-                sql_query = sql_query + " AND p.id = "+ str(df_properties['id'].iloc[0])
+                sql_query = sql_query + " AND p.name = '"+ str(db_properties[0]) + "'"
             case _:
-                sql_query = sql_query + " AND p.id IN "+ str(tuple(df_properties['id']))
+                sql_query = sql_query + " AND p.name IN "+ str(tuple(db_properties)) 
 
         if first_day is not None: 
-            sql_query = sql_query + " AND m.timestamp >= "+ first_str
+            sql_query = sql_query + " AND m.time >= "+ first_str
 
         if last_day is not None: 
-            sql_query = sql_query + " AND m.timestamp <= "+ last_str 
+            sql_query = sql_query + " AND m.time <= "+ last_str 
 
         logging.info(sql_query.replace('\n',' '))
 
@@ -271,8 +259,7 @@ class Measurements:
             df = pd.concat([df,chunk.astype({'id':'category',
                                              'device_name':'category',
                                              'device_type':'category',
-                                             'property':'category',
-                                             'unit':'category'
+                                             'property':'category'
                                             }
                                            )
                            ]
