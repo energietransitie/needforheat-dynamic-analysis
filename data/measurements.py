@@ -147,12 +147,14 @@ class Measurements:
                            ]
                           )
         
-        df = (df
-                .drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property', 'value'], keep='first')
-                .rename(columns = {'device_type':'source'}) 
-                .set_index(['id', 'device_name', 'source', 'timestamp', 'property'])
-                .tz_convert(tz_building, level='timestamp')
-               )
+        if not df.empty:
+            df = (df
+                    .drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property', 'value'], keep='first')
+                    .rename(columns = {'device_type':'source'}) 
+                    .set_index(['id', 'device_name', 'source', 'timestamp', 'property'])
+                    .tz_convert(tz_building, level='timestamp')
+                   )
+
         if property_rename is not None:
             return df.rename(index=property_rename).sort_index()
 
@@ -265,14 +267,14 @@ class Measurements:
                            ]
                           )
         
-        #TODO: handle errors when dataframa is empty
         #TODO: handle campaigns where timezone may be different per building
-        df = (df
-                .drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property', 'value'], keep='first')
-                .rename(columns = {'device_type':'source'}) 
-                .set_index(['id', 'device_name', 'source', 'timestamp', 'property'])
-                .tz_convert(tz_building, level='timestamp')
-               )
+        if not df.empty:
+            df = (df
+                    .drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property', 'value'], keep='first')
+                    .rename(columns = {'device_type':'source'}) 
+                    .set_index(['id', 'device_name', 'source', 'timestamp', 'property'])
+                    .tz_convert(tz_building, level='timestamp')
+                   )
         return df.sort_index()
 
         
