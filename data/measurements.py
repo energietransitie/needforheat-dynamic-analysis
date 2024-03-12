@@ -159,6 +159,135 @@ class Measurements:
         else:
             return df.sort_index()
 
+    @staticmethod    
+    def get_needforheat_measurements(ids,
+                                     first_day:datetime=None, last_day:datetime=None,
+                                     db_properties = None,
+                                     tz_source:str = 'UTC', tz_building:str = 'Europe/Amsterdam') -> pd.DataFrame:
+        
+        """
+        in: 
+        - ids: list of account ids
+        - first_day: timezone-aware date
+        - last_day: , timezone-aware date; data is extracted until end of day
+        - db_properties: list of properties to retrieve from database
+        out: dataframe with measurements
+        - result.index = ['id', 'device_name', 'source', 'timestamp', 'property']
+        -- id: id of e.g. home / utility building / room 
+        -- source: device_type from the database
+        -- timestamp: timezone-aware timestamp
+        - columns = ['value']:
+        """
+        db_url_env = os.getenv("TWOMES_DB_URL")
+        assert db_url_env, 'Environment variable TWOMES_DB_URL not set. Format: user:pass@host:port/db '
+
+        db = create_engine("mysql+mysqlconnector://"+db_url_env)
+
+        largest_measurement_interval = timedelta(hours=1)
+        # convert starttime & endtime to database timezone; extend on both sides with interval of one 
+        if first_day is not None: 
+            logging.info(f'first_day: {first_day}')
+            extractor_starttime = (first_day - largest_measurement_interval).astimezone(pytz.timezone(tz_source))
+            logging.info(f'extractor_starttime: {extractor_starttime}')
+            first_str = "'" + extractor_starttime.strftime('%Y-%m-%d') + "'"
+            logging.info(f'first_str: {first_str}')
+        if last_day is not None: 
+            logging.info(f'last_day: {last_day}')
+            extractor_endtime = (last_day + timedelta(days=1) + largest_measurement_interval).astimezone(pytz.timezone(tz_source))
+            logging.info(f'extractor_endtime: {extractor_endtime}')
+            last_str = "'" + extractor_endtime.strftime('%Y-%m-%d') + "'"
+            logging.info(f'last_str: {last_str}')
+
+        sql_query = """
+        SELECT
+            m.time AS timestamp,
+            a.id AS id,
+            d.name AS device_name,
+            dt.name AS device_type,
+            p.name AS property,
+            m.value AS value
+        FROM
+            measurement m
+        JOIN upload u ON
+            u.id = m.upload_id
+        JOIN property p ON
+            p.id = m.property_id
+        JOIN device d ON
+            d.id = u.device_id
+        JOIN device_type dt ON
+            dt.id = d.device_type_id
+        JOIN building b ON
+            b.id = d.building_id
+        JOIN account a on
+            a.id = b.account_id
+        JOIN campaign c ON
+            a.campaign_id = c.id"""
+
+        match len(ids):
+            case 0:
+                logging.warning('empty list of ids')
+            case 1:
+                sql_query = sql_query + " WHERE a.pseudonym = "+ str(ids[0])
+            case _:
+                sql_query = sql_query + " WHERE a.pseudonym IN "+ f'{tuple(map(str, ids))}'        
+        
+        match len(db_properties):
+            case 0: 
+                logging.warning('empty list of property names')
+            case 1:
+                sql_query_properties = "SELECT id FROM property WHERE name = '"+ db_properties[0] + "'"
+                df_properties = pd.read_sql(sql=text(sql_query_properties), con=db.connect())
+                logging.info(f'first_day: {sql_query_properties}')
+            case _:
+                sql_query_properties = "SELECT id FROM property WHERE name IN "+ str(tuple(db_properties))
+                df_properties = pd.read_sql(sql=text(sql_query_properties), con=db.connect())
+                logging.info(f'first_day: {sql_query_properties}')
+            
+        match len(df_properties.index):
+            case 0:
+                logging.warning('empty list of properties found')
+            case 1:
+                sql_query = sql_query + " AND p.id = "+ str(df_properties['id'].iloc[0])
+            case _:
+                sql_query = sql_query + " AND p.id IN "+ str(tuple(df_properties['id']))
+
+        if first_day is not None: 
+            sql_query = sql_query + " AND m.timestamp >= "+ first_str
+
+        if last_day is not None: 
+            sql_query = sql_query + " AND m.timestamp <= "+ last_str 
+
+        logging.info(sql_query.replace('\n',' '))
+
+        df = pd.DataFrame()
+
+        #TODO: react on tz_source, depending on whether tz_source == 'UTC'. 
+        for chunk in tqdm(pd.read_sql(sql=text(sql_query.replace('\n',' ')),
+                                               con=db.connect().execution_options(stream_results=True),
+                                               chunksize = 2000000,
+                                               parse_dates={"timestamp": {"utc": "True"}}
+                                              )
+                                       ):
+            df = pd.concat([df,chunk.astype({'id':'category',
+                                             'device_name':'category',
+                                             'device_type':'category',
+                                             'property':'category',
+                                             'unit':'category'
+                                            }
+                                           )
+                           ]
+                          )
+        
+        #TODO: handle errors when dataframa is empty
+        #TODO: handle campaigns where timezone may be different per building
+        df = (df
+                .drop_duplicates(subset=['id', 'timestamp','device_type', 'device_name', 'property', 'value'], keep='first')
+                .rename(columns = {'device_type':'source'}) 
+                .set_index(['id', 'device_name', 'source', 'timestamp', 'property'])
+                .tz_convert(tz_building, level='timestamp')
+               )
+        return df.sort_index()
+
         
     @staticmethod    
     def to_properties(df_meas, properties_types = None) -> pd.DataFrame:
