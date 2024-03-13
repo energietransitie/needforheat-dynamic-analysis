@@ -1,5 +1,5 @@
-# Twomes inverse grey-box modelling and analysis tools for homes and utility buildings
-This repository contains source code for the Twomes digital twin heat balance models and inverse-grey-box analysis tools, based on [GEKKO Python](https://github.com/BYU-PRISM/GEKKO). This analysis software can be regarded as a particular form of physics informed machine learning for automated estimation of crucial parameters of buildings, installations and comfort needs in individual homes and utility buildings based on time-series monitoring data.
+# NeedForHeat analysis tools for homes and utility buildings
+This repository contains source code for the NeedForHeat heat balance models and analysis tools, based on [GEKKO Python](https://github.com/BYU-PRISM/GEKKO). This analysis software can be regarded as a particular form of physics informed machine learning for automated estimation of crucial parameters of buildings, installations and comfort needs in individual homes and utility buildings based on time-series monitoring data.
 
 ## Table of contents
 * [General info](#general-info)
@@ -15,18 +15,24 @@ This repository contains source code for the Twomes digital twin heat balance mo
 
 This repository contains the GEKKO Python-based implementation of inverse grey-box analysis software. The purpose of this sofware is to (help) speedup the energy transition, in particular the heating transition. 
 
-We developed this software in the [Twomes](https://edu.nl/9fv8w) project (to learn building parameters) and the [Brains4Buildings](https://edu.nl/kynxd) project (to learn from the relation between occupancy, ventilation rates and CO<sub>2</sub> concentration). This reposotory contains data for virtual homes and virtual rooms that were used to verify the proper implementation of the GEKKO models. 
+This software was developed in the context of multiple projects:
 
-The data we collected, including a metadata can be found in these related repositories:
-- [twomes-dataset-assendorp2021](https://github.com/energietransitie/twomes-dataset-assendorp2021).
-- [brains4buildings-dataset-windesheim2022](https://github.com/energietransitie/brains4buildings-dataset-windesheim2022).
+* [Twomes](https://edu.nl/9fv8w), our first research project aimed at building digital twins that used inverse grey-box modelling to learn physical building parameters;
+* [Brains4Buildings](https://edu.nl/kynxd), a research project in which we explored relation between occupancy, ventilation rates and CO<sub>2</sub> concentration;
+* [REDUCEDHEATCARB](https://edu.nl/gutuc), a research project in which we extend the models from these earlier projects with models for ventilation heat loss, wind-dependent infiltration heat loss and a model that seprates heat generation (in a boiler orand/ heat pump) from heat distribution (e.g. via hydronic radiators). 
+
+This repository also contains synthetic home data and synthetic room data that we generated used to verify the proper implementation of the GEKKO models. 
+
+Field data, including a metadata can be found in these related repositories:
+
+* [twomes-dataset-assendorp2021](https://github.com/energietransitie/twomes-dataset-assendorp2021).
+* [brains4buildings-dataset-windesheim2022](https://github.com/energietransitie/brains4buildings-dataset-windesheim2022).
 
 ## Prerequisites
 
-Both for deplopying of and developing for the software in this repository, you can use a [JupyterLab](https://jupyter.org/) environment on your local machine. Other environments, such as [PyCharm](https://www.jetbrains.com/pycharm/download/#section=windows) and [Visual Studio Code](https://code.visualstudio.com/) may work as well, but we do not include documentation for this here. 
+We recommend to [install and use JupyterLab in a docker container on a server](https://github.com/energietransitie/twomes-backoffice-configuration#jupyterlab).
 
-**Note**
-As an alternative, you can also [install and use JupyterLab in a docker container on a server](https://github.com/energietransitie/twomes-backoffice-configuration#jupyterlab).
+As an alternative, you can use a [JupyterLab](https://jupyter.org/) environment on your local machine. Other environments, such as [PyCharm](https://www.jetbrains.com/pycharm/download/#section=windows) and [Visual Studio Code](https://code.visualstudio.com/) may work as well, but we do not include documentation for this here. 
 
 To use JupyterLab on your local machine, make sure you have the following software properly installed and configured on your machine:
 
@@ -91,12 +97,15 @@ This section describes how you can change the source code. You can do this using
 Should you find any issues or bugs in our code, please report them via the [issues](https://github.com/energietransitie/twomes-inverse-grey-box-analysis/issues) tab of this repository.
 
 To change the code, we recommend:
-- Try out your changes using the various `.ipynb ` files from the [`examples`](/examples) folder. The section [Deploying](#deploying) contains a high level description of these files.
-- Migrate stable code to functions in Python files.
-- Should you have extensions or bug fixes that could be useful for other users of the repository as well, please fork this reposotory and make a Pull Request on this repository. 
+
+* Try out your changes using the various `.ipynb ` files from the [`examples`](/examples) folder. The section [Deploying](#deploying) contains a high level description of these files.
+* Migrate stable code to functions in Python files.
+* Should you have extensions or bug fixes that could be useful for other users of the repository as well, please fork this reposotory and make a Pull Request on this repository. 
 
 ## Features
-Features include:
+
+Current features include:
+
 * data extraction;
 * data preprocessing: measurement outlier removal and interpolation;
 * `learn_home_parameters()` function in [`inversegreyboxmodel.py`](/analysis/inversegreyboxmodel.py) that uses a GEKKO model and code to learn building model parameters such as specific heat loss [W/K], thermal intertia [h], thermal ass [Wh/K] and apparent solar aperture [m<sup>2</sup>] of a building;
@@ -105,6 +114,7 @@ Features include:
 	* apparent infiltration area [m<sup>2</sup>] and occupancy [p] from from CO<sub>2</sub> concentration [ppm] and ventilation rates [m<sup>3</sup>/h]  time series data;
 
 To-do:
+
 * update code in the `learn_home_parameters()` function to align with the newer code and preprocessing tools used in the `learn_room_parameters()` function;
 * extend GEKKO model in `learn_home_parameters()` with installation model details to learn installation parameters;
 * add 'dynamic' measurement outlier removal for measurement time series before interpolation, i.e. a rolling window outlier removal procedure, similar to a [hampel filter](https://pypi.org/project/hampel/) but working on non-equidistant time-series data and using a duration as a time window;
@@ -119,8 +129,8 @@ This software is available under the [Apache 2.0 license](/LICENSE), Copyright 2
 
 ## Credits
 This software is a collaborative effort of:
-* Hossein Rahmani · [@HosseinRahmani64](https://github.com/HosseinRahmani64)
 * Henri ter Hofte · [@henriterhofte](https://github.com/henriterhofte) · Twitter [@HeNRGi](https://twitter.com/HeNRGi)
+* Hossein Rahmani · [@HosseinRahmani64](https://github.com/HosseinRahmani64)
 
 It is partially based on earlier work by the following students:
 * Casper Bloemendaal · [@Bloemendaal](https://github.com/Bloemendaal)
