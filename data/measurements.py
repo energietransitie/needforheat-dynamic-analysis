@@ -319,6 +319,46 @@ class Measurements:
         return df_prop.astype({k:properties_types[k] for k in properties_types.keys() if k in df_prop.columns})
     
     @staticmethod    
+    def to_properties_new(df_meas, properties_types = None) -> pd.DataFrame:
+        
+        """
+        in: dataframe with measurements
+        - index = ['id', 'device_name', 'source', 'timestamp', 'property']
+        -- id: id of e.g. home / utility building / room 
+        -- source_category:e.g. batch_import, device, clould_feed, energy_query
+        -- source_type: device_type from the database
+        -- timestamp: timezone-aware timestamp
+        - columns = ['value']:
+        - properties_types: disctionary that specifies per property (key) which type to apply (value) 
+        
+        for duplicate measurements (index the same) only the first value is saved
+        properties are unstacked into columns
+        types are applied per column as specified in 
+        
+        out: dataframe with
+        - result.index = ['id', 'source', 'timestamp', 'property']
+        -- id: id of e.g. home / utility building / room 
+        -- source_category:e.g. batch_import, device, clould_feed, energy_query
+        -- source_type: device_type from the database
+        -- timestamp: timezone-aware timestamp
+        - columns = all properties in the input column
+        
+        """
+        measurement_count = df_meas.shape[0]
+        df_prop = (df_meas
+                   .reset_index()
+                   [['id', 'timestamp', 'source_category', 'source_type', 'property', 'value']]
+                   # duplicate values for exacly the same time cannot be unstacked we drop the later values
+                   .drop_duplicates(subset=['id', 'timestamp', 'source_category', 'source_type', 'property'], keep='first')
+                   .set_index(['id', 'source_category', 'source_type', 'timestamp', 'property'])
+                  )
+        logging.info(f'Dropped {measurement_count - df_prop.shape[0]} measurements for unstacking')
+        df_prop = df_prop.unstack()
+        df_prop.columns = df_prop.columns.droplevel()
+        
+        return df_prop.astype({k:properties_types[k] for k in properties_types.keys() if k in df_prop.columns})
+
+    @staticmethod    
     def get_accounts_devices(first_day:datetime=None, last_day:datetime=None,
                              tz_source:str = 'UTC', tz_building:str = 'Europe/Amsterdam') -> pd.DataFrame:
         
