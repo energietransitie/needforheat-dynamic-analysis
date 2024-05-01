@@ -10,11 +10,97 @@ from preprocessor import Preprocessor
 
 class Plot:
 
-    
+    @staticmethod
+    def nfh_measurements_plot(df_source: pd.DataFrame, ids=None, source_categories=None, source_types=None, units=None, properties=None, units_to_mathtext=None):
+        """
+        Plot data in df DataFrame, one plot per id, one subplot for all properties with the same unit
+        
+        in: dataframe with
+        - MultiIndex = ['id', 'source_category', 'source_type', 'timestamp', 'property']
+            - id: id of e.g. home / utility building / room 
+            - source_category: category of the data source
+            - source_type: type of the data source
+            - timestamp: timezone-aware timestamp
+            - property: type of the property measured
+        - value: measurement value (string)
+        - units_to_mathtext: table that translates property unit postfixes to mathtext.
+        """      
+        
+        df = df_source.copy()
+        
+        if ids is not None:
+            df = df.loc[df.index.get_level_values('id').isin(ids)]
+        if source_types is not None:
+            df = df.loc[df.index.get_level_values('source_type').isin(source_types)]
+        if units is not None:
+            property_names = df.index.get_level_values('property')
+            filtered_properties = [p for p in property_names if any(p.endswith(f'__{unit}') for unit in units)]
+            df = df.loc[df.index.get_level_values('property').isin(filtered_properties)]
+        if source_categories is not None:
+            df = df.loc[df.index.get_level_values('source_category').isin(source_categories)]
+        if properties is not None:
+            df = df.loc[df.index.get_level_values('property').isin(properties)]
+
+        # Filter out rows with measurement values whose property name ends with '__str'
+        df = df.loc[~df.index.get_level_values('property').str.endswith('__str')]
+
+        
+        # Convert measurement values to float, coercing non-numeric values to NaN
+        df['value'] = pd.to_numeric(df['value'], errors='coerce')
+
+        for id_ in df.index.get_level_values('id').unique():
+            try:
+                df_plot = df.xs(id_)
+
+                # Merge source_category, source_type, and property into a single index level
+                df_plot.index = df_plot.index.map(lambda x: (x[0], x[1], x[2], f"{x[0]}_{x[1]}_{x[3]}"))
+
+                # Drop the first two levels and rename the last two
+                df_plot.index = df_plot.index.droplevel([0, 1])
+                df_plot.index.names = ['timestamp', 'merged_property']
+                
+                df_plot = df_plot.unstack('merged_property')  # Ensure df_plot is a DataFrame
+                
+                # Resetting the index to remove the 'value' level
+                df_plot.columns = list(df_plot.columns.droplevel(0))
+                  
+                props_with_data = [prop for prop in list(df_plot.columns) if df_plot[prop].count()>0] 
+                units_with_data = np.unique(np.array([prop.split('__')[-1] for prop in props_with_data]))
+                unit_tuples = [tuple([prop.split('__')[0] for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
+                props_with_data = [prop.split('__')[0] for prop in props_with_data]
+                labels = [col.split('__')[0] for col in df_plot.columns]
+                df_plot.columns = labels
+                axes = df_plot[props_with_data].plot(
+                    subplots = unit_tuples,
+                    style='.',
+                    title=f'id: {id_}'
+                )
+                # Calculate the minimum and maximum timestamps for the current 'id'
+                min_timestamp = df_plot.index.get_level_values('timestamp').min()
+                max_timestamp = df_plot.index.get_level_values('timestamp').max()
+
+                for unit in enumerate(units_with_data):
+                    if units_to_mathtext is not None:
+                        axes[unit[0]].set_ylabel(units_to_mathtext[unit[1]])
+                    else:
+                        axes[unit[0]].set_ylabel(unit[1])
+
+
+                    # Add vertical grid lines at midnight each day for the current 'id'
+                    dates = pd.date_range(start=min_timestamp.floor('D'), end=max_timestamp.floor('D'), freq='D')  # All midnights within the range for the current 'id'
+                    for date in dates:
+                        axes[unit[0]].axvline(x=date, color='gray', linestyle='--', linewidth=0.5)
+                
+                plt.tight_layout()
+                plt.show()
+            except TypeError:
+                print(f'No data for id: {id_}')
+
+
     @staticmethod
     def dataframe_properties_plot(df: pd.DataFrame, units_to_mathtext = None): 
         """
-        Plot data in df DataFrame, one plot per id, one subplot for all propertyes with the same unit
+        Plot data in df DataFrame, one plot per id, one subplot for all properties with the same unit
         
         in: dataframe with
         - index = ['id', 'source', 'timestamp']
@@ -26,7 +112,7 @@ class Plot:
         - units_to_mathtext: table tat translates property unit postfixes to mathtext.
         """      
         
-        for id in list(df.index.to_frame(index=False).id.unique()):
+        for id in list(df.index.get_level_values('id').unique()):
             try:
                 df_plot = df.loc[id].unstack([0])
                 df_plot.columns = df_plot.columns.swaplevel(0,1)
@@ -54,7 +140,7 @@ class Plot:
     @staticmethod
     def dataframe_preprocessed_plot(df: pd.DataFrame, units_to_mathtext = None): 
         """
-        Plot data in df DataFrame, one plot per id, one subplot for all propertyes with the same unit
+        Plot data in df DataFrame, one plot per id, one subplot for all properties with the same unit
         
         in: dataframe with
         - index = ['id', 'timestamp']
