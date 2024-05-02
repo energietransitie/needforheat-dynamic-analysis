@@ -57,12 +57,19 @@ class Plot:
 
                 # Drop the first two levels and rename the last two
                 df_plot.index = df_plot.index.droplevel([0, 1])
+
                 df_plot.index.names = ['timestamp', 'merged_property']
                 
-                df_plot = df_plot.unstack('merged_property')  # Ensure df_plot is a DataFrame
+                # Check for duplicates in the index after merging
+                duplicate_entries = df_plot.index.duplicated().any()
                 
-                # Resetting the index to remove the 'value' level
-                df_plot.columns = list(df_plot.columns.droplevel(0))
+                if duplicate_entries:
+                    print("Duplicate entries found in the index after merging. Handled mby taking the average.")
+                    df_plot = df_plot.groupby(['timestamp', 'merged_property'])['value'].mean()
+                    df_plot = df_plot.unstack('merged_property')
+                else: 
+                    df_plot = df_plot.unstack('merged_property')  
+                    df_plot.columns = list(df_plot.columns.droplevel(0))
                   
                 props_with_data = [prop for prop in list(df_plot.columns) if df_plot[prop].count()>0] 
                 units_with_data = np.unique(np.array([prop.split('__')[-1] for prop in props_with_data]))
