@@ -86,6 +86,7 @@ class Preprocessor:
                               .values)            
         return df_result
 
+    
     @staticmethod
     def co2_baseline_adjustment(df: pd.DataFrame,
                                 col:str,
@@ -120,6 +121,77 @@ class Preprocessor:
                     df_result.loc[(id_val, source), col] = (df_result.loc[(id_val, source), col] + baseline_adjustment__ppm).values
         return df_result
 
+    
+    @staticmethod
+    def encode_categorical_property_as_boolean_properties(df, property_to_encode, property_categories):
+        """
+        Convert a categorical measurement to one or more dummy properties, each boolean.
+    
+        Parameters:
+        - df (DataFrame): DataFrame with measurements
+            - a multi-index consisting of
+            -- id: id of the unit studied (e.g. home / utility building / room) 
+            -- source_category: e.g. batch_import / cloud_feed / device
+            -- source_type: e.g. device_type from the database
+            -- timestamp: timezone-aware timestamp
+            -- property: property measured 
+            - column = 'value', with string representation of measurement value
+        - property_to_encode (str): Name of the property to convert.
+        - property_categories (dict): Translation table mapping categories to dummy property names.
+    
+        Returns:
+        - DataFrame: Modified DataFrame with only property_to_encode converted to dummy properties.
+        """
+    
+        # Extract values for the property to dummify
+        property_values = df.loc[df.index.get_level_values('property') == property_to_encode, 'value']
+    
+        # Convert to categorical data
+        property_values = property_values.astype('category')
+    
+        # Create binary measurement columns for each category
+        binary_columns = pd.get_dummies(property_values).astype(int)
+    
+        # Rename columns based on translation table
+        binary_columns.rename(columns=property_categories, inplace=True)
+    
+        # Add '__bool' suffix to column names
+        binary_columns.columns = [col.lower().replace(' ', '_') + '__bool' for col in binary_columns.columns]
+    
+        # Stack binary_columns DataFrame to create long format
+        stacked_df = binary_columns.stack()
+    
+        # Reset index to convert the MultiIndex to columns
+        stacked_df = stacked_df.reset_index()
+    
+        # Rename the measurement value column to 'value'
+        stacked_df.rename(columns={stacked_df.columns[-1]: 'value'}, inplace=True)
+
+        # Drop the 'property' column
+        stacked_df.drop(columns=['property'], inplace=True)
+
+        # Rename the second to last index level to 'property'
+        stacked_df.rename(columns={stacked_df.columns[-2]: 'property'}, inplace=True)
+        
+        # Rename the measurement value column to 'value'
+        stacked_df.rename(columns={0: 'value'}, inplace=True)
+    
+        # Set the index levels
+        index_levels = ['id', 'source_category', 'source_type', 'timestamp', 'property']
+        stacked_df.set_index(index_levels, inplace=True)
+    
+        # Convert values in the 'value' column from int to string
+        stacked_df['value'] = stacked_df['value'].astype(str)
+    
+        # Add the converted measurements to the original DataFrame
+        df = pd.concat([df, stacked_df])
+    
+        # Remove the measurements with 'property' equal to 'boiler_status__str' from df
+        df = df[df.index.get_level_values('property') != property_to_encode]
+    
+        return df
+
+   
     @staticmethod
     def unstack_prop(df_prop: pd.DataFrame) -> pd.DataFrame:
         
