@@ -150,7 +150,12 @@ class Preprocessor:
         property_values = property_values.astype('category')
     
         # Create binary measurement columns for each category
-        binary_columns = pd.get_dummies(property_values).astype(int)
+        binary_columns = pd.get_dummies(property_values).astype(bool)
+
+        # Iterate over the columns and print unique values
+        for col in binary_columns.columns:
+            unique_values = binary_columns[col].unique()
+            print(f"Unique values for column '{col}': {unique_values}")
     
         # Rename columns based on translation table
         binary_columns.rename(columns=property_categories, inplace=True)
