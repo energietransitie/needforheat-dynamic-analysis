@@ -88,6 +88,40 @@ class Preprocessor:
 
     
     @staticmethod
+    def filter_id_prop_with_std_zero(df: pd.DataFrame, col: str, inplace=True) -> pd.DataFrame:
+        """
+        Replace measurement values with NaN for an `id` in the `col` column
+        where the standard deviation (`std`) of the measurement values for that `id` is 0.
+    
+        in: df: pd.DataFrame with
+        - index = ['id', 'source', 'timestamp']
+          -- id: id of the unit studied (e.g. home / utility building / room)
+          -- source: device_type from the database
+          -- timestamp: timezone-aware timestamp
+        - columns = properties with measurement values
+        
+        out: pd.DataFrame with same structure as df
+        """
+    
+        if not len(df) or col not in df.columns:
+            return df
+    
+        df_result = df
+        if not inplace:
+            df_result = df.copy(deep=True)
+    
+        # Calculate the standard deviation per `id` for the specified column
+        std_per_id = df_result[col].groupby(level='id').std()
+    
+        # Find `id`s where the standard deviation is 0
+        ids_with_zero_std = std_per_id[std_per_id == 0].index
+    
+        # Set values to NaN for the identified `id`s
+        df_result.loc[df_result.index.get_level_values('id').isin(ids_with_zero_std), col] = np.nan
+    
+        return df_result
+
+    @staticmethod
     def co2_baseline_adjustment(df: pd.DataFrame,
                                 col:str,
                                 co2_ext__ppm: int = 415,
