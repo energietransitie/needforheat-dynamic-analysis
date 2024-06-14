@@ -6,6 +6,65 @@ import pytz
 from datetime import datetime, timedelta
 from extractor import WeatherExtractor
 
+def update_metadata(meta_df, func_name, params, df_before, df_after, col):
+    non_null_before = df_before.notnull().sum().sum()
+    non_null_after = df_after.notnull().sum().sum()
+    measurements_deleted = non_null_before - non_null_after
+    ids_before = df_before.dropna(how='all').index.unique(level='id').nunique()
+    ids_after = df_after.dropna(how='all').index.unique(level='id').nunique()
+    ids_deleted = ids_before - ids_after
+    properties_before = df_before.notnull().any().sum()
+    properties_after = df_after.notnull().any().sum()
+
+    # Ensure indices are aligned for comparison
+    df_before_aligned, df_after_aligned = df_before.align(df_after, join='inner', axis=0)
+    
+    # Identify filtered properties correctly
+    filtered_properties_mask = df_before_aligned[col].notnull() & df_after_aligned[col].isnull()
+    filtered_properties = [col] if filtered_properties_mask.any() else []
+    
+    ids_filtered = df_before_aligned.loc[filtered_properties_mask].index.unique(level='id').nunique()
+
+    new_row = pd.DataFrame([{
+        'step': func_name,
+        'property_to_filter': col,
+        'params': params,
+        'non_null_before': non_null_before,
+        'non_null_after': non_null_after,
+        'measurements_deleted': measurements_deleted,
+        'ids_before': ids_before,
+        'ids_after': ids_after,
+        'ids_deleted': ids_deleted,
+        'properties_before': properties_before,
+        'properties_after': properties_after,
+        'filtered_properties': filtered_properties,
+    }])
+    
+    return pd.concat([meta_df, new_row], ignore_index=True)
+
+
+def track_metadata(func):
+    def wrapper(*args, **kwargs):
+        meta_df = kwargs.pop('meta_df', None)
+        df = args[0]
+        df_before = df.copy(deep=True)
+        result = func(*args, **kwargs)
+
+        # Handle case where meta_df is None (initialize)
+        if meta_df is None:
+            meta_df = pd.DataFrame(columns=[
+                'step', 'property_to_filter', 'params', 'non_null_before', 'non_null_after',
+                'measurements_deleted', 'ids_before', 'ids_after', 'ids_deleted',
+                'properties_before', 'properties_after', 'filtered_properties'
+            ])
+        col = kwargs.get('col', args[1])
+        params = {k: v for k, v in kwargs.items() if k != 'meta_df'}
+        meta_df = update_metadata(meta_df, func.__name__, params, df_before, result, col)
+        return result, meta_df
+        
+    return wrapper
+
+
 class Preprocessor:
     """
     Use this class to get data from the database that contains measurements.
@@ -18,6 +77,7 @@ class Preprocessor:
 
 
     @staticmethod
+    @track_metadata
     def filter_min_max(df: pd.DataFrame,
                        col:str,
                        min:float=None, max:float=None,
@@ -40,7 +100,9 @@ class Preprocessor:
         - 
        
         """
-        
+        # Check if prop exists in df_prop.columns
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' does not exist in df_prop.")
         if not len(df) or min is None and max is None:
             return df
         df_result = df
@@ -54,6 +116,7 @@ class Preprocessor:
 
 
     @staticmethod
+    @track_metadata
     def filter_static_outliers(df: pd.DataFrame,
                                col:str,
                                n_sigma:float=3.0,
@@ -67,6 +130,8 @@ class Preprocessor:
         column in a dataframe
         """
         
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' does not exist in df_prop.")
         if (not len(df)
             or
             (col not in df.columns)):
@@ -88,6 +153,7 @@ class Preprocessor:
 
     
     @staticmethod
+    @track_metadata
     def filter_id_prop_with_std_zero(df: pd.DataFrame, col: str, inplace=True) -> pd.DataFrame:
         """
         Replace measurement values with NaN for an `id` in the `col` column
