@@ -323,62 +323,102 @@ class Preprocessor:
 
     @staticmethod
     def interpolate_time(df_prop: pd.DataFrame,
-                         property_dict = None,
-                         upsample__min = 5,
-                         interpolate__min = 15,
-                         limit__min = 60,
-                         inplace=False
-                        ) -> pd.DataFrame:
-        
+                         property_limits: dict = None,
+                         upsample__min: int = 5,
+                         interpolate__min: int = 15,
+                         restore_original_types: bool = False,
+                         inplace: bool = False) -> pd.DataFrame:
         """
         Interpolate a DataFrame by resampling first to upsample_min intervals,
-        then interpolating to interpolate__min minutes using linear interpolation,
-        while making sure not to bridge gaps larger than limin__min minutes,
-        then resampling using interpolate__min
-        The final dataframe has column datatypes as indicated in the property_types dictionary
-        
-        in: df_prop: pd.DataFrame with
-        - index = ['id', 'source', 'timestamp']
-        -- id: id of the unit studied (e.g. home / utility building / room) 
-        -- source: device_type from the database
-        -- timestamp: timezone-aware timestamp
-        - columns = properties with measurement values
-       
-        out: pd.DataFrame with same structure as df_prop 
-       
+        then interpolating to interpolate_min minutes using linear interpolation,
+        while making sure not to bridge gaps larger than limit_min minutes.
+        The final DataFrame has column datatypes as indicated in the property_types dictionary.
+    
+        Parameters:
+        - df_prop: pd.DataFrame with MultiIndex ['id', 'source_category', 'source_type', 'timestamp'] and property columns.
+        - property_limits: Dictionary specifying limit__min for specific properties.
+        - upsample__min: Interval for initial resampling.
+        - interpolate__min: Interval for final resampling after interpolation.
+        - restore_original_types: Flag to restore original data types after interpolation.
+        - inplace: Flag to modify df_prop in place.
+    
+        Returns:
+        - pd.DataFrame with same structure as df_prop, interpolated and potentially restored data types.
         """
-        lim = (limit__min - 1) // upsample__min
-        df_result = pd.DataFrame()
-        for id in tqdm(df_prop.index.unique('id').dropna()):
-            for source in df_prop.loc[id].index.unique('source').dropna():
-                df_interpolated = df_prop.loc[id, source,:]
-                if not len(df_interpolated):
-                    continue
-                if not inplace:
-                    df_interpolated = df_interpolated.copy(deep=True)
-                df_interpolated = (df_interpolated
-                             .resample(str(upsample__min) + 'T')
-                             .first()
-                             .astype('float32')
-                             .interpolate(method='time', limit=lim)
-                             .resample(str(interpolate__min) + 'T').mean()
-                            )
-                df_interpolated['id'] = id
-                df_interpolated['source'] = source
-                df_result = pd.concat([df_result, df_interpolated.reset_index().set_index(['id','source','timestamp'])])
         
-        df_result = df_result.sort_index()                  
-        for col in df_result.columns:
-            # match property_dict[col]:
-            #     case 'int'| 'Int8' | 'Int16' | 'Int32'| 'Int64' | 'UInt8' | 'UInt16' | 'UInt32' | 'UInt64':
-            #         df_result[col] = df_result[col].round(0).astype(property_dict[col])
-            #     case 'float' | 'float32' | 'float64':
-            #         df_result[col] = df_result[col].astype(property_dict[col])
-            if property_dict[col] in ['int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64']:
-                    df_result[col] = df_result[col].round(0).astype(property_dict[col])
-            elif property_dict[col] in ['float', 'float32', 'float64']:
-                    df_result[col] = df_result[col].astype(property_dict[col])
+        if property_limits is None:
+            property_limits = {}
+    
+        default_limit_min = 90
+        
+        df_result_list = []
+        
+        # Ensure MultiIndex levels exist and are in the correct order
+        if not isinstance(df_prop.index, pd.MultiIndex):
+            raise ValueError("Input DataFrame df_prop must have a MultiIndex.")
+        expected_levels = ['id', 'source_category', 'source_type', 'timestamp']
+        if not all(level in df_prop.index.names for level in expected_levels):
+            raise ValueError(f"Input DataFrame df_prop must have MultiIndex levels: {expected_levels}.")
+        
+        for id_value in tqdm(df_prop.index.get_level_values('id').unique()):
+            for cat_value in df_prop.loc[id_value].index.get_level_values('source_category').unique():
+                for type_value in df_prop.loc[(id_value, cat_value)].index.get_level_values('source_type').unique():
+                    df_interpolated = df_prop.loc[(id_value, cat_value, type_value), :]
+                    if not len(df_interpolated):
+                        continue
+                    if not inplace:
+                        df_interpolated = df_interpolated.copy()
+                    
+                    for col in df_interpolated.columns:
+                        limit__min = property_limits.get(col, default_limit_min)
+                        limit = max((limit__min - 1) // upsample__min, 1)  # Ensure limit is at least 1
+    
+                        if df_interpolated[col].dtype == 'bool':
+                            df_interpolated[col] = df_interpolated[col].astype('int32')
+                            df_interpolated[col] = (df_interpolated[col]
+                                                    .resample(str(upsample__min) + 'T')
+                                                    .first()
+                                                    .astype('float32')
+                                                    .interpolate(method='time', limit=limit)
+                                                    .resample(str(interpolate__min) + 'T').mean()
+                                                   )
+                        elif df_interpolated[col].dtype in ['object', 'string']:
+                            df_interpolated[col] = (df_interpolated[col]
+                                                    .resample(str(upsample__min) + 'T')
+                                                    .first()
+                                                    .ffill(limit=limit)
+                                                    .resample(str(interpolate__min) + 'T').first()
+                                                   )
+                        else:
+                            df_interpolated[col] = (df_interpolated[col]
+                                                    .resample(str(upsample__min) + 'T')
+                                                    .first()
+                                                    .astype('float32')
+                                                    .interpolate(method='time', limit=limit)
+                                                    .resample(str(interpolate__min) + 'T').mean()
+                                                   )
+                    
+                    df_interpolated['id'] = id_value
+                    df_interpolated['source_category'] = cat_value
+                    df_interpolated['source_type'] = type_value
+                    df_interpolated = df_interpolated.reset_index()
+                    df_result_list.append(df_interpolated)
+        
+        df_result = pd.concat(df_result_list)
+        df_result = df_result.set_index(['id', 'source_category', 'source_type', 'timestamp']).sort_index()
+        
+        if restore_original_types:
+            for col in df_result.columns:
+                original_dtype = df_prop[col].dtype
+                if original_dtype == 'bool':
+                    df_result[col] = df_result[col].round().astype('int32').astype('bool')
+                elif original_dtype != 'float32' and original_dtype != 'float64' and original_dtype not in ['object', 'string']:
+                    df_result[col] = df_result[col].round().astype(original_dtype)
+                elif original_dtype in ['object', 'string']:
+                    df_result[col] = df_result[col].astype(original_dtype)
+        
         return df_result
+    
     
     @staticmethod
     def preprocess_room_data(df_prop: pd.DataFrame,
