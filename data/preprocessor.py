@@ -485,3 +485,22 @@ class Preprocessor:
             df = df[prop].resample(summ_intv).mean()
                 
         return df
+    
+    
+    @staticmethod
+    def working_days_extraction (df_prep: pd.DataFrame, period : list) -> list:
+        
+        # Working days dataframe
+        df_working_days = df_prep.copy()
+        for start_date, end_date in period:
+            df_working_days = df_working_days.loc[~((df_working_days.index.get_level_values(1) >= start_date) & (df_working_days.index.get_level_values(1) <= end_date))]       
+            
+        # Non-working days dataframe
+        dfs=[]
+        for start_date, end_date in period:
+            for home_id, home_data in df_prep.groupby('id'):
+                included_df = home_data.loc[(home_data.index.get_level_values(1) >= start_date) & (home_data.index.get_level_values(1) <= end_date)]
+                dfs.append((home_id, included_df))
+        df_non_working_days = pd.concat([df for _, df in dfs])
+        
+        return df_working_days, df_non_working_days

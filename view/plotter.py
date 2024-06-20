@@ -429,4 +429,41 @@ class Plot:
             g = sns.PairGrid(df.loc[num[i]][features])
             g.map(sns.scatterplot)
             g.fig.suptitle(num[i])
+            
+                
+    @staticmethod
+    def working_days_scatter_plot(df_prep: pd.DataFrame, features: list, period: list):
+        # Non-working days dataframe
+        dfs=[]
+        for start_date, end_date in period:
+            for home_id, home_data in df_prep.groupby('id'):
+                included_df = home_data.loc[(home_data.index.get_level_values(1) >= start_date) & (home_data.index.get_level_values(1) <= end_date)]
+                dfs.append((home_id, included_df))
+        df_non_working_days = pd.concat([df for _, df in dfs]) 
+        
+        # Working days dataframe
+        df_working_days = df_prep.copy()
+        for start_date, end_date in period:
+            df_working_days = df_working_days.loc[~((df_working_days.index.get_level_values(1) >= start_date) & (df_working_days.index.get_level_values(1) <= end_date))]
 
+        
+        df_list = [df_working_days, df_non_working_days]
+        df_names = ['Working days', 'Non working days']
+
+        for x, df in enumerate(df_list): 
+            
+            unique_ids = df.index.get_level_values("id").unique()
+            num_rows = len(unique_ids) * len(features)
+            fig, axes = plt.subplots(num_rows, 1, figsize=(10, 5 * num_rows), sharex=True)
+            counter=0
+            
+            for idx, id_ in enumerate(unique_ids):
+                subset_df = df.loc[id_]       
+                for j, feature in enumerate(features):
+                    axes[counter].scatter(subset_df.index, subset_df[features[j]], label=features[j])
+                    # axes[counter].set_title(f"Id {id_}")
+                    axes[counter].set_title('{} | ID: {}'.format(df_names[x], id_))
+                    axes[counter].set_xlabel("Date and time")
+                    axes[counter].set_ylabel(features[j])
+                    axes[counter].legend()
+                    counter +=1
