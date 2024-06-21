@@ -413,7 +413,94 @@ class Preprocessor:
     
         df_prop_final = pd.concat([df_prop, df_filtered_calibrated])
         return df_prop_final
+
     
+    @staticmethod
+    def highlight_specific_value(val, specific_value=0):
+        """
+        Highlight cells in a DataFrame with a specific value.
+        
+        Parameters:
+        -----------
+        val : any
+            The value to be checked.
+        specific_value : any
+            The value to be highlighted, default is 0.
+        
+        Returns:
+        --------
+        str
+            The background color for highlighting.
+        """
+        color = 'red' if val == specific_value else ''
+        return f'background-color: {color}'
+
+    @staticmethod
+    def count_non_null_measurements(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Count non-null measurements per column and per id.
+        
+        Parameters:
+        -----------
+        df : pandas.DataFrame
+            DataFrame with a MultiIndex with levels id, source_category, source_type, timestamp, and measured properties in columns.
+        
+        Returns:
+        --------
+        pandas.DataFrame
+            DataFrame with counts of non-null measurements and total non-null values per id.
+        """
+        non_null_counts_per_col = df.groupby(level='id').count()
+        non_null_counts_per_col['total_non_null'] = non_null_counts_per_col.sum(axis=1)
+        return non_null_counts_per_col.sort_values(by='total_non_null', ascending=False)
+
+    @staticmethod
+    def calculate_covered_time(df: pd.DataFrame, max_interval=90*60, unit='days') -> pd.DataFrame:
+        """
+        Calculate the total covered time excluding large intervals.
+        
+        Parameters:
+        -----------
+        df : pandas.DataFrame
+            DataFrame with a MultiIndex with levels id, source_category, source_type, timestamp, and measured properties in columns.
+        max_interval : int, optional
+            Maximum interval in seconds to be considered for covered time, default is 90 minutes (5400 seconds).
+        unit : str, optional
+            Unit of time to return the covered time in. Options are 'seconds', 'minutes', 'hours', 'days'. Default is 'days'.
+        
+        Returns:
+        --------
+        pandas.DataFrame
+            DataFrame with total covered time per id, in the specified unit.
+        """
+        df_analysis = df.copy()
+        df_analysis = df_analysis[~df_analysis.index.duplicated(keep='first')]
+        df_analysis.sort_index(level=['id', 'timestamp'], inplace=True)
+
+        def calculate_time_covered(group):
+            intervals = group.dropna().index.get_level_values('timestamp').to_series().diff().dt.total_seconds()
+            valid_intervals = intervals[intervals <= max_interval]
+            return valid_intervals.sum()
+
+        covered_time = df_analysis.groupby(level='id').apply(lambda x: x.apply(lambda col: calculate_time_covered(col), axis=0))
+
+        # Convert to the desired unit
+        unit_conversion = {
+            'seconds': 1,
+            'minutes': 60,
+            'hours': 3600,
+            'days': 86400
+        }
+
+        if unit not in unit_conversion:
+            raise ValueError(f"Invalid unit '{unit}'. Choose from 'seconds', 'minutes', 'hours', 'days'.")
+
+        covered_time /= unit_conversion[unit]
+        covered_time['total'] = covered_time.sum(axis=1)
+
+        return covered_time.sort_values(by='total', ascending=False)
+
+   
     @staticmethod
     def unstack_prop(df_prop: pd.DataFrame) -> pd.DataFrame:
         
