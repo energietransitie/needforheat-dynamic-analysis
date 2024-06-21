@@ -451,11 +451,11 @@ class Preprocessor:
             DataFrame with counts of non-null measurements and total non-null values per id.
         """
         non_null_counts_per_col = df.groupby(level='id').count()
-        non_null_counts_per_col['total_non_null'] = non_null_counts_per_col.sum(axis=1)
-        return non_null_counts_per_col.sort_values(by='total_non_null', ascending=False)
+        non_null_counts_per_col['total'] = non_null_counts_per_col.sum(axis=1)
+        return non_null_counts_per_col
 
     @staticmethod
-    def calculate_covered_time(df: pd.DataFrame, max_interval=90*60, unit='days') -> pd.DataFrame:
+    def calculate_covered_time(df: pd.DataFrame, max_interval=90*60, unit='days', mandatory_props=None) -> pd.DataFrame:
         """
         Calculate the total covered time excluding large intervals.
         
@@ -467,11 +467,13 @@ class Preprocessor:
             Maximum interval in seconds to be considered for covered time, default is 90 minutes (5400 seconds).
         unit : str, optional
             Unit of time to return the covered time in. Options are 'seconds', 'minutes', 'hours', 'days'. Default is 'days'.
+        mandatory_props : list of str, optional
+            List of mandatory properties (columns) that must have non-null values for an additional time covered calculation.
         
         Returns:
         --------
         pandas.DataFrame
-            DataFrame with total covered time per id, in the specified unit.
+            DataFrame with total covered time per id, in the specified unit, and additional column if mandatory properties are provided.
         """
         df_analysis = df.copy()
         df_analysis = df_analysis[~df_analysis.index.duplicated(keep='first')]
@@ -482,7 +484,13 @@ class Preprocessor:
             valid_intervals = intervals[intervals <= max_interval]
             return valid_intervals.sum()
 
+        # Calculate all_mandatory_props if provided
+        if mandatory_props:
+            # Create a temporary column that indicates when all mandatory properties have valid values
+            df_analysis['all_mandatory_props'] = df_analysis[mandatory_props].notna().all(axis=1).replace(False, np.nan)
+
         covered_time = df_analysis.groupby(level='id').apply(lambda x: x.apply(lambda col: calculate_time_covered(col), axis=0))
+
 
         # Convert to the desired unit
         unit_conversion = {
@@ -498,7 +506,7 @@ class Preprocessor:
         covered_time /= unit_conversion[unit]
         covered_time['total'] = covered_time.sum(axis=1)
 
-        return covered_time.sort_values(by='total', ascending=False)
+        return covered_time
 
    
     @staticmethod
