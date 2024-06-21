@@ -188,6 +188,7 @@ class Preprocessor:
         return df_result
 
     @staticmethod
+    @track_metadata
     def co2_baseline_adjustment(df: pd.DataFrame,
                                 col:str,
                                 co2_ext__ppm: int = 415,
@@ -223,7 +224,10 @@ class Preprocessor:
 
     
     @staticmethod
-    def encode_categorical_property_as_boolean_properties(df, property_to_encode, property_categories):
+    @track_metadata
+    def encode_categorical_property_as_boolean_properties(df: pd.DataFrame, 
+                                                          property_to_encode: str,
+                                                          property_categories: str) -> pd.DataFrame:
         """
         Convert a categorical measurement to one or more dummy properties, each boolean.
     
@@ -296,7 +300,120 @@ class Preprocessor:
     
         return df
 
-   
+    @staticmethod
+    def compute_calibration_factors(df_prop: pd.DataFrame,
+                                    prop: str,
+                                    source_type_to_calibrate: str,
+                                    reference_source_type: str,
+                                    min_measurements_per_day=20) -> pd.DataFrame:
+        """
+        Compute calibration corrections for a specific property based on two source types.
+    
+        Parameters:
+        -----------
+        df_prop_filtered : pandas.DataFrame
+            Filtered DataFrame containing only relevant property and specified source types.
+        prop : str
+            Name of the property (column) to calibrate.
+        source_type_to_calibrate : str
+            Source type whose measurements are to be calibrated.
+        reference_source_type : str
+            Source type used as the reference for calibration.
+        min_measurements_per_day : int, optional
+            Minimum number of measurements per day required for calibration, default is 20.
+    
+        Returns:
+        --------
+        df_corrections : pandas.DataFrame
+            DataFrame with corrections for mean and standard deviation scaling based on the specified source types.
+        """ 
+        df_prop_filtered = df_prop[[prop]].reset_index()
+        df_prop_filtered['date'] = df_prop_filtered['timestamp'].dt.date
+
+        df_prop_filtered = df_prop_filtered[df_prop_filtered['source_type'].isin([source_type_to_calibrate, reference_source_type])]
+        
+        counts = df_prop_filtered.groupby(['id', 'date', 'source_type']).size().reset_index(name='count')
+        counts = counts[counts['count'] >= min_measurements_per_day]
+
+        filtered_df = pd.merge(df_prop_filtered, counts[['id', 'date', 'source_type']], on=['id', 'date', 'source_type'])
+
+        pivoted_df = filtered_df.pivot_table(index=['id', 'date'], columns='source_type', values=prop, aggfunc=['mean', 'std'])
+        pivoted_columns = [f'{agg_func}_{source_type}' for agg_func, source_type in pivoted_df.columns]
+        pivoted_df.columns = pivoted_columns
+        pivoted_df = pivoted_df.reset_index()
+    
+        pivoted_df.dropna(subset=pivoted_columns, inplace=True)
+    
+        df_corrections = pivoted_df.groupby('id').mean().reset_index()
+
+        return df_corrections
+
+    @staticmethod
+    @track_metadata
+    def create_calibrated_property(df_prop: pd.DataFrame,
+                                   prop: str, 
+                                   source_type_to_calibrate: str, 
+                                   reference_source_type: str,
+                                   min_measurements_per_day=20) -> pd.DataFrame:
+        """
+        Perform calibration of measurements for a specific property based on two source types.
+    
+        Parameters:
+        -----------
+        df_prop : pandas.DataFrame
+            DataFrame with MultiIndex (id, source_category, source_type, timestamp) and properties as columns.
+        prop : str
+            Name of the property (column) to calibrate.
+        source_type_to_calibrate : str
+            Source type whose measurements are to be calibrated.
+        reference_source_type : str
+            Source type used as the reference for calibration.
+        min_measurements_per_day : int, optional
+            Minimum number of measurements per day required for calibration, default is 20.
+    
+        Returns:
+        --------
+        df_prop_final : pandas.DataFrame
+            Original DataFrame with calibrated measurements added as a new source type ('{source_type_to_calibrate}_calibrated').
+        """
+        df_corrections = Preprocessor.compute_calibration_factors(df_prop, 
+                                                                  prop, 
+                                                                  source_type_to_calibrate, 
+                                                                  reference_source_type, 
+                                                                  min_measurements_per_day)
+    
+        df_filtered = df_prop[df_prop.index.get_level_values('source_type') == source_type_to_calibrate][[prop]]
+        df_filtered = df_filtered.join(df_corrections.set_index('id')[
+                                       [f'mean_{source_type_to_calibrate}', 
+                                        f'std_{source_type_to_calibrate}', 
+                                        f'mean_{reference_source_type}', 
+                                        f'std_{reference_source_type}']], on='id')
+    
+        # Calculate Z-score using mean and std of source_type_to_calibrate
+        z_score = (df_filtered[prop] - df_filtered[f'mean_{source_type_to_calibrate}']) / df_filtered[f'std_{source_type_to_calibrate}']
+    
+        # Calculate calibrated property using mean and std of reference_source_type
+        df_filtered['prop_calibrated'] = (z_score
+                                          * df_filtered[f'std_{reference_source_type}']
+                                          + df_filtered[f'mean_{reference_source_type}'])
+    
+        df_filtered_calibrated = df_filtered.copy()
+        df_filtered_calibrated['source_type'] = f'{source_type_to_calibrate}_calibrated'
+        df_filtered_calibrated = (df_filtered_calibrated
+                                  .reset_index(level='source_type', drop=True)
+                                  .set_index('source_type', append=True))
+        df_filtered_calibrated = df_filtered_calibrated.drop(columns=[prop,
+                                                                      f'mean_{source_type_to_calibrate}',
+                                                                      f'std_{source_type_to_calibrate}',
+                                                                      f'mean_{reference_source_type}',
+                                                                      f'std_{reference_source_type}'])
+        df_filtered_calibrated = df_filtered_calibrated.rename(columns={'prop_calibrated': prop})
+    
+        df_filtered_calibrated = df_filtered_calibrated.reorder_levels(df_prop.index.names)
+    
+        df_prop_final = pd.concat([df_prop, df_filtered_calibrated])
+        return df_prop_final
+    
     @staticmethod
     def unstack_prop(df_prop: pd.DataFrame) -> pd.DataFrame:
         
