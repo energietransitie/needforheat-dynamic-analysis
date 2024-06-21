@@ -454,6 +454,7 @@ class Preprocessor:
         non_null_counts_per_col['total'] = non_null_counts_per_col.sum(axis=1)
         return non_null_counts_per_col
 
+   
     @staticmethod
     def calculate_covered_time(df: pd.DataFrame, max_interval=90*60, unit='days', mandatory_props=None) -> pd.DataFrame:
         """
@@ -469,6 +470,7 @@ class Preprocessor:
             Unit of time to return the covered time in. Options are 'seconds', 'minutes', 'hours', 'days'. Default is 'days'.
         mandatory_props : list of str, optional
             List of mandatory properties (columns) that must have non-null values for an additional time covered calculation.
+            Each property should be prefixed with its respective source_type, e.g., ['living_room_temp_in__degC', 'remeha_temp_in__degC'].
         
         Returns:
         --------
@@ -476,21 +478,36 @@ class Preprocessor:
             DataFrame with total covered time per id, in the specified unit, and additional column if mandatory properties are provided.
         """
         df_analysis = df.copy()
-        df_analysis = df_analysis[~df_analysis.index.duplicated(keep='first')]
-        df_analysis.sort_index(level=['id', 'timestamp'], inplace=True)
+        
+        df_analysis = df_analysis.unstack(level=['source_type'])
+        
+        df_analysis.index = df_analysis.index.droplevel(level='source_category')
+        
+        # Drop columns with all null values
+        df_analysis = df_analysis.dropna(axis=1, how='all')
+        
+        # Reorder levels and merge with an underscore
+        df_analysis.columns = df_analysis.columns.swaplevel(0,1)
+        df_analysis.columns = ['_'.join(col) for col in df_analysis.columns.values]
+        
+        # Sort DataFrame
+        df_analysis.sort_values(by=['id', 'timestamp'], inplace=True)
+
+        # Calculate all_mandatory_props if provided
+        if mandatory_props:
+            df_analysis['all_mandatory_props'] = df_analysis[mandatory_props].notna().all(axis=1).replace(False, np.nan)
 
         def calculate_time_covered(group):
             intervals = group.dropna().index.get_level_values('timestamp').to_series().diff().dt.total_seconds()
             valid_intervals = intervals[intervals <= max_interval]
             return valid_intervals.sum()
+            
+        # Initialize an empty DataFrame to store covered time
+        covered_time = pd.DataFrame(index=df_analysis.index.get_level_values('id').unique())
 
-        # Calculate all_mandatory_props if provided
-        if mandatory_props:
-            # Create a temporary column that indicates when all mandatory properties have valid values
-            df_analysis['all_mandatory_props'] = df_analysis[mandatory_props].notna().all(axis=1).replace(False, np.nan)
-
-        covered_time = df_analysis.groupby(level='id').apply(lambda x: x.apply(lambda col: calculate_time_covered(col), axis=0))
-
+        # Group by 'id' and calculate covered time for each property
+        for col in df_analysis.columns:
+            covered_time[col] = df_analysis.groupby('id')[col].apply(lambda x: calculate_time_covered(x))
 
         # Convert to the desired unit
         unit_conversion = {
@@ -507,7 +524,6 @@ class Preprocessor:
         covered_time['total'] = covered_time.sum(axis=1)
 
         return covered_time
-
    
     @staticmethod
     def unstack_prop(df_prop: pd.DataFrame) -> pd.DataFrame:
