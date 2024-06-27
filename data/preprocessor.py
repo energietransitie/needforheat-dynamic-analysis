@@ -16,14 +16,18 @@ def update_metadata(meta_df, func_name, params, df_before, df_after, col):
     properties_before = df_before.notnull().any().sum()
     properties_after = df_after.notnull().any().sum()
 
-    # Ensure indices are aligned for comparison
-    df_before_aligned, df_after_aligned = df_before.align(df_after, join='inner', axis=0)
-    
-    # Identify filtered properties correctly
-    filtered_properties_mask = df_before_aligned[col].notnull() & df_after_aligned[col].isnull()
-    filtered_properties = [col] if filtered_properties_mask.any() else []
-    
-    ids_filtered = df_before_aligned.loc[filtered_properties_mask].index.unique(level='id').nunique()
+    filtered_properties = []
+    ids_filtered = 0
+
+    if col:
+        # Ensure indices are aligned for comparison
+        df_before_aligned, df_after_aligned = df_before.align(df_after, join='inner', axis=0)
+        
+        # Identify filtered properties correctly
+        filtered_properties_mask = df_before_aligned[col].notnull() & df_after_aligned[col].isnull()
+        filtered_properties = [col] if filtered_properties_mask.any() else []
+        
+        ids_filtered = df_before_aligned.loc[filtered_properties_mask].index.unique(level='id').nunique()
 
     new_row = pd.DataFrame([{
         'step': func_name,
@@ -43,6 +47,7 @@ def update_metadata(meta_df, func_name, params, df_before, df_after, col):
     return pd.concat([meta_df, new_row], ignore_index=True)
 
 
+
 def track_metadata(func):
     def wrapper(*args, **kwargs):
         meta_df = kwargs.pop('meta_df', None)
@@ -57,7 +62,7 @@ def track_metadata(func):
                 'measurements_deleted', 'ids_before', 'ids_after', 'ids_deleted',
                 'properties_before', 'properties_after', 'filtered_properties'
             ])
-        col = kwargs.get('col', args[1])
+        col = kwargs.get('col', '')
         params = {k: v for k, v in kwargs.items() if k != 'meta_df'}
         meta_df = update_metadata(meta_df, func.__name__, params, df_before, result, col)
         return result, meta_df
@@ -151,6 +156,71 @@ class Preprocessor:
                               .values)            
         return df_result
 
+
+    @staticmethod
+    @track_metadata
+    def filter_electricity_meter_values(df: pd.DataFrame, min_valid_cum__kWh: float = 10.0) -> pd.DataFrame:
+        """
+        Preprocess electricity meter values in the dataframe.
+    
+        This function applies the following filtering steps:
+        1. Sets use meter columns to NaN where dsmr_version__0 < 3.0 or values < min_valid_cum__kWh.
+        2. Identifies ids where the maximum value of ret meter columns is < min_valid_cum__kWh.
+        3. Sets dsmr_version__0 to NaN where dsmr_version__0 < 3.0.
+        4. Applies additional filtering steps for ret meter columns.
+    
+        Args:
+        - df (pd.DataFrame): DataFrame with electricity meter values and properties.
+          Assumes the index of the DataFrame includes 'id' and has columns:
+          - 'dsmr_version__0'
+          - 'e_use_hi_cum__kWh', 'e_use_lo_cum__kWh'
+          - 'e_ret_hi_cum__kWh', 'e_ret_lo_cum__kWh'
+        - min_valid_cum__kWh (float): Minimum threshold for filtering meter values. Default is 10.0 kWh.
+    
+        Returns:
+        - pd.DataFrame: Filtered DataFrame with the same structure as input.
+        """
+    
+        # Define columns for electricity meter values
+        use_meter_cols = ['e_use_hi_cum__kWh', 'e_use_lo_cum__kWh']
+        ret_meter_cols = ['e_ret_hi_cum__kWh', 'e_ret_lo_cum__kWh']
+        all_meter_cols = use_meter_cols + ret_meter_cols
+    
+        # Apply mask to set use meter columns to NaN where dsmr_version__0 < 3.0 or values < min_valid_cum__kWh
+        mask_version = df['dsmr_version__0'] < 3.0
+        mask_use_values = df[use_meter_cols] < min_valid_cum__kWh
+    
+        # Combine the masks for use meter columns
+        mask_use = mask_version | mask_use_values.any(axis=1)
+    
+        df.loc[mask_use, use_meter_cols] = np.nan
+    
+        # Identify ids where the maximum value of ret meter columns is < min_valid_cum__kWh
+        max_ret_values = df.groupby('id')[ret_meter_cols].max()
+        ids_with_no_real_ret = max_ret_values[(max_ret_values < min_valid_cum__kWh).all(axis=1)].index
+    
+        # Masks for filtering
+        mask_with_solar = ~df.index.get_level_values('id').isin(ids_with_no_real_ret)
+        mask_without_solar = df.index.get_level_values('id').isin(ids_with_no_real_ret)
+    
+        # Apply mask for use_meter_cols for ids not in ids_with_no_real_ret
+        df.loc[mask_with_solar, use_meter_cols] = df.loc[mask_with_solar, use_meter_cols].where(lambda x: x >= min_valid_cum__kWh)
+    
+        # Apply mask for use_meter_cols for ids in ids_with_no_real_ret
+        df.loc[mask_without_solar, use_meter_cols] = df.loc[mask_without_solar, use_meter_cols].where(lambda x: x >= min_valid_cum__kWh)
+    
+        # Set dsmr_version__0 to NaN where dsmr_version__0 < 3.0
+        mask_version = df['dsmr_version__0'] < 3.0
+        df.loc[mask_version, 'dsmr_version__0'] = np.nan
+    
+        # Additional filtering step for ret_meter_cols
+        # Apply mask for ret_meter_cols for ids with solar panels
+        df.loc[mask_with_solar, ret_meter_cols] = df.loc[mask_with_solar, ret_meter_cols].where(lambda x: x >= min_valid_cum__kWh)
+    
+        # Apply mask for ret_meter_cols for ids without solar panels
+        df.loc[mask_without_solar, ret_meter_cols] = df.loc[mask_without_solar, ret_meter_cols].where(lambda x: (x >= min_valid_cum__kWh) | (x == 0))
+    
+        return df
     
     @staticmethod
     @track_metadata
