@@ -523,7 +523,19 @@ class Preprocessor:
         pandas.DataFrame
             DataFrame with counts of non-null measurements and total non-null values per id.
         """
-        non_null_counts_per_col = df.groupby(level='id').count()
+        df_analysis = df.copy()
+        
+        df_analysis = df_analysis.unstack(level=['source_type'])
+        
+        df_analysis.index = df_analysis.index.droplevel(level='source_category')
+        
+        # Drop columns with all null values
+        df_analysis = df_analysis.dropna(axis=1, how='all')
+        
+        # Reorder levels and merge with an underscore
+        df_analysis.columns = df_analysis.columns.swaplevel(0,1)
+        df_analysis.columns = ['_'.join(col) for col in df_analysis.columns.values]
+        non_null_counts_per_col = df_analysis.groupby(level='id').count()
         non_null_counts_per_col['total'] = non_null_counts_per_col.sum(axis=1)
         return non_null_counts_per_col
 
@@ -619,9 +631,50 @@ class Preprocessor:
         df_prep = df_prop.unstack([1])
         df_prep.columns = df_prep.columns.swaplevel(0,1)
         df_prep.columns = ['_'.join(col) for col in df_prep.columns.values]
-        
+        df_prep = df_prep.dropna(axis=1, how='all')
+       
         return df_prep
 
+    @staticmethod
+    def unstack_source_cat_and_type(df_prop: pd.DataFrame) -> pd.DataFrame:
+        
+        """
+        in: 
+        - df_prop (DataFrame): DataFrame with measurements
+            - a multi-index consisting of
+            -- id: id of the unit studied (e.g. home / utility building / room) 
+            -- source_category: e.g. batch_import / cloud_feed / device
+            -- source_type: e.g. device_type from the database
+            -- timestamp: timezone-aware timestamp
+            - columns = properties with measurement values
+       
+        out: pd.DataFrame with the source_category and source_type names prefixed to column names 
+       
+        """
+        df = df_prop.copy()
+        
+        # Merge source_category, source_type, and property into a single index level
+        df.index = df.index.map(lambda x: (x[0], x[1], f"{x[1]}_{x[2]}", x[3]))
+        
+        # Drop the first two levels and rename the last two
+        df.index = df.index.droplevel([1])
+        
+        df.index.names = ['id', 'source', 'timestamp'] 
+        
+        # Check for duplicates in the index after merging
+        duplicate_entries = df.index.duplicated().any()
+
+        if duplicate_entries:
+            print("Duplicate entries found in the index after merging. Handled mby taking the average.")
+            df = df.groupby(['timestamp', 'source'])['value'].mean()
+        
+        df_prep = df.unstack('source')
+        df_prep.columns = df_prep.columns.swaplevel(0,1)
+        df_prep.columns = ['_'.join(col) for col in df_prep.columns.values]
+        df_prep = df_prep.dropna(axis=1, how='all')
+        
+        return df_prep
+        
     @staticmethod
     def interpolate_time(df_prop: pd.DataFrame,
                          property_limits: dict = None,
@@ -664,7 +717,13 @@ class Preprocessor:
 
                         df_resultcol = pd.DataFrame() #  # Initialize an empty DataFrame 
 
-                        if df_source[col].count() > 2:
+                        numcolvalues = df_source[col].count()
+
+                        if numcolvalues <= 2:
+                            if numcolvalues >0:
+                                print(f"\nIgnoring ({numcolvalues}) values for category/type/col: {cat_value}/{type_value}/{col}")
+                            logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                        else: 
                             #Calculate most occuring interval (when rounded to minutes)
                             modal_intv__min = int((df_source[col]
                                                    .dropna()
@@ -741,20 +800,25 @@ class Preprocessor:
                                                ) 
                             else:
                                 logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
-                                df_resultcol = df_source[col].to_frame(name=col)
-                        else:
-                            logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
-                            df_resultcol = df_source[col].to_frame(name=col)
+                                print(f"\nSpecial dtype ({df_source[col].dtype}) found for category/type/col: {cat_value}/{type_value}/{col}")
+                                df_resultcol = (df_source[col]
+                                                .resample(str(upsample__min) + 'T')
+                                                .first()
+                                                .ffill(limit=limit)
+                                                .resample(str(interpolate__min) + 'T')
+                                                .first()
+                                                .to_frame(name=col)
+                                               ) 
 
  
-                        logging.info(f"df_resultcol.columns: {df_resultcol.columns}")
-                        logging.info(f"df_resultcol[col].dtype: {df_resultcol[col].dtype}")
-                        logging.info(f"len(df_resultcol[col]: {len(df_resultcol[col])}")
-                        logging.info(f"df_resultcol[col].count(): {df_resultcol[col].count()}")
-                        buffer = io.StringIO()
-                        df_resultcol.info(buf=buffer)
-                        logging.info(f"df_resultcol.info(): {buffer.getvalue()}")
-                        logging.info(f"df_resultcol.count(): {df_resultcol.count()}")
+                            logging.info(f"df_resultcol.columns: {df_resultcol.columns}")
+                            logging.info(f"df_resultcol[col].dtype: {df_resultcol[col].dtype}")
+                            logging.info(f"len(df_resultcol[col]: {len(df_resultcol[col])}")
+                            logging.info(f"df_resultcol[col].count(): {df_resultcol[col].count()}")
+                            buffer = io.StringIO()
+                            df_resultcol.info(buf=buffer)
+                            logging.info(f"df_resultcol.info(): {buffer.getvalue()}")
+                            logging.info(f"df_resultcol.count(): {df_resultcol.count()}")
 
                         # After iterpolating each column
                         if not df_resultcol.empty:
