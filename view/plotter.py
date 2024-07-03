@@ -6,7 +6,7 @@ import numpy as np
 import pylab as plt
 import seaborn as sns
 from preprocessor import Preprocessor
-
+import missingno as msno
 
 class Plot:
 
@@ -145,22 +145,22 @@ class Plot:
                 print(f'No data for id: {id}')
     
     @staticmethod
-    def dataframe_preprocessed_plot(df: pd.DataFrame, units_to_mathtext = None): 
+    def dataframe_preprocessed_plot(df_prep: pd.DataFrame, units_to_mathtext = None): 
         """
         Plot data in df DataFrame, one plot per id, one subplot for all properties with the same unit
         
-        in: dataframe with
-        - index = ['id', 'timestamp']
-            - id: id of e.g. home / utility building / room 
-            - timestamp: timezone-aware timestamp
-        - columns = all properties in the input column
-            - unit types are encoded as last part of property name, searated by '__'
+        - df_prep: DataFrame with preprocessed properties containing the data:
+            - index = ['id', 'timestamp']
+                - id: id of e.g. home / utility building / room 
+                - timestamp: timezone-aware timestamp
+            - columns = all source_properties in the input column
+                - unit types are encoded as last part of property name, searated by '__'
         - units_to_mathtext: table tat translates property unit postfixes to mathtext.
         """      
         
-        for id in list(df.index.to_frame(index=False).id.unique()):
+        for id in list(df_prep.index.to_frame(index=False).id.unique()):
             try:
-                df_plot = df.loc[id]
+                df_plot = df_prep.loc[id]
                 props_with_data = [prop for prop in list(df_plot.columns) if df_plot[prop].count()>0] 
                 units_with_data = np.unique(np.array([prop.split('__')[-1] for prop in props_with_data]))
                 unit_tuples = [tuple([prop.split('__')[0] for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
@@ -181,6 +181,56 @@ class Plot:
             except TypeError:
                 print(f'No data for id: {id}')
                 
+    @staticmethod
+    def plot_missing_data_overview(df_prep, 
+                                   properties_include=None, 
+                                   properties_exclude=None, 
+                                   freq='1W',
+                                   tick_label_fontsize=10,
+                                   figsize=(10, 6)
+                                  ):
+        """
+        Plots an overview of valid measurements over time for various IDs.
+        
+        Parameters:
+        in: 
+        - df_prep: DataFrame with preprocessed properties containing the data:
+            - index = ['id', 'timestamp']
+                - id: id of e.g. home / utility building / room 
+                - timestamp: timezone-aware timestamp
+            - columns = all source_properties in the input column
+        - properties_include: List of properties to include for validation. If None, all properties are included.
+        - properties_exclude: List of properties to exclude for validation. If None, no properties are excluded.
+        """
+            
+        # If properties_include is specified, use it; otherwise, use all columns except id_column and time_column
+        if properties_include is not None:
+            properties = properties_include
+        else:
+            properties = df_prep.columns.difference([id_column, time_column])
+        
+        # Exclude specified properties if properties_exclude is provided
+        if properties_exclude is not None:
+            properties = properties.difference(properties_exclude)
+        
+        df_pivot = df_prep[properties].notnull().all(axis=1).replace(False, np.nan).unstack('id')
+
+        # Visualize the completeness of the data
+        msno.matrix(df_pivot, sparkline=False, freq=freq, figsize=figsize)
+        
+        # Plot using missingno
+        plt.title("Overview of Valid Measurements Over Time")
+        plt.xlabel("ID")
+        plt.ylabel("Time")
+        # Adjust the font size of tick labels
+        plt.xticks(fontsize=tick_label_fontsize)
+        plt.yticks(fontsize=tick_label_fontsize)
+
+        # Adjust layout to fit the figure size
+        plt.tight_layout()
+        plt.show()
+
+    
     @staticmethod
     def same_unit_property_histogram(df_prop: pd.DataFrame, regex_filter: str, units_to_mathtext = None, bins = 200, per_id= True):
         """
