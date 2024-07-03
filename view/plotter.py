@@ -180,7 +180,60 @@ class Plot:
                 plt.show()
             except TypeError:
                 print(f'No data for id: {id}')
-                
+
+    @staticmethod
+    def plot_data_availability(df_prep, properties_include=None, properties_exclude=None, alpha=0.5, figsize=(12, 8)):
+        """
+        Plots data availability over time for various IDs using subplots.
+        
+        Parameters:
+        - df_prep: DataFrame with preprocessed properties containing the data:
+            - index = ['id', 'timestamp']
+                - id: id of e.g. home / utility building / room 
+                - timestamp: timezone-aware timestamp
+            - columns = all source_properties in the input column
+        - properties_include: List of properties to include for validation. If None, all properties are included.
+        - properties_exclude: List of properties to exclude for validation. If None, no properties are excluded.
+        - alpha: Transparency level for the bars.
+        - figsize: Tuple specifying the width and height of the figure.
+        """
+            
+        # If properties_include is specified, use it; otherwise, use all columns except id_column and time_column
+        if properties_include is not None:
+            properties = properties_include
+        else:
+            properties = df_prep.columns
+        
+        # Exclude specified properties if properties_exclude is provided
+        if properties_exclude is not None:
+            properties = properties.difference(properties_exclude)
+        
+        df_pivot = df_prep[properties].notnull().all(axis=1).replace(False, np.nan).unstack('id')
+        
+        # Prepare the figure and subplots
+        num_ids = df_pivot.shape[1]
+        fig, axes = plt.subplots(num_ids, 1, figsize=figsize, sharex=True, sharey=True)
+        
+        if num_ids == 1:
+            axes = [axes]  # Ensure axes is always a list even for single subplot
+        
+        for idx, (home_id, ax) in enumerate(zip(df_pivot.columns, axes)):
+            data_avail = df_pivot[home_id]
+            
+            # Plot green for available data, red for missing data
+            ax.fill_between(data_avail.index, 1, where=data_avail.isna(), facecolor='red', alpha=alpha, step='mid')
+            ax.fill_between(data_avail.index, 1, where=data_avail.notna(), facecolor='green', alpha=alpha, step='mid')
+            
+            ax.set_ylabel(f'ID {home_id}', rotation=0, labelpad=40)
+            ax.set_yticks([])  # Hide y-ticks for clarity
+        
+        plt.xlabel('Time')
+        plt.suptitle('Data Availability Over Time')
+        plt.tight_layout()
+        plt.show()
+        
+
+    
     @staticmethod
     def plot_missing_data_overview(df_prep, 
                                    properties_include=None, 
@@ -207,7 +260,7 @@ class Plot:
         if properties_include is not None:
             properties = properties_include
         else:
-            properties = df_prep.columns.difference([id_column, time_column])
+            properties = df_prep.columns
         
         # Exclude specified properties if properties_exclude is provided
         if properties_exclude is not None:
