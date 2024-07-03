@@ -3,6 +3,9 @@ import numpy as np
 from scipy import stats
 from tqdm.notebook import tqdm
 import pytz
+import math
+import logging
+import io
 from datetime import datetime, timedelta
 from extractor import WeatherExtractor
 
@@ -326,10 +329,10 @@ class Preprocessor:
         # Create binary measurement columns for each category
         binary_columns = pd.get_dummies(property_values).astype(bool)
 
-        # Iterate over the columns and print unique values
+        # Iterate over the columns and log unique values
         for col in binary_columns.columns:
             unique_values = binary_columns[col].unique()
-            print(f"Unique values for column '{col}': {unique_values}")
+            logging.info(f"Unique values for column '{col}': {unique_values}")
     
         # Rename columns based on translation table
         binary_columns.rename(columns=property_categories, inplace=True)
@@ -622,101 +625,188 @@ class Preprocessor:
     @staticmethod
     def interpolate_time(df_prop: pd.DataFrame,
                          property_limits: dict = None,
-                         upsample__min: int = 5,
-                         interpolate__min: int = 15,
+                         interpolate__min: int = 5,
                          restore_original_types: bool = False,
                          inplace: bool = False) -> pd.DataFrame:
-        """
-        Interpolate a DataFrame by resampling first to upsample_min intervals,
-        then interpolating to interpolate_min minutes using linear interpolation,
-        while making sure not to bridge gaps larger than limit_min minutes.
-        The final DataFrame has column datatypes as indicated in the property_types dictionary.
-    
-        Parameters:
-        - df_prop: pd.DataFrame with MultiIndex ['id', 'source_category', 'source_type', 'timestamp'] and property columns.
-        - property_limits: Dictionary specifying limit__min for specific properties.
-        - upsample__min: Interval for initial resampling.
-        - interpolate__min: Interval for final resampling after interpolation.
-        - restore_original_types: Flag to restore original data types after interpolation.
-        - inplace: Flag to modify df_prop in place.
-    
-        Returns:
-        - pd.DataFrame with same structure as df_prop, interpolated and potentially restored data types.
-        """
-        
+
         if property_limits is None:
             property_limits = {}
-    
+
         default_limit_min = 90
-        
-        df_result_list = []
-        
-        # Ensure MultiIndex levels exist and are in the correct order
+
         if not isinstance(df_prop.index, pd.MultiIndex):
             raise ValueError("Input DataFrame df_prop must have a MultiIndex.")
+
         expected_levels = ['id', 'source_category', 'source_type', 'timestamp']
         if not all(level in df_prop.index.names for level in expected_levels):
             raise ValueError(f"Input DataFrame df_prop must have MultiIndex levels: {expected_levels}.")
+
+        df_prop = df_prop.sort_index()
+        df_result = pd.DataFrame() # Initialize an empty DataFrame 
         
         for id_value in tqdm(df_prop.index.get_level_values('id').unique()):
+            logging.info(f"\nProcessing id: {id_value}")
             for cat_value in df_prop.loc[id_value].index.get_level_values('source_category').unique():
                 for type_value in df_prop.loc[(id_value, cat_value)].index.get_level_values('source_type').unique():
-                    df_interpolated = df_prop.loc[(id_value, cat_value, type_value), :]
-                    if not len(df_interpolated):
+                    df_source = df_prop.loc[(id_value, cat_value, type_value), :]
+                    df_result_id_cat_type = pd.DataFrame()  # Initialize an empty DataFrame for the current id, cat and type
+                    if not len(df_source):
                         continue
                     if not inplace:
-                        df_interpolated = df_interpolated.copy()
-                    
-                    for col in df_interpolated.columns:
-                        limit__min = property_limits.get(col, default_limit_min)
-                        limit = max((limit__min - 1) // upsample__min, 1)  # Ensure limit is at least 1
-    
-                        if df_interpolated[col].dtype == 'bool':
-                            df_interpolated[col] = df_interpolated[col].astype('int32')
-                            df_interpolated[col] = (df_interpolated[col]
-                                                    .resample(str(upsample__min) + 'T')
-                                                    .first()
-                                                    .astype('float32')
-                                                    .interpolate(method='time', limit=limit)
-                                                    .resample(str(interpolate__min) + 'T').mean()
-                                                   )
-                        elif df_interpolated[col].dtype in ['object', 'string']:
-                            df_interpolated[col] = (df_interpolated[col]
-                                                    .resample(str(upsample__min) + 'T')
-                                                    .first()
-                                                    .ffill(limit=limit)
-                                                    .resample(str(interpolate__min) + 'T').first()
-                                                   )
+                        df_source = df_source.copy()
+                    for col in df_source.columns:
+                        logging.info(f"\nProcessing category/type/col: {cat_value}/{type_value}/{col}")
+                        logging.info(f"\nProcessing : ")
+
+                        logging.info(f"len(df_source[col]): {len(df_source[col])}")
+                        logging.info(f"df_source[col].count(): {df_source[col].count()}")
+                        logging.info(f"df_source[col].dtype: {df_source[col].dtype}")
+
+                        df_resultcol = pd.DataFrame() #  # Initialize an empty DataFrame 
+
+                        if df_source[col].count() > 2:
+                            #Calculate most occuring interval (when rounded to minutes)
+                            modal_intv__min = int((df_source[col]
+                                                   .dropna()
+                                                   .index.to_series()
+                                                   .diff()
+                                                   .dropna()
+                                                   .dt.total_seconds() / 60
+                                                  )
+                                                  .round()
+                                                  .mode()
+                                                  .iloc[0]
+                                                 )
+                            
+                            limit__min = property_limits.get(col, default_limit_min)
+                            
+                            # upsample__min = max(1, min(modal_intv__min, limit__min))
+
+                            # Calculate the greatest common divisor of the modal interval and the limit, and ensure the interval is at least 1 minute
+                            upsample__min = max(1, math.gcd(modal_intv__min, limit__min))
+ 
+                            limit = max((limit__min // upsample__min) - 1, 1)
+        
+                            # gaps = df_source[col].index.to_series().diff().dt.total_seconds() / 60
+                            # large_gaps = gaps[gaps > limit__min]
+
+                            # if not large_gaps.empty:
+                            #     logging.info(f"Gaps longer than {limit__min} minutes for {col}:")
+                            #     # Bin gaps in multiples of limit__min
+                            #     bins = pd.cut(large_gaps, bins=[limit__min * i for i in range(1, 20)] + [float('inf')])
+                            #     logging.info(bins.value_counts().sort_index())
+
+                            #     # Calculate counts of proper intervals <= limit__min
+                            #     proper_intervals = gaps[gaps <= limit__min]
+                            #     logging.info(f"Proper intervals (<= {limit__min} minutes) for {col}:")
+                            #     proper_intervals_bins = pd.cut(proper_intervals, bins=[0, limit__min] + [float('inf')])
+                            #     logging.info(proper_intervals_bins.value_counts().sort_index())
+
+                            logging.info(f"upsample to: {str(upsample__min) + 'T'}")
+                            logging.info(f"resample to: {str(interpolate__min) + 'T'}")
+                            logging.info(f"max number of fills: {limit}")
+                            
+
+                            if df_source[col].dtype in ['float64', 'Float64']:
+                                logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                                df_resultcol = (df_source[col]
+                                                .astype('float64')
+                                                .resample(str(upsample__min) + 'T')
+                                                .first()
+                                                .interpolate(method='time', limit=limit)
+                                                .resample(str(interpolate__min) + 'T')
+                                                .mean()
+                                                .to_frame(name=col)
+                                               ) 
+                            elif df_source[col].dtype in ['boolean', 'Int16', 'Int8', 'Float16', 'Float32']:
+                                logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                                df_resultcol = (df_source[col]
+                                                .astype('float64')
+                                                .resample(str(upsample__min) + 'T')
+                                                .first()
+                                                .interpolate(method='time', limit=limit)
+                                                .resample(str(interpolate__min) + 'T')
+                                                .mean()
+                                                .to_frame(name=col)
+                                               ) 
+                            elif df_source[col].dtype in ['object', 'string']:
+                                logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                                df_resultcol = (df_source[col]
+                                                .resample(str(upsample__min) + 'T')
+                                                .first()
+                                                .ffill(limit=limit)
+                                                .resample(str(interpolate__min) + 'T')
+                                                .first()
+                                                .to_frame(name=col)
+                                               ) 
+                            else:
+                                logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                                df_resultcol = df_source[col].to_frame(name=col)
                         else:
-                            df_interpolated[col] = (df_interpolated[col]
-                                                    .resample(str(upsample__min) + 'T')
-                                                    .first()
-                                                    .astype('float32')
-                                                    .interpolate(method='time', limit=limit)
-                                                    .resample(str(interpolate__min) + 'T').mean()
-                                                   )
-                    
-                    df_interpolated['id'] = id_value
-                    df_interpolated['source_category'] = cat_value
-                    df_interpolated['source_type'] = type_value
-                    df_interpolated = df_interpolated.reset_index()
-                    df_result_list.append(df_interpolated)
+                            logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                            df_resultcol = df_source[col].to_frame(name=col)
+
+ 
+                        logging.info(f"df_resultcol.columns: {df_resultcol.columns}")
+                        logging.info(f"df_resultcol[col].dtype: {df_resultcol[col].dtype}")
+                        logging.info(f"len(df_resultcol[col]: {len(df_resultcol[col])}")
+                        logging.info(f"df_resultcol[col].count(): {df_resultcol[col].count()}")
+                        buffer = io.StringIO()
+                        df_resultcol.info(buf=buffer)
+                        logging.info(f"df_resultcol.info(): {buffer.getvalue()}")
+                        logging.info(f"df_resultcol.count(): {df_resultcol.count()}")
+
+                        # After iterpolating each column
+                        if not df_resultcol.empty:
+                            # Concatenate df_resultcol to df_source_type horizontally
+                            df_result_id_cat_type = pd.concat([df_result_id_cat_type, df_resultcol], axis=1)
+                        else:
+                            logging.info("df_resultcol.empty is True")
+
+                        buffer = io.StringIO()
+                        df_result_id_cat_type.info(buf=buffer)
+                        logging.info(f"df_result_id_cat_type.info(): {buffer.getvalue()}")
+                        logging.info(f"df_result_id_cat_type.count(): {df_result_id_cat_type.count()}")
+
+                    # After processing all columns of a source_type
+                    if not df_result_id_cat_type.empty:
+                        df_result_id_cat_type['id'] = id_value
+                        df_result_id_cat_type['source_category'] = cat_value
+                        df_result_id_cat_type['source_type'] = type_value
+                        buffer = io.StringIO()
+                        df_result_id_cat_type.info(buf=buffer)
+                        logging.info(f"df_result_id_cat_type.info(): {buffer.getvalue()}")
+                        df_result = pd.concat([df_result, df_result_id_cat_type.reset_index()], axis=0)
+                    else:
+                        logging.info("df_result_id_cat_type.empty is True")
+
+                        buffer = io.StringIO()
+                    df_result.info(buf=buffer)
+                    logging.info(f"df_result.info(): {buffer.getvalue()}")
+                    logging.info(f"df_result.count(): {df_result.count()}")
+
+                # After processing all source_types of a source_category
         
-        df_result = pd.concat(df_result_list)
+            # After processing all source_categories of an id
+        
+        # After processing all ids
+        # Pivot the result DataFrame to have properties as columns
         df_result = df_result.set_index(['id', 'source_category', 'source_type', 'timestamp']).sort_index()
-        
+
         if restore_original_types:
             for col in df_result.columns:
                 original_dtype = df_prop[col].dtype
-                if original_dtype == 'bool':
-                    df_result[col] = df_result[col].round().astype('int32').astype('bool')
-                elif original_dtype != 'float32' and original_dtype != 'float64' and original_dtype not in ['object', 'string']:
+                if original_dtype == 'boolean':
+                    df_result[col] = df_result[col].round().astype('Int32').astype('boolean')
+                elif original_dtype in ['Int16', 'Int8']:
                     df_result[col] = df_result[col].round().astype(original_dtype)
+                elif original_dtype in ['Float16', 'Float32', 'Float64']:
+                    df_result[col] = df_result[col].astype(original_dtype)
                 elif original_dtype in ['object', 'string']:
                     df_result[col] = df_result[col].astype(original_dtype)
-        
+
         return df_result
-    
+ 
     
     @staticmethod
     def preprocess_room_data(df_prop: pd.DataFrame,
