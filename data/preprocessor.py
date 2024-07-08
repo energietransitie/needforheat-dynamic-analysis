@@ -871,6 +871,81 @@ class Preprocessor:
 
         return df_result
  
+    @staticmethod
+    def calculate_streak_durations(df_prep, properties_include=None, properties_exclude=None):
+        
+        if properties_include is not None:
+            properties = properties_include
+        else:
+            properties = df_prep.columns
+    
+        if properties_exclude is not None:
+            properties = list(set(properties) - set(properties_exclude))
+                
+        df_streaks = df_prep[properties].notnull().all(axis=1).to_frame(name='data_available__bool')
+    
+        # Check frequency for each id
+        frequencies = df_prep.groupby(level='id').apply(lambda group: pd.infer_freq(group.index.get_level_values('timestamp')))
+    
+        # Check if all frequencies are the same
+        consistent_frequency = frequencies.nunique() == 1
+    
+        if consistent_frequency:
+            freq = frequencies.iloc[0]  # Get the first (and only) frequency
+            # Resample each group to the inferred frequency
+    
+        # Calculate interval durations based on the detected frequency
+        if freq is not None:
+            interval_duration = pd.to_timedelta(freq)
+            df_streaks['interval_duration__s'] = interval_duration.total_seconds()
+        else:
+            df_streaks['interval_duration__s'] = (df_streaks
+                                                  .index
+                                                  .get_level_values('timestamp')
+                                                  .to_series()
+                                                  .diff()
+                                                  .shift(-1)
+                                                  .dt
+                                                  .total_seconds()
+                                                  .fillna(0)
+                                                  .astype(int))
+    
+        # Identify streaks using cumulative sum of changes in availability
+        df_streaks['streak_id'] = df_streaks['data_available__bool'].ne(df_streaks['data_available__bool'].shift()).cumsum()
+    
+        # Set interval_duration__s to 0.0 where data_available__bool is False
+        df_streaks.loc[~df_streaks['data_available__bool'], 'interval_duration__s'] = 0.0
+    
+    
+        # Calculate the cumulative duration for each streak and convert to Timedelta directly
+        df_streaks['streak_cumulative_duration__s'] = pd.to_timedelta(df_streaks.groupby('streak_id')['interval_duration__s'].cumsum(), unit='s')
+    
+    
+        # Filter to keep only the final cumulative duration for each streak where data_available__bool is True
+        streak_durations = (df_streaks[df_streaks['data_available__bool']]
+                            .groupby(['id', 'streak_id'])['streak_cumulative_duration__s']
+                            .last()
+                            .reset_index(level='streak_id'))
+    
+        # Define bins and bin labels
+        bins = [pd.Timedelta(minutes=1),  # Convert Timedelta to seconds
+                pd.Timedelta(hours=1),
+                pd.Timedelta(days=1),
+                pd.Timedelta(weeks=1),
+                pd.Timedelta(days=30),
+                pd.Timedelta(days=100000)]  # last is large number to represent infinity
+        
+        bin_labels = ['[1T, 1H)', '[1H, 1D)', '[1D, 1W)', '[1W, 1M)', '[1M, inf)']
+        
+        pd.cut(df_streaks['streak_cumulative_duration__s'], bins=bins, labels=bin_labels)
+        
+        # Categorize streak durations into bins
+        streak_durations['duration_bin'] = pd.cut(streak_durations['streak_cumulative_duration__s'], bins=bins, labels=bin_labels)
+        
+        # Group by id and duration_bin, then sum the streak durations
+        df_result = streak_durations.groupby(['id', 'duration_bin'])['streak_cumulative_duration__s'].sum().unstack(level='duration_bin')
+                
+        return df_result
     
     @staticmethod
     def preprocess_room_data(df_prop: pd.DataFrame,
