@@ -65,7 +65,12 @@ def track_metadata(func):
                 'measurements_deleted', 'ids_before', 'ids_after', 'ids_deleted',
                 'properties_before', 'properties_after', 'filtered_properties'
             ])
+
+        # Check if 'col' is in kwargs or as the second positional argument
         col = kwargs.get('col', '')
+        if not col and len(args) > 1:
+            col = args[1]
+
         params = {k: v for k, v in kwargs.items() if k != 'meta_df'}
         meta_df = update_metadata(meta_df, func.__name__, params, df_before, result, col)
         return result, meta_df
