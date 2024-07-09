@@ -6,6 +6,7 @@ import pytz
 import math
 import logging
 import io
+import json
 from datetime import datetime, timedelta
 from extractor import WeatherExtractor
 
@@ -1085,7 +1086,71 @@ class Preprocessor:
 
         return Preprocessor.merge_weather_data_nl(df_prep, lat, lon, interpolate__min, timezone_ids)
 
+    @staticmethod
+    def convert_enelogic_excel_to_measurements(file_path: str, tz='Europe/Amsterdam') -> pd.DataFrame:
 
+        # Read the Excel file
+        try:
+            df = pd.read_excel(file_path)
+            print("File was successfully read without specifying compression codec.")
+        except Exception as e:
+            print(f"Error reading file: {e}")
+
+        # Function to map rate codes to property names
+        def map_rate_to_property(rate):
+            return {
+                180: 'g_use_monthly_cum__m3',
+                181: 'e_use_monthly_hi_cum__kWh',
+                182: 'e_use_monthly_lo_cum__kWh',
+                281: 'e_ret_monthly_hi_cum__kWh',
+                282: 'e_ret_monthly_lo_cum__kWh'
+            }.get(rate, None)
+        
+        # Initialize lists to store transformed data
+        ids = []
+        source_categories = []
+        source_types = []
+        timestamps = []
+        properties = []
+        values = []
+        
+        # Iterate over the rows of the DataFrame
+        for _, row in df.iterrows():
+            pseudonym = int(row['pseudonym'])
+            print(f'processing id: {pseudonym}')
+            for col in df.columns[1:]:
+                try:
+                    json_data = json.loads(row[col])
+                except (TypeError, json.JSONDecodeError) as e:
+                    print(f"Skipping pseudonym {pseudonym} due to error: {e}")
+                    continue
+                for entry in json_data:
+                    if not isinstance(entry, dict):
+                        print(f"Unexpected entry format for pseudonym {pseudonym}, column {col}: {entry}")
+                        continue
+        
+                    rate = entry.get('rate')
+                    property_name = map_rate_to_property(rate)
+                    if property_name:
+                        timestamp = pytz.timezone(tz).localize(
+                            datetime.strptime(entry['date'], "%Y-%m-%d %H:%M:%S")
+                        )
+                        ids.append(pseudonym)
+                        source_categories.append('batch_import')
+                        source_types.append('enelogic')
+                        timestamps.append(timestamp)
+                        properties.append(property_name)
+                        values.append(entry['quantity'])
+        
+        # Create the DataFrame
+        multi_index = pd.MultiIndex.from_arrays(
+            [ids, source_categories, source_types, timestamps, properties],
+            names=('id', 'source_category', 'source_type', 'timestamp', 'property')
+        )
+        
+        result_df = pd.DataFrame({'value': values}, index=multi_index)
+
+        return result_df
     
     @staticmethod
     def merge_weather_data_nl(df_prep: pd.DataFrame,
