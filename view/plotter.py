@@ -7,6 +7,8 @@ import pylab as plt
 import seaborn as sns
 from preprocessor import Preprocessor
 import missingno as msno
+import warnings
+
 
 class Plot:
 
@@ -182,7 +184,11 @@ class Plot:
                 print(f'No data for id: {id}')
 
     @staticmethod
-    def plot_data_availability(df_prep, properties_include=None, properties_exclude=None, alpha=0.5, figsize=(12, 8)):
+    def plot_data_availability(df_prep, properties_include=None, 
+                               properties_exclude=None, 
+                               alpha=0.5, 
+                               figsize=(12, 8), 
+                               title_fontsize=10):
         """
         Plots data availability over time for various IDs using subplots.
         
@@ -228,7 +234,16 @@ class Plot:
             ax.set_yticks([])  # Hide y-ticks for clarity
         
         plt.xlabel('Time')
-        plt.suptitle('Data Availability Over Time')
+
+        # Adjust the title based on included and excluded properties
+        included_str = str(properties_include) if properties_include is not None else "All"
+        excluded_str = str(properties_exclude) if properties_exclude is not None else "None"
+        if properties_exclude is None:
+            plt.suptitle(f"Overview of Valid Measurements Over Time\nincluded: {included_str}", fontsize=title_fontsize, wrap=True)
+        else:
+            plt.suptitle(f"Overview of Valid Measurements Over Time\nincluded: {included_str}\n Excluded: {excluded_str}", fontsize=title_fontsize, wrap=True)
+            
+
         plt.tight_layout()
         plt.show()
         
@@ -240,7 +255,8 @@ class Plot:
                                    properties_exclude=None, 
                                    freq='1W',
                                    tick_label_fontsize=10,
-                                   figsize=(10, 6)
+                                   figsize=(10, 6),
+                                   title_fontsize=10
                                   ):
         """
         Plots an overview of valid measurements over time for various IDs.
@@ -268,11 +284,25 @@ class Plot:
         
         df_pivot = df_prep[properties].notnull().all(axis=1).replace(False, np.nan).unstack('id')
 
+        # Plot using missingno, suppressing warnings
+        warnings.filterwarnings('ignore', category=FutureWarning)
         # Visualize the completeness of the data
         msno.matrix(df_pivot, sparkline=False, freq=freq, figsize=figsize)
-        
+
+        # Reset warnings filter to default state
+        warnings.resetwarnings()
+                                
+        # Adjust the title based on included and excluded properties
+        included_str = str(properties_include) if properties_include is not None else "All"
+        excluded_str = str(properties_exclude) if properties_exclude is not None else "None"
+
         # Plot using missingno
-        plt.title("Overview of Valid Measurements Over Time")
+        plt.suptitle("Overview of Valid Measurements Over Time")
+        if properties_exclude is None:
+            plt.title(f"included: {included_str}", fontsize=title_fontsize, wrap=True)
+        else:
+            plt.title(f"included: {included_str}\n Excluded: {excluded_str}", fontsize=title_fontsize, wrap=True)
+
         plt.xlabel("ID")
         plt.ylabel("Time")
         # Adjust the font size of tick labels

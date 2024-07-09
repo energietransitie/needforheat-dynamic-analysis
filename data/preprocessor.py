@@ -489,25 +489,31 @@ class Preprocessor:
 
     
     @staticmethod
-    def highlight_specific_value(val, specific_value=0):
+    def highlight_zero(val):
         """
-        Highlight cells in a DataFrame with a specific value.
+        Highlight cells in a DataFrame with a zero value.
         
         Parameters:
         -----------
         val : any
             The value to be checked.
-        specific_value : any
-            The value to be highlighted, default is 0.
         
         Returns:
         --------
         str
             The background color for highlighting.
         """
-        color = 'red' if val == specific_value else ''
-        return f'background-color: {color}'
-
+        # Check if val is a Timedelta and compare appropriately
+        if pd.isna(val):
+            return ''
+        if isinstance(val, pd.Timedelta) and val == pd.Timedelta(0):
+            return 'background-color: lightcoral; color: red;'
+        # Handle other types of comparisons
+        elif val == 0 & (~pd.isna(val)):
+            return 'background-color: lightcoral; color: red;'
+        else:
+            return ''
+    
     @staticmethod
     def count_non_null_measurements(df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -540,8 +546,7 @@ class Preprocessor:
         return non_null_counts_per_col
 
    
-    @staticmethod
-    def calculate_covered_time(df: pd.DataFrame, max_interval=90*60, unit='days', mandatory_props=None) -> pd.DataFrame:
+    def calculate_covered_time(df: pd.DataFrame, max_interval=90*60, mandatory_props=None) -> pd.DataFrame:
         """
         Calculate the total covered time excluding large intervals.
         
@@ -551,8 +556,6 @@ class Preprocessor:
             DataFrame with a MultiIndex with levels id, source_category, source_type, timestamp, and measured properties in columns.
         max_interval : int, optional
             Maximum interval in seconds to be considered for covered time, default is 90 minutes (5400 seconds).
-        unit : str, optional
-            Unit of time to return the covered time in. Options are 'seconds', 'minutes', 'hours', 'days'. Default is 'days'.
         mandatory_props : list of str, optional
             List of mandatory properties (columns) that must have non-null values for an additional time covered calculation.
             Each property should be prefixed with its respective source_type, e.g., ['living_room_temp_in__degC', 'remeha_temp_in__degC'].
@@ -560,7 +563,7 @@ class Preprocessor:
         Returns:
         --------
         pandas.DataFrame
-            DataFrame with total covered time per id, in the specified unit, and additional column if mandatory properties are provided.
+            DataFrame with total covered time per id as Timedelta objects, and an additional column if mandatory properties are provided.
         """
         df_analysis = df.copy()
         
@@ -577,39 +580,30 @@ class Preprocessor:
         
         # Sort DataFrame
         df_analysis.sort_values(by=['id', 'timestamp'], inplace=True)
-
+    
         # Calculate all_mandatory_props if provided
         if mandatory_props:
             df_analysis['all_mandatory_props'] = df_analysis[mandatory_props].notna().all(axis=1).replace(False, np.nan)
-
+    
         def calculate_time_covered(group):
-            intervals = group.dropna().index.get_level_values('timestamp').to_series().diff().dt.total_seconds()
-            valid_intervals = intervals[intervals <= max_interval]
+            intervals = group.dropna().index.get_level_values('timestamp').to_series().diff()
+            valid_intervals = intervals[intervals <= pd.Timedelta(seconds=max_interval)]
             return valid_intervals.sum()
             
         # Initialize an empty DataFrame to store covered time
         covered_time = pd.DataFrame(index=df_analysis.index.get_level_values('id').unique())
-
+    
         # Group by 'id' and calculate covered time for each property
         for col in df_analysis.columns:
             covered_time[col] = df_analysis.groupby('id')[col].apply(lambda x: calculate_time_covered(x))
-
-        # Convert to the desired unit
-        unit_conversion = {
-            'seconds': 1,
-            'minutes': 60,
-            'hours': 3600,
-            'days': 86400
-        }
-
-        if unit not in unit_conversion:
-            raise ValueError(f"Invalid unit '{unit}'. Choose from 'seconds', 'minutes', 'hours', 'days'.")
-
-        covered_time /= unit_conversion[unit]
+    
+        # Convert to Timedelta
+        covered_time = covered_time.apply(pd.to_timedelta, unit='s')
         covered_time['total'] = covered_time.sum(axis=1)
-
+    
         return covered_time
-   
+    
+       
     @staticmethod
     def unstack_prop(df_prop: pd.DataFrame) -> pd.DataFrame:
         
@@ -674,9 +668,97 @@ class Preprocessor:
         df_prep = df_prep.dropna(axis=1, how='all')
         
         return df_prep
+
+
+    @staticmethod
+    def analyze_intervals(df_prop, default_limit__min=90, property_limits=None, interpolate__min=5):
+        """
+        Analyzes the intervals of properties in the given DataFrame.
         
+        Parameters:
+        - df_prop: DataFrame with a MultiIndex consisting of ['id', 'source_category', 'source_type'].
+        - default_limit__min: Default limit in minutes used for interval analysis.
+        - property_limits: Dictionary specifying custom limits for specific properties.
+        - interpolate__min: Minimum interpolation interval in minutes.
+
+        Returns:
+        - df_intervals: DataFrame with interval analysis results, indexed by ['id', 'source_category', 'source_type', 'property'].
+        """
+        if property_limits is None:
+            property_limits = {}
+        
+        df_prop = df_prop.sort_index()
+
+        # Initialize an empty list to store the results
+        intervals = []
+
+        # Iterate over unique 'id' values
+        for id_value in tqdm(df_prop.index.get_level_values('id').unique()):
+            for cat_value in df_prop.loc[id_value].index.get_level_values('source_category').unique():
+                for type_value in df_prop.loc[(id_value, cat_value)].index.get_level_values('source_type').unique():
+                    df_source = df_prop.loc[(id_value, cat_value, type_value), :]
+                    if not len(df_source):
+                        continue
+                    for col in df_source.columns:
+                        numcolvalues = df_source[col].count()
+                        if numcolvalues <= 2:
+                            if numcolvalues > 0:
+                                intervals.append({
+                                    'id': id_value,
+                                    'source_category': cat_value,
+                                    'source_type': type_value,
+                                    'property': col,
+                                    'status': 'Ignoring',
+                                    'numcolvalues': numcolvalues
+                                })
+                            continue
+                        else:
+                            modal_intv__min = int((df_source[col]
+                                                   .dropna()
+                                                   .index.to_series()
+                                                   .diff()
+                                                   .dropna()
+                                                   .dt.total_seconds() / 60
+                                                  )
+                                                  .round()
+                                                  .mode()
+                                                  .iloc[0]
+                                                 )
+
+                            limit__min = property_limits.get(col, default_limit__min)
+
+                            # Calculate the greatest common divisor of the modal interval, the desired interval and the limit
+                            # Also ensure the interval is at least 1 minute
+                            upsample__min = max(1, math.gcd(math.gcd(modal_intv__min, interpolate__min), limit__min))
+
+                            limit = max((limit__min // upsample__min) - 1, 1)
+
+                            # Append the processing intervals to the list
+                            intervals.append({
+                                'id': id_value,
+                                'source_category': cat_value,
+                                'source_type': type_value,
+                                'property': col,
+                                'status': 'Processing',
+                                'len_df_source_col': len(df_source[col]),
+                                'df_source_col_count': df_source[col].count(),
+                                'df_source_col_dtype': df_source[col].dtype,
+                                'modal_intv__min': modal_intv__min,
+                                'limit__min': limit__min, 
+                                'upsample__min': upsample__min,
+                                'interpolate__min': interpolate__min,
+                                'limit': limit
+                            })
+
+        # Convert the list of dictionaries to a DataFrame
+        df_intervals = pd.DataFrame(intervals).set_index(['id', 'source_category', 'source_type', 'property'])
+        
+        return df_intervals
+    
+    
     @staticmethod
     def interpolate_time(df_prop: pd.DataFrame,
+                         default_limit__min = 90,
                          property_limits: dict = None,
                          interpolate__min: int = 5,
                          restore_original_types: bool = False,
@@ -684,8 +766,6 @@ class Preprocessor:
 
         if property_limits is None:
             property_limits = {}
-
-        default_limit_min = 90
 
         if not isinstance(df_prop.index, pd.MultiIndex):
             raise ValueError("Input DataFrame df_prop must have a MultiIndex.")
@@ -737,30 +817,14 @@ class Preprocessor:
                                                   .iloc[0]
                                                  )
                             
-                            limit__min = property_limits.get(col, default_limit_min)
+                            limit__min = property_limits.get(col, default_limit__min)
                             
-                            # upsample__min = max(1, min(modal_intv__min, limit__min))
-
-                            # Calculate the greatest common divisor of the modal interval and the limit, and ensure the interval is at least 1 minute
-                            upsample__min = max(1, math.gcd(modal_intv__min, limit__min))
+                            # Calculate the greatest common divisor of the modal interval, the desired interval and the limit
+                            # Also ensure the interval is at least 1 minute
+                            upsample__min = max(1, math.gcd(math.gcd(modal_intv__min, interpolate__min), limit__min))
  
                             limit = max((limit__min // upsample__min) - 1, 1)
         
-                            # gaps = df_source[col].index.to_series().diff().dt.total_seconds() / 60
-                            # large_gaps = gaps[gaps > limit__min]
-
-                            # if not large_gaps.empty:
-                            #     logging.info(f"Gaps longer than {limit__min} minutes for {col}:")
-                            #     # Bin gaps in multiples of limit__min
-                            #     bins = pd.cut(large_gaps, bins=[limit__min * i for i in range(1, 20)] + [float('inf')])
-                            #     logging.info(bins.value_counts().sort_index())
-
-                            #     # Calculate counts of proper intervals <= limit__min
-                            #     proper_intervals = gaps[gaps <= limit__min]
-                            #     logging.info(f"Proper intervals (<= {limit__min} minutes) for {col}:")
-                            #     proper_intervals_bins = pd.cut(proper_intervals, bins=[0, limit__min] + [float('inf')])
-                            #     logging.info(proper_intervals_bins.value_counts().sort_index())
-
                             logging.info(f"upsample to: {str(upsample__min) + 'T'}")
                             logging.info(f"resample to: {str(interpolate__min) + 'T'}")
                             logging.info(f"max number of fills: {limit}")
@@ -918,12 +982,12 @@ class Preprocessor:
     
     
         # Calculate the cumulative duration for each streak and convert to Timedelta directly
-        df_streaks['streak_cumulative_duration__s'] = pd.to_timedelta(df_streaks.groupby('streak_id')['interval_duration__s'].cumsum(), unit='s')
+        df_streaks['streak_cumulative_duration'] = pd.to_timedelta(df_streaks.groupby('streak_id')['interval_duration__s'].cumsum(), unit='s')
     
     
         # Filter to keep only the final cumulative duration for each streak where data_available__bool is True
         streak_durations = (df_streaks[df_streaks['data_available__bool']]
-                            .groupby(['id', 'streak_id'])['streak_cumulative_duration__s']
+                            .groupby(['id', 'streak_id'])['streak_cumulative_duration']
                             .last()
                             .reset_index(level='streak_id'))
     
@@ -937,13 +1001,13 @@ class Preprocessor:
         
         bin_labels = ['[1T, 1H)', '[1H, 1D)', '[1D, 1W)', '[1W, 1M)', '[1M, inf)']
         
-        pd.cut(df_streaks['streak_cumulative_duration__s'], bins=bins, labels=bin_labels)
+        pd.cut(df_streaks['streak_cumulative_duration'], bins=bins, labels=bin_labels)
         
         # Categorize streak durations into bins
-        streak_durations['duration_bin'] = pd.cut(streak_durations['streak_cumulative_duration__s'], bins=bins, labels=bin_labels)
+        streak_durations['duration_bin'] = pd.cut(streak_durations['streak_cumulative_duration'], bins=bins, labels=bin_labels)
         
         # Group by id and duration_bin, then sum the streak durations
-        df_result = streak_durations.groupby(['id', 'duration_bin'])['streak_cumulative_duration__s'].sum().unstack(level='duration_bin')
+        df_result = streak_durations.groupby(['id', 'duration_bin'])['streak_cumulative_duration'].sum().unstack(level='duration_bin')
                 
         return df_result
     
