@@ -303,7 +303,6 @@ class Preprocessor:
 
     
     @staticmethod
-    @track_metadata
     def encode_categorical_property_as_boolean_properties(df: pd.DataFrame, 
                                                           property_to_encode: str,
                                                           property_categories: str) -> pd.DataFrame:
