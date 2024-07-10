@@ -371,10 +371,10 @@ class Measurements:
             if col.endswith('__bool'):
                 df_prop[col] = df_prop[col].map({'True': True, 'False': False})
     
-        # Replace <NA> values with pd.NA for nullable boolean columns
-        for col in df_prop.columns:
-            if col.endswith('__bool'):
-                df_prop[col] = df_prop[col].replace(pd.NA, pd.NA)
+        # # Replace <NA> values with pd.NA for nullable boolean columns
+        # for col in df_prop.columns:
+        #     if col.endswith('__bool'):
+        #         df_prop[col] = df_prop[col].replace(pd.NA, pd.NA)
     
         # Convert columns to specified types
         if properties_types:
