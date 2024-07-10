@@ -213,8 +213,23 @@ class Plot:
         # Exclude specified properties if properties_exclude is provided
         if properties_exclude is not None:
             properties = properties.difference(properties_exclude)
+
+        # Determine the validity of mandatory properties for each timestamp and ID
+        valid_mask = df_prep[properties].notnull().all(axis=1)
         
-        df_pivot = df_prep[properties].notnull().all(axis=1).replace(False, np.nan).unstack('id')
+        # Get the timestamps and IDs where all mandatory properties are valid
+        valid_timestamps = df_prep[valid_mask].index.get_level_values('timestamp')
+        
+        if not valid_timestamps.empty:
+            # Determine the first and last valid timestamps
+            first_valid_timestamp = valid_timestamps.min()
+            last_valid_timestamp = valid_timestamps.max()
+
+        # Filter df_prep to include only the rows within the determined timestamp range
+        df_prep_filtered = df_prep.loc[(df_prep.index.get_level_values('timestamp') >= first_valid_timestamp) &
+                              (df_prep.index.get_level_values('timestamp') <= last_valid_timestamp)].copy()
+        
+        df_pivot = df_prep_filtered[properties].notnull().all(axis=1).replace(False, np.nan).unstack('id')
         
         # Prepare the figure and subplots
         num_ids = df_pivot.shape[1]
@@ -292,13 +307,17 @@ class Plot:
             # Determine the first and last valid timestamps
             first_valid_timestamp = valid_timestamps.min()
             last_valid_timestamp = valid_timestamps.max()
-        
+
         # Filter df_prep to include only the rows within the determined timestamp range
         df_prep_filtered = df_prep.loc[(df_prep.index.get_level_values('timestamp') >= first_valid_timestamp) &
-                              (df_prep.index.get_level_values('timestamp') <= last_valid_timestamp)]
+                              (df_prep.index.get_level_values('timestamp') <= last_valid_timestamp)].copy()
         
+
+        # Localize timestamps in df_prep_filtered 
+        df_prep_filtered.index.set_levels(df_prep_filtered.index.levels[1].tz_convert('UTC').tz_localize(None), level=1, inplace=True)
         
         df_pivot = df_prep_filtered[properties].notnull().all(axis=1).replace(False, np.nan).unstack('id')
+
 
         # Plot using missingno, suppressing warnings
         warnings.filterwarnings('ignore', category=FutureWarning)
@@ -320,7 +339,7 @@ class Plot:
             plt.title(f"included: {included_str}\n Excluded: {excluded_str}", fontsize=title_fontsize, wrap=True)
 
         plt.xlabel("ID")
-        plt.ylabel("Time")
+        plt.ylabel("Time (UTC)")
         # Adjust the font size of tick labels
         plt.xticks(fontsize=tick_label_fontsize)
         plt.yticks(fontsize=tick_label_fontsize)
