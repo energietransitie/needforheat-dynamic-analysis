@@ -492,6 +492,7 @@ class Preprocessor:
         df_prop_final = pd.concat([df_prop, df_filtered_calibrated])
         return df_prop_final
 
+
     
     @staticmethod
     def highlight_zero(val):
@@ -941,6 +942,19 @@ class Preprocessor:
         return df_result
  
     @staticmethod
+    def get_consistent_interval(df):
+        # Check frequency for each id
+        frequencies = df.groupby(level='id').apply(lambda group: pd.infer_freq(group.index.get_level_values('timestamp')))
+        
+        # Check if all frequencies are the same
+        if frequencies.nunique() == 1:
+            interval = pd.to_timedelta(frequencies.iloc[0])
+            return interval
+        else:
+            return None
+
+    
+    @staticmethod
     def calculate_streak_durations(df_prep, properties_include=None, properties_exclude=None):
         
         if properties_include is not None:
@@ -953,20 +967,11 @@ class Preprocessor:
                 
         df_streaks = df_prep[properties].notnull().all(axis=1).to_frame(name='data_available__bool')
     
-        # Check frequency for each id
-        frequencies = df_prep.groupby(level='id').apply(lambda group: pd.infer_freq(group.index.get_level_values('timestamp')))
-    
-        # Check if all frequencies are the same
-        consistent_frequency = frequencies.nunique() == 1
-    
-        if consistent_frequency:
-            freq = frequencies.iloc[0]  # Get the first (and only) frequency
-            # Resample each group to the inferred frequency
+        consistent_interval = Preprocessor.get_consistent_interval(df_prep)
     
         # Calculate interval durations based on the detected frequency
-        if freq is not None:
-            interval_duration = pd.to_timedelta(freq)
-            df_streaks['interval_duration__s'] = interval_duration.total_seconds()
+        if consistent_interval:
+            df_streaks['interval_duration__s'] = consistent_interval.total_seconds()
         else:
             df_streaks['interval_duration__s'] = (df_streaks
                                                   .index
@@ -1015,6 +1020,7 @@ class Preprocessor:
         df_result = streak_durations.groupby(['id', 'duration_bin'])['streak_cumulative_duration'].sum().unstack(level='duration_bin')
                 
         return df_result
+
     
     @staticmethod
     def preprocess_room_data(df_prop: pd.DataFrame,
@@ -1085,6 +1091,79 @@ class Preprocessor:
 
         return Preprocessor.merge_weather_data_nl(df_prep, lat, lon, interpolate__min, timezone_ids)
 
+    
+    @staticmethod
+    def convert_cumulative_to_avg_power(df_prep, props, heating_value__MJ_m_3, heating_value_name__str) -> pd.DataFrame:
+        """
+        Convert cumulative smart meter values to average energy flows.
+    
+        Parameters:
+        df_prep (pd.DataFrame): DataFrame with a MultiIndex (id, timestamp) containing cumulative meter readings.
+        props (list of str): List of column names to be converted. These should end with '_cum__kWh' or '_cum__m3'.
+        heating_value__MJ_m_3 (float): Heating value in MJ/m^3 used to convert gas volumes to energy.
+        heating_value_name__str (str): String to be used in the renamed property. Typically 'hhv' for higher heating value or 'lhv' for lower heating value.
+    
+        Returns:
+        pd.DataFrame: DataFrame with new columns containing the average power in the interval.
+    
+        Example usage:
+        df_prep = convert_cumulative_to_avg_power(df_prep, props=['e_use_cum__kWh', 'e_ret_cum__kWh', 'g_use_cum__m3'], 
+                                             heating_value__MJ_m_3=35.17, 
+                                             heating_value_name__str='hhv')
+        """        
+        # Ensure timestamp is sorted for each id
+        df_prep = df_prep.sort_index(level=['id', 'timestamp'])
+        
+        # Check for consistent interval
+        consistent_interval = Preprocessor.get_consistent_interval(df_prep)
+
+        # constants
+        s_min_1 = 60 # seconds per minute
+        min_h_1 = 60 # minutes per hour
+        s_h_1 = s_min_1 * min_h_1 # seconds per hour
+        W_kW_1 = 1e3 # Watts per kiloWatt
+        J_MJ_1 = 1e6 # Joules per MegaJoule
+        
+        for prop in tqdm(props):
+            # Check for the type of property (kWh or m3)
+            if prop.endswith('_cum__kWh'):
+                new_prop = prop.replace('_cum__kWh', '__W')
+                conversion_factor = s_h_1 * W_kW_1  # Joules (Ws) per kWh
+            elif prop.endswith('_cum__m3'):
+                new_prop = prop.replace('_cum__m3', f'_{heating_value_name__str}__W')
+                conversion_factor = heating_value__MJ_m_3 * J_MJ_1  # Joules per m^3
+            else:
+                continue  # Skip properties not matching the expected suffixes
+    
+            # Initialize the new property column with NaN values
+            df_prep[new_prop] = np.nan
+    
+            if consistent_interval:
+                # Vectorized calculation if interval is consistent
+                meter_value_diffs = df_prep[prop].diff() * conversion_factor
+                avg_power = meter_value_diffs / consistent_interval.total_seconds()
+                
+                # Filter out negative values and handle the last interval for each id
+                avg_power[avg_power < 0] = np.nan  # Set negative values to NaN
+                
+                # Apply avg_power values to df_prep using pandas operations
+                mask = df_prep.index.get_level_values('id').duplicated(keep='last')
+                df_prep.loc[mask, new_prop] = avg_power[mask]
+            else:
+                # Non-vectorized calculation if interval is not consistent
+                grouped = df_prep.groupby(level='id')
+                for name, group in grouped:
+                    time_diffs = group.index.get_level_values('timestamp').to_series().diff().dt.total_seconds().fillna(0).values
+                    meter_value_diffs = group[prop].diff().fillna(0).values * conversion_factor
+                    avg_power = np.divide(meter_value_diffs[1:], time_diffs[1:], out=np.zeros_like(meter_value_diffs[1:]), where=time_diffs[1:] != 0)
+                    avg_power = np.where(avg_power < 0, np.nan, avg_power)
+                    df_prep.loc[group.index[1:], new_prop] = avg_power
+        
+        return df_prep
+    
+
+
+    
     @staticmethod
     def convert_enelogic_excel_to_measurements(file_path: str, tz='Europe/Amsterdam') -> pd.DataFrame:
 
