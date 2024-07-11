@@ -6,15 +6,110 @@ import numpy as np
 import pylab as plt
 import seaborn as sns
 from preprocessor import Preprocessor
+import missingno as msno
+import warnings
 
 
 class Plot:
 
-    
+    @staticmethod
+    def nfh_measurements_plot(df_source: pd.DataFrame, ids=None, source_categories=None, source_types=None, units=None, properties=None, units_to_mathtext=None):
+        """
+        Plot data in df DataFrame, one plot per id, one subplot for all properties with the same unit
+        
+        in: dataframe with
+        - MultiIndex = ['id', 'source_category', 'source_type', 'timestamp', 'property']
+            - id: id of e.g. home / utility building / room 
+            - source_category: category of the data source
+            - source_type: type of the data source
+            - timestamp: timezone-aware timestamp
+            - property: type of the property measured
+        - value: measurement value (string)
+        - units_to_mathtext: table that translates property unit postfixes to mathtext.
+        """      
+        
+        df = df_source.copy()
+        
+        if ids is not None:
+            df = df.loc[df.index.get_level_values('id').isin(ids)]
+        if source_types is not None:
+            df = df.loc[df.index.get_level_values('source_type').isin(source_types)]
+        if units is not None:
+            property_names = df.index.get_level_values('property')
+            filtered_properties = [p for p in property_names if any(p.endswith(f'__{unit}') for unit in units)]
+            df = df.loc[df.index.get_level_values('property').isin(filtered_properties)]
+        if source_categories is not None:
+            df = df.loc[df.index.get_level_values('source_category').isin(source_categories)]
+        if properties is not None:
+            df = df.loc[df.index.get_level_values('property').isin(properties)]
+
+        # Filter out rows with measurement values whose property name ends with '__str'
+        df = df.loc[~df.index.get_level_values('property').str.endswith('__str')]
+
+        
+        # Convert measurement values to float, coercing non-numeric values to NaN
+        df['value'] = pd.to_numeric(df['value'], errors='coerce')
+
+        for id_ in df.index.get_level_values('id').unique():
+            try:
+                df_plot = df.xs(id_)
+
+                # Merge source_category, source_type, and property into a single index level
+                df_plot.index = df_plot.index.map(lambda x: (x[0], x[1], x[2], f"{x[0]}_{x[1]}_{x[3]}"))
+
+                # Drop the first two levels and rename the last two
+                df_plot.index = df_plot.index.droplevel([0, 1])
+
+                df_plot.index.names = ['timestamp', 'merged_property']
+                
+                # Check for duplicates in the index after merging
+                duplicate_entries = df_plot.index.duplicated().any()
+                
+                if duplicate_entries:
+                    print("Duplicate entries found in the index after merging. Handled mby taking the average.")
+                    df_plot = df_plot.groupby(['timestamp', 'merged_property'])['value'].mean()
+                    df_plot = df_plot.unstack('merged_property')
+                else: 
+                    df_plot = df_plot.unstack('merged_property')  
+                    df_plot.columns = list(df_plot.columns.droplevel(0))
+                  
+                props_with_data = [prop for prop in list(df_plot.columns) if df_plot[prop].count()>0] 
+                units_with_data = np.unique(np.array([prop.split('__')[-1] for prop in props_with_data]))
+                unit_tuples = [tuple([prop.split('__')[0] for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
+                props_with_data = [prop.split('__')[0] for prop in props_with_data]
+                labels = [col.split('__')[0] for col in df_plot.columns]
+                df_plot.columns = labels
+                axes = df_plot[props_with_data].plot(
+                    subplots = unit_tuples,
+                    style='.',
+                    title=f'id: {id_}'
+                )
+                # Calculate the minimum and maximum timestamps for the current 'id'
+                min_timestamp = df_plot.index.get_level_values('timestamp').min()
+                max_timestamp = df_plot.index.get_level_values('timestamp').max()
+
+                for unit in enumerate(units_with_data):
+                    if units_to_mathtext is not None:
+                        axes[unit[0]].set_ylabel(units_to_mathtext[unit[1]])
+                    else:
+                        axes[unit[0]].set_ylabel(unit[1])
+
+
+                    # Add vertical grid lines at midnight each day for the current 'id'
+                    dates = pd.date_range(start=min_timestamp.floor('D'), end=max_timestamp.floor('D'), freq='D')  # All midnights within the range for the current 'id'
+                    for date in dates:
+                        axes[unit[0]].axvline(x=date, color='gray', linestyle='--', linewidth=0.5)
+                
+                plt.tight_layout()
+                plt.show()
+            except TypeError:
+                print(f'No data for id: {id_}')
+
+
     @staticmethod
     def dataframe_properties_plot(df: pd.DataFrame, units_to_mathtext = None): 
         """
-        Plot data in df DataFrame, one plot per id, one subplot for all propertyes with the same unit
+        Plot data in df DataFrame, one plot per id, one subplot for all properties with the same unit
         
         in: dataframe with
         - index = ['id', 'source', 'timestamp']
@@ -26,7 +121,7 @@ class Plot:
         - units_to_mathtext: table tat translates property unit postfixes to mathtext.
         """      
         
-        for id in list(df.index.to_frame(index=False).id.unique()):
+        for id in list(df.index.get_level_values('id').unique()):
             try:
                 df_plot = df.loc[id].unstack([0])
                 df_plot.columns = df_plot.columns.swaplevel(0,1)
@@ -52,22 +147,22 @@ class Plot:
                 print(f'No data for id: {id}')
     
     @staticmethod
-    def dataframe_preprocessed_plot(df: pd.DataFrame, units_to_mathtext = None): 
+    def dataframe_preprocessed_plot(df_prep: pd.DataFrame, units_to_mathtext = None): 
         """
-        Plot data in df DataFrame, one plot per id, one subplot for all propertyes with the same unit
+        Plot data in df DataFrame, one plot per id, one subplot for all properties with the same unit
         
-        in: dataframe with
-        - index = ['id', 'timestamp']
-            - id: id of e.g. home / utility building / room 
-            - timestamp: timezone-aware timestamp
-        - columns = all properties in the input column
-            - unit types are encoded as last part of property name, searated by '__'
+        - df_prep: DataFrame with preprocessed properties containing the data:
+            - index = ['id', 'timestamp']
+                - id: id of e.g. home / utility building / room 
+                - timestamp: timezone-aware timestamp
+            - columns = all source_properties in the input column
+                - unit types are encoded as last part of property name, searated by '__'
         - units_to_mathtext: table tat translates property unit postfixes to mathtext.
         """      
         
-        for id in list(df.index.to_frame(index=False).id.unique()):
+        for id in list(df_prep.index.to_frame(index=False).id.unique()):
             try:
-                df_plot = df.loc[id]
+                df_plot = df_prep.loc[id]
                 props_with_data = [prop for prop in list(df_plot.columns) if df_plot[prop].count()>0] 
                 units_with_data = np.unique(np.array([prop.split('__')[-1] for prop in props_with_data]))
                 unit_tuples = [tuple([prop.split('__')[0] for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
@@ -87,7 +182,173 @@ class Plot:
                 plt.show()
             except TypeError:
                 print(f'No data for id: {id}')
-                
+
+    @staticmethod
+    def plot_data_availability(df_prep, properties_include=None, 
+                               properties_exclude=None, 
+                               alpha=0.5, 
+                               figsize=(12, 8), 
+                               title_fontsize=10):
+        """
+        Plots data availability over time for various IDs using subplots.
+        
+        Parameters:
+        - df_prep: DataFrame with preprocessed properties containing the data:
+            - index = ['id', 'timestamp']
+                - id: id of e.g. home / utility building / room 
+                - timestamp: timezone-aware timestamp
+            - columns = all source_properties in the input column
+        - properties_include: List of properties to include for validation. If None, all properties are included.
+        - properties_exclude: List of properties to exclude for validation. If None, no properties are excluded.
+        - alpha: Transparency level for the bars.
+        - figsize: Tuple specifying the width and height of the figure.
+        """
+            
+        # If properties_include is specified, use it; otherwise, use all columns except id_column and time_column
+        if properties_include is not None:
+            properties = properties_include
+        else:
+            properties = df_prep.columns
+        
+        # Exclude specified properties if properties_exclude is provided
+        if properties_exclude is not None:
+            properties = properties.difference(properties_exclude)
+
+        # Determine the validity of mandatory properties for each timestamp and ID
+        valid_mask = df_prep[properties].notnull().all(axis=1)
+        
+        # Get the timestamps and IDs where all mandatory properties are valid
+        valid_timestamps = df_prep[valid_mask].index.get_level_values('timestamp')
+        
+        if not valid_timestamps.empty:
+            # Determine the first and last valid timestamps
+            first_valid_timestamp = valid_timestamps.min()
+            last_valid_timestamp = valid_timestamps.max()
+
+        # Filter df_prep to include only the rows within the determined timestamp range
+        df_prep_filtered = df_prep.loc[(df_prep.index.get_level_values('timestamp') >= first_valid_timestamp) &
+                              (df_prep.index.get_level_values('timestamp') <= last_valid_timestamp)].copy()
+        
+        df_pivot = df_prep_filtered[properties].notnull().all(axis=1).replace(False, np.nan).unstack('id')
+        
+        # Prepare the figure and subplots
+        num_ids = df_pivot.shape[1]
+        fig, axes = plt.subplots(num_ids, 1, figsize=figsize, sharex=True, sharey=True)
+        
+        if num_ids == 1:
+            axes = [axes]  # Ensure axes is always a list even for single subplot
+        
+        for idx, (home_id, ax) in enumerate(zip(df_pivot.columns, axes)):
+            data_avail = df_pivot[home_id]
+            
+            # Plot green for available data, red for missing data
+            ax.fill_between(data_avail.index, 1, where=data_avail.isna(), facecolor='red', alpha=alpha, step='mid')
+            ax.fill_between(data_avail.index, 1, where=data_avail.notna(), facecolor='green', alpha=alpha, step='mid')
+            
+            ax.set_ylabel(f'ID {home_id}', rotation=0, labelpad=40)
+            ax.set_yticks([])  # Hide y-ticks for clarity
+        
+        plt.xlabel('Time')
+
+        # Adjust the title based on included and excluded properties
+        included_str = str(properties_include) if properties_include is not None else "All"
+        excluded_str = str(properties_exclude) if properties_exclude is not None else "None"
+        if properties_exclude is None:
+            plt.suptitle(f"Overview of Valid Measurements Over Time\nincluded: {included_str}", fontsize=title_fontsize, wrap=True)
+        else:
+            plt.suptitle(f"Overview of Valid Measurements Over Time\nincluded: {included_str}\n Excluded: {excluded_str}", fontsize=title_fontsize, wrap=True)
+            
+
+        plt.tight_layout()
+        plt.show()
+        
+
+    
+    @staticmethod
+    def plot_missing_data_overview(df_prep, 
+                                   properties_include=None, 
+                                   properties_exclude=None, 
+                                   freq='1W',
+                                   tick_label_fontsize=10,
+                                   figsize=(10, 6),
+                                   title_fontsize=10
+                                  ):
+        """
+        Plots an overview of valid measurements over time for various IDs.
+        
+        Parameters:
+        in: 
+        - df_prep: DataFrame with preprocessed properties containing the data:
+            - index = ['id', 'timestamp']
+                - id: id of e.g. home / utility building / room 
+                - timestamp: timezone-aware timestamp
+            - columns = all source_properties in the input column
+        - properties_include: List of properties to include for validation. If None, all properties are included.
+        - properties_exclude: List of properties to exclude for validation. If None, no properties are excluded.
+        """
+            
+        # If properties_include is specified, use it; otherwise, use all columns except id_column and time_column
+        if properties_include is not None:
+            properties = properties_include
+        else:
+            properties = df_prep.columns
+        
+        # Exclude specified properties if properties_exclude is provided
+        if properties_exclude is not None:
+            properties = properties.difference(properties_exclude)
+
+        # Determine the validity of mandatory properties for each timestamp and ID
+        valid_mask = df_prep[properties].notnull().all(axis=1)
+        
+        # Get the timestamps and IDs where all mandatory properties are valid
+        valid_timestamps = df_prep[valid_mask].index.get_level_values('timestamp')
+        
+        if not valid_timestamps.empty:
+            # Determine the first and last valid timestamps
+            first_valid_timestamp = valid_timestamps.min()
+            last_valid_timestamp = valid_timestamps.max()
+
+        # Filter df_prep to include only the rows within the determined timestamp range
+        df_prep_filtered = df_prep.loc[(df_prep.index.get_level_values('timestamp') >= first_valid_timestamp) &
+                              (df_prep.index.get_level_values('timestamp') <= last_valid_timestamp)].copy()
+        
+
+        # Localize timestamps in df_prep_filtered 
+        df_prep_filtered.index.set_levels(df_prep_filtered.index.levels[1].tz_convert('UTC').tz_localize(None), level=1, inplace=True)
+        
+        df_pivot = df_prep_filtered[properties].notnull().all(axis=1).replace(False, np.nan).unstack('id')
+
+
+        # Plot using missingno, suppressing warnings
+        warnings.filterwarnings('ignore', category=FutureWarning)
+        # Visualize the completeness of the data
+        msno.matrix(df_pivot, sparkline=False, freq=freq, figsize=figsize)
+
+        # Reset warnings filter to default state
+        warnings.resetwarnings()
+                                
+        # Adjust the title based on included and excluded properties
+        included_str = str(properties_include) if properties_include is not None else "All"
+        excluded_str = str(properties_exclude) if properties_exclude is not None else "None"
+
+        # Plot using missingno
+        plt.suptitle("Overview of Valid Measurements Over Time")
+        if properties_exclude is None:
+            plt.title(f"included: {included_str}", fontsize=title_fontsize, wrap=True)
+        else:
+            plt.title(f"included: {included_str}\n Excluded: {excluded_str}", fontsize=title_fontsize, wrap=True)
+
+        plt.xlabel("ID")
+        plt.ylabel("Time (UTC)")
+        # Adjust the font size of tick labels
+        plt.xticks(fontsize=tick_label_fontsize)
+        plt.yticks(fontsize=tick_label_fontsize)
+
+        # Adjust layout to fit the figure size
+        plt.tight_layout()
+        plt.show()
+
+    
     @staticmethod
     def same_unit_property_histogram(df_prop: pd.DataFrame, regex_filter: str, units_to_mathtext = None, bins = 200, per_id= True):
         """

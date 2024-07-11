@@ -3,8 +3,81 @@ import numpy as np
 from scipy import stats
 from tqdm.notebook import tqdm
 import pytz
+import math
+import logging
+import io
+import json
 from datetime import datetime, timedelta
 from extractor import WeatherExtractor
+
+def update_metadata(meta_df, func_name, params, df_before, df_after, col):
+    non_null_before = df_before.notnull().sum().sum()
+    non_null_after = df_after.notnull().sum().sum()
+    measurements_deleted = non_null_before - non_null_after
+    ids_before = df_before.dropna(how='all').index.unique(level='id').nunique()
+    ids_after = df_after.dropna(how='all').index.unique(level='id').nunique()
+    ids_deleted = ids_before - ids_after
+    properties_before = df_before.notnull().any().sum()
+    properties_after = df_after.notnull().any().sum()
+
+    filtered_properties = []
+    ids_filtered = 0
+
+    if col:
+        # Ensure indices are aligned for comparison
+        df_before_aligned, df_after_aligned = df_before.align(df_after, join='inner', axis=0)
+        
+        # Identify filtered properties correctly
+        filtered_properties_mask = df_before_aligned[col].notnull() & df_after_aligned[col].isnull()
+        filtered_properties = [col] if filtered_properties_mask.any() else []
+        
+        ids_filtered = df_before_aligned.loc[filtered_properties_mask].index.unique(level='id').nunique()
+
+    new_row = pd.DataFrame([{
+        'step': func_name,
+        'property_to_filter': col,
+        'params': params,
+        'non_null_before': non_null_before,
+        'non_null_after': non_null_after,
+        'measurements_deleted': measurements_deleted,
+        'ids_before': ids_before,
+        'ids_after': ids_after,
+        'ids_deleted': ids_deleted,
+        'properties_before': properties_before,
+        'properties_after': properties_after,
+        'filtered_properties': filtered_properties,
+    }])
+    
+    return pd.concat([meta_df, new_row], ignore_index=True)
+
+
+
+def track_metadata(func):
+    def wrapper(*args, **kwargs):
+        meta_df = kwargs.pop('meta_df', None)
+        df = args[0]
+        df_before = df.copy(deep=True)
+        result = func(*args, **kwargs)
+
+        # Handle case where meta_df is None (initialize)
+        if meta_df is None:
+            meta_df = pd.DataFrame(columns=[
+                'step', 'property_to_filter', 'params', 'non_null_before', 'non_null_after',
+                'measurements_deleted', 'ids_before', 'ids_after', 'ids_deleted',
+                'properties_before', 'properties_after', 'filtered_properties'
+            ])
+
+        # Check if 'col' is in kwargs or as the second positional argument
+        col = kwargs.get('col', '')
+        if not col and len(args) > 1:
+            col = args[1]
+
+        params = {k: v for k, v in kwargs.items() if k != 'meta_df'}
+        meta_df = update_metadata(meta_df, func.__name__, params, df_before, result, col)
+        return result, meta_df
+        
+    return wrapper
+
 
 class Preprocessor:
     """
@@ -18,6 +91,7 @@ class Preprocessor:
 
 
     @staticmethod
+    @track_metadata
     def filter_min_max(df: pd.DataFrame,
                        col:str,
                        min:float=None, max:float=None,
@@ -40,7 +114,9 @@ class Preprocessor:
         - 
        
         """
-        
+        # Check if prop exists in df_prop.columns
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' does not exist in df_prop.")
         if not len(df) or min is None and max is None:
             return df
         df_result = df
@@ -54,6 +130,7 @@ class Preprocessor:
 
 
     @staticmethod
+    @track_metadata
     def filter_static_outliers(df: pd.DataFrame,
                                col:str,
                                n_sigma:float=3.0,
@@ -67,6 +144,8 @@ class Preprocessor:
         column in a dataframe
         """
         
+        if col not in df.columns:
+            raise ValueError(f"Column '{col}' does not exist in df_prop.")
         if (not len(df)
             or
             (col not in df.columns)):
@@ -86,7 +165,109 @@ class Preprocessor:
                               .values)            
         return df_result
 
+
     @staticmethod
+    @track_metadata
+    def filter_electricity_meter_values(df: pd.DataFrame, min_valid_cum__kWh: float = 10.0) -> pd.DataFrame:
+        """
+        Preprocess electricity meter values in the dataframe.
+    
+        This function applies the following filtering steps:
+        1. Sets use meter columns to NaN where dsmr_version__0 < 3.0 or values < min_valid_cum__kWh.
+        2. Identifies ids where the maximum value of ret meter columns is < min_valid_cum__kWh.
+        3. Sets dsmr_version__0 to NaN where dsmr_version__0 < 3.0.
+        4. Applies additional filtering steps for ret meter columns.
+    
+        Args:
+        - df (pd.DataFrame): DataFrame with electricity meter values and properties.
+          Assumes the index of the DataFrame includes 'id' and has columns:
+          - 'dsmr_version__0'
+          - 'e_use_hi_cum__kWh', 'e_use_lo_cum__kWh'
+          - 'e_ret_hi_cum__kWh', 'e_ret_lo_cum__kWh'
+        - min_valid_cum__kWh (float): Minimum threshold for filtering meter values. Default is 10.0 kWh.
+    
+        Returns:
+        - pd.DataFrame: Filtered DataFrame with the same structure as input.
+        """
+    
+        # Define columns for electricity meter values
+        use_meter_cols = ['e_use_hi_cum__kWh', 'e_use_lo_cum__kWh']
+        ret_meter_cols = ['e_ret_hi_cum__kWh', 'e_ret_lo_cum__kWh']
+        all_meter_cols = use_meter_cols + ret_meter_cols
+    
+        # Apply mask to set use meter columns to NaN where dsmr_version__0 < 3.0 or values < min_valid_cum__kWh
+        mask_version = df['dsmr_version__0'] < 3.0
+        mask_use_values = df[use_meter_cols] < min_valid_cum__kWh
+    
+        # Combine the masks for use meter columns
+        mask_use = mask_version | mask_use_values.any(axis=1)
+    
+        df.loc[mask_use, use_meter_cols] = np.nan
+    
+        # Identify ids where the maximum value of ret meter columns is < min_valid_cum__kWh
+        max_ret_values = df.groupby('id')[ret_meter_cols].max()
+        ids_with_no_real_ret = max_ret_values[(max_ret_values < min_valid_cum__kWh).all(axis=1)].index
+    
+        # Masks for filtering
+        mask_with_solar = ~df.index.get_level_values('id').isin(ids_with_no_real_ret)
+        mask_without_solar = df.index.get_level_values('id').isin(ids_with_no_real_ret)
+    
+        # Apply mask for use_meter_cols for ids not in ids_with_no_real_ret
+        df.loc[mask_with_solar, use_meter_cols] = df.loc[mask_with_solar, use_meter_cols].where(lambda x: x >= min_valid_cum__kWh)
+    
+        # Apply mask for use_meter_cols for ids in ids_with_no_real_ret
+        df.loc[mask_without_solar, use_meter_cols] = df.loc[mask_without_solar, use_meter_cols].where(lambda x: x >= min_valid_cum__kWh)
+    
+        # Set dsmr_version__0 to NaN where dsmr_version__0 < 3.0
+        mask_version = df['dsmr_version__0'] < 3.0
+        df.loc[mask_version, 'dsmr_version__0'] = np.nan
+    
+        # Additional filtering step for ret_meter_cols
+        # Apply mask for ret_meter_cols for ids with solar panels
+        df.loc[mask_with_solar, ret_meter_cols] = df.loc[mask_with_solar, ret_meter_cols].where(lambda x: x >= min_valid_cum__kWh)
+    
+        # Apply mask for ret_meter_cols for ids without solar panels
+        df.loc[mask_without_solar, ret_meter_cols] = df.loc[mask_without_solar, ret_meter_cols].where(lambda x: (x >= min_valid_cum__kWh) | (x == 0))
+    
+        return df
+    
+    @staticmethod
+    @track_metadata
+    def filter_id_prop_with_std_zero(df: pd.DataFrame, col: str, inplace=True) -> pd.DataFrame:
+        """
+        Replace measurement values with NaN for an `id` in the `col` column
+        where the standard deviation (`std`) of the measurement values for that `id` is 0.
+    
+        in: df: pd.DataFrame with
+        - index = ['id', 'source', 'timestamp']
+          -- id: id of the unit studied (e.g. home / utility building / room)
+          -- source: device_type from the database
+          -- timestamp: timezone-aware timestamp
+        - columns = properties with measurement values
+        
+        out: pd.DataFrame with same structure as df
+        """
+    
+        if not len(df) or col not in df.columns:
+            return df
+    
+        df_result = df
+        if not inplace:
+            df_result = df.copy(deep=True)
+    
+        # Calculate the standard deviation per `id` for the specified column
+        std_per_id = df_result[col].groupby(level='id').std()
+    
+        # Find `id`s where the standard deviation is 0
+        ids_with_zero_std = std_per_id[std_per_id == 0].index
+    
+        # Set values to NaN for the identified `id`s
+        df_result.loc[df_result.index.get_level_values('id').isin(ids_with_zero_std), col] = np.nan
+    
+        return df_result
+
+    @staticmethod
+    @track_metadata
     def co2_baseline_adjustment(df: pd.DataFrame,
                                 col:str,
                                 co2_ext__ppm: int = 415,
@@ -120,6 +301,315 @@ class Preprocessor:
                     df_result.loc[(id_val, source), col] = (df_result.loc[(id_val, source), col] + baseline_adjustment__ppm).values
         return df_result
 
+    
+    @staticmethod
+    def encode_categorical_property_as_boolean_properties(df: pd.DataFrame, 
+                                                          property_to_encode: str,
+                                                          property_categories: str) -> pd.DataFrame:
+        """
+        Convert a categorical measurement to one or more dummy properties, each boolean.
+    
+        Parameters:
+        - df (DataFrame): DataFrame with measurements
+            - a multi-index consisting of
+            -- id: id of the unit studied (e.g. home / utility building / room) 
+            -- source_category: e.g. batch_import / cloud_feed / device
+            -- source_type: e.g. device_type from the database
+            -- timestamp: timezone-aware timestamp
+            -- property: property measured 
+            - column = 'value', with string representation of measurement value
+        - property_to_encode (str): Name of the property to convert.
+        - property_categories (dict): Translation table mapping categories to dummy property names.
+    
+        Returns:
+        - DataFrame: Modified DataFrame with only property_to_encode converted to dummy properties.
+        """
+    
+        # Extract values for the property to dummify
+        property_values = df.loc[df.index.get_level_values('property') == property_to_encode, 'value']
+    
+        # Convert to categorical data
+        property_values = property_values.astype('category')
+    
+        # Create binary measurement columns for each category
+        binary_columns = pd.get_dummies(property_values).astype(bool)
+
+        # Iterate over the columns and log unique values
+        for col in binary_columns.columns:
+            unique_values = binary_columns[col].unique()
+            logging.info(f"Unique values for column '{col}': {unique_values}")
+    
+        # Rename columns based on translation table
+        binary_columns.rename(columns=property_categories, inplace=True)
+    
+        # Add '__bool' suffix to column names
+        binary_columns.columns = [col.lower().replace(' ', '_') + '__bool' for col in binary_columns.columns]
+    
+        # Stack binary_columns DataFrame to create long format
+        stacked_df = binary_columns.stack()
+    
+        # Reset index to convert the MultiIndex to columns
+        stacked_df = stacked_df.reset_index()
+    
+        # Rename the measurement value column to 'value'
+        stacked_df.rename(columns={stacked_df.columns[-1]: 'value'}, inplace=True)
+
+        # Drop the 'property' column
+        stacked_df.drop(columns=['property'], inplace=True)
+
+        # Rename the second to last index level to 'property'
+        stacked_df.rename(columns={stacked_df.columns[-2]: 'property'}, inplace=True)
+        
+        # Rename the measurement value column to 'value'
+        stacked_df.rename(columns={0: 'value'}, inplace=True)
+    
+        # Set the index levels
+        index_levels = ['id', 'source_category', 'source_type', 'timestamp', 'property']
+        stacked_df.set_index(index_levels, inplace=True)
+    
+        # Convert values in the 'value' column from int to string
+        stacked_df['value'] = stacked_df['value'].astype(str)
+    
+        # Add the converted measurements to the original DataFrame
+        df = pd.concat([df, stacked_df])
+    
+        # Remove the measurements with 'property' equal to 'boiler_status__str' from df
+        df = df[df.index.get_level_values('property') != property_to_encode]
+    
+        return df
+
+    @staticmethod
+    def compute_calibration_factors(df_prop: pd.DataFrame,
+                                    prop: str,
+                                    source_type_to_calibrate: str,
+                                    reference_source_type: str,
+                                    min_measurements_per_day=20) -> pd.DataFrame:
+        """
+        Compute calibration corrections for a specific property based on two source types.
+    
+        Parameters:
+        -----------
+        df_prop_filtered : pandas.DataFrame
+            Filtered DataFrame containing only relevant property and specified source types.
+        prop : str
+            Name of the property (column) to calibrate.
+        source_type_to_calibrate : str
+            Source type whose measurements are to be calibrated.
+        reference_source_type : str
+            Source type used as the reference for calibration.
+        min_measurements_per_day : int, optional
+            Minimum number of measurements per day required for calibration, default is 20.
+    
+        Returns:
+        --------
+        df_corrections : pandas.DataFrame
+            DataFrame with corrections for mean and standard deviation scaling based on the specified source types.
+        """ 
+        df_prop_filtered = df_prop[[prop]].reset_index()
+        df_prop_filtered['date'] = df_prop_filtered['timestamp'].dt.date
+
+        df_prop_filtered = df_prop_filtered[df_prop_filtered['source_type'].isin([source_type_to_calibrate, reference_source_type])]
+        
+        counts = df_prop_filtered.groupby(['id', 'date', 'source_type']).size().reset_index(name='count')
+        counts = counts[counts['count'] >= min_measurements_per_day]
+
+        filtered_df = pd.merge(df_prop_filtered, counts[['id', 'date', 'source_type']], on=['id', 'date', 'source_type'])
+
+        pivoted_df = filtered_df.pivot_table(index=['id', 'date'], columns='source_type', values=prop, aggfunc=['mean', 'std'])
+        pivoted_columns = [f'{agg_func}_{source_type}' for agg_func, source_type in pivoted_df.columns]
+        pivoted_df.columns = pivoted_columns
+        pivoted_df = pivoted_df.reset_index()
+    
+        pivoted_df.dropna(subset=pivoted_columns, inplace=True)
+    
+        df_corrections = pivoted_df.groupby('id').mean().reset_index()
+
+        return df_corrections
+
+    @staticmethod
+    @track_metadata
+    def create_calibrated_property(df_prop: pd.DataFrame,
+                                   prop: str, 
+                                   source_type_to_calibrate: str, 
+                                   reference_source_type: str,
+                                   min_measurements_per_day=20) -> pd.DataFrame:
+        """
+        Perform calibration of measurements for a specific property based on two source types.
+    
+        Parameters:
+        -----------
+        df_prop : pandas.DataFrame
+            DataFrame with MultiIndex (id, source_category, source_type, timestamp) and properties as columns.
+        prop : str
+            Name of the property (column) to calibrate.
+        source_type_to_calibrate : str
+            Source type whose measurements are to be calibrated.
+        reference_source_type : str
+            Source type used as the reference for calibration.
+        min_measurements_per_day : int, optional
+            Minimum number of measurements per day required for calibration, default is 20.
+    
+        Returns:
+        --------
+        df_prop_final : pandas.DataFrame
+            Original DataFrame with calibrated measurements added as a new source type ('{source_type_to_calibrate}_calibrated').
+        """
+        df_corrections = Preprocessor.compute_calibration_factors(df_prop, 
+                                                                  prop, 
+                                                                  source_type_to_calibrate, 
+                                                                  reference_source_type, 
+                                                                  min_measurements_per_day)
+    
+        df_filtered = df_prop[df_prop.index.get_level_values('source_type') == source_type_to_calibrate][[prop]]
+        df_filtered = df_filtered.join(df_corrections.set_index('id')[
+                                       [f'mean_{source_type_to_calibrate}', 
+                                        f'std_{source_type_to_calibrate}', 
+                                        f'mean_{reference_source_type}', 
+                                        f'std_{reference_source_type}']], on='id')
+    
+        # Calculate Z-score using mean and std of source_type_to_calibrate
+        z_score = (df_filtered[prop] - df_filtered[f'mean_{source_type_to_calibrate}']) / df_filtered[f'std_{source_type_to_calibrate}']
+    
+        # Calculate calibrated property using mean and std of reference_source_type
+        df_filtered['prop_calibrated'] = (z_score
+                                          * df_filtered[f'std_{reference_source_type}']
+                                          + df_filtered[f'mean_{reference_source_type}'])
+    
+        df_filtered_calibrated = df_filtered.copy()
+        df_filtered_calibrated['source_type'] = f'{source_type_to_calibrate}_calibrated'
+        df_filtered_calibrated = (df_filtered_calibrated
+                                  .reset_index(level='source_type', drop=True)
+                                  .set_index('source_type', append=True))
+        df_filtered_calibrated = df_filtered_calibrated.drop(columns=[prop,
+                                                                      f'mean_{source_type_to_calibrate}',
+                                                                      f'std_{source_type_to_calibrate}',
+                                                                      f'mean_{reference_source_type}',
+                                                                      f'std_{reference_source_type}'])
+        df_filtered_calibrated = df_filtered_calibrated.rename(columns={'prop_calibrated': prop})
+    
+        df_filtered_calibrated = df_filtered_calibrated.reorder_levels(df_prop.index.names)
+    
+        df_prop_final = pd.concat([df_prop, df_filtered_calibrated])
+        return df_prop_final
+
+
+    
+    @staticmethod
+    def highlight_zero(val):
+        """
+        Highlight cells in a DataFrame with a zero value.
+        
+        Parameters:
+        -----------
+        val : any
+            The value to be checked.
+        
+        Returns:
+        --------
+        str
+            The background color for highlighting.
+        """
+        # Check if val is a Timedelta and compare appropriately
+        if pd.isna(val):
+            return ''
+        if isinstance(val, pd.Timedelta) and val == pd.Timedelta(0):
+            return 'background-color: lightcoral; color: red;'
+        # Handle other types of comparisons
+        elif val == 0 & (~pd.isna(val)):
+            return 'background-color: lightcoral; color: red;'
+        else:
+            return ''
+    
+    @staticmethod
+    def count_non_null_measurements(df: pd.DataFrame) -> pd.DataFrame:
+        """
+        Count non-null measurements per column and per id.
+        
+        Parameters:
+        -----------
+        df : pandas.DataFrame
+            DataFrame with a MultiIndex with levels id, source_category, source_type, timestamp, and measured properties in columns.
+        
+        Returns:
+        --------
+        pandas.DataFrame
+            DataFrame with counts of non-null measurements and total non-null values per id.
+        """
+        df_analysis = df.copy()
+        
+        df_analysis = df_analysis.unstack(level=['source_type'])
+        
+        df_analysis.index = df_analysis.index.droplevel(level='source_category')
+        
+        # Drop columns with all null values
+        df_analysis = df_analysis.dropna(axis=1, how='all')
+        
+        # Reorder levels and merge with an underscore
+        df_analysis.columns = df_analysis.columns.swaplevel(0,1)
+        df_analysis.columns = ['_'.join(col) for col in df_analysis.columns.values]
+        non_null_counts_per_col = df_analysis.groupby(level='id').count()
+        non_null_counts_per_col['total'] = non_null_counts_per_col.sum(axis=1)
+        return non_null_counts_per_col
+
+   
+    def calculate_covered_time(df: pd.DataFrame, max_interval=90*60, mandatory_props=None) -> pd.DataFrame:
+        """
+        Calculate the total covered time excluding large intervals.
+        
+        Parameters:
+        -----------
+        df : pandas.DataFrame
+            DataFrame with a MultiIndex with levels id, source_category, source_type, timestamp, and measured properties in columns.
+        max_interval : int, optional
+            Maximum interval in seconds to be considered for covered time, default is 90 minutes (5400 seconds).
+        mandatory_props : list of str, optional
+            List of mandatory properties (columns) that must have non-null values for an additional time covered calculation.
+            Each property should be prefixed with its respective source_type, e.g., ['living_room_temp_in__degC', 'remeha_temp_in__degC'].
+        
+        Returns:
+        --------
+        pandas.DataFrame
+            DataFrame with total covered time per id as Timedelta objects, and an additional column if mandatory properties are provided.
+        """
+        df_analysis = df.copy()
+        
+        df_analysis = df_analysis.unstack(level=['source_type'])
+        
+        df_analysis.index = df_analysis.index.droplevel(level='source_category')
+        
+        # Drop columns with all null values
+        df_analysis = df_analysis.dropna(axis=1, how='all')
+        
+        # Reorder levels and merge with an underscore
+        df_analysis.columns = df_analysis.columns.swaplevel(0,1)
+        df_analysis.columns = ['_'.join(col) for col in df_analysis.columns.values]
+        
+        # Sort DataFrame
+        df_analysis.sort_values(by=['id', 'timestamp'], inplace=True)
+    
+        # Calculate all_mandatory_props if provided
+        if mandatory_props:
+            df_analysis['all_mandatory_props'] = df_analysis[mandatory_props].notna().all(axis=1).replace(False, np.nan)
+    
+        def calculate_time_covered(group):
+            intervals = group.dropna().index.get_level_values('timestamp').to_series().diff()
+            valid_intervals = intervals[intervals <= pd.Timedelta(seconds=max_interval)]
+            return valid_intervals.sum()
+            
+        # Initialize an empty DataFrame to store covered time
+        covered_time = pd.DataFrame(index=df_analysis.index.get_level_values('id').unique())
+    
+        # Group by 'id' and calculate covered time for each property
+        for col in df_analysis.columns:
+            covered_time[col] = df_analysis.groupby('id')[col].apply(lambda x: calculate_time_covered(x))
+    
+        # Convert to Timedelta
+        covered_time = covered_time.apply(pd.to_timedelta, unit='s')
+        covered_time['total'] = covered_time.sum(axis=1)
+    
+        return covered_time
+    
+       
     @staticmethod
     def unstack_prop(df_prop: pd.DataFrame) -> pd.DataFrame:
         
@@ -141,67 +631,396 @@ class Preprocessor:
         df_prep = df_prop.unstack([1])
         df_prep.columns = df_prep.columns.swaplevel(0,1)
         df_prep.columns = ['_'.join(col) for col in df_prep.columns.values]
-        
+        df_prep = df_prep.dropna(axis=1, how='all')
+       
         return df_prep
 
     @staticmethod
+    def unstack_source_cat_and_type(df_prop: pd.DataFrame) -> pd.DataFrame:
+        
+        """
+        in: 
+        - df_prop (DataFrame): DataFrame with measurements
+            - a multi-index consisting of
+            -- id: id of the unit studied (e.g. home / utility building / room) 
+            -- source_category: e.g. batch_import / cloud_feed / device
+            -- source_type: e.g. device_type from the database
+            -- timestamp: timezone-aware timestamp
+            - columns = properties with measurement values
+       
+        out: pd.DataFrame with the source_category and source_type names prefixed to column names 
+       
+        """
+        df = df_prop.copy()
+        
+        # Merge source_category, source_type, and property into a single index level
+        df.index = df.index.map(lambda x: (x[0], x[1], f"{x[1]}_{x[2]}", x[3]))
+        
+        # Drop the first two levels and rename the last two
+        df.index = df.index.droplevel([1])
+        
+        df.index.names = ['id', 'source', 'timestamp'] 
+        
+        # Check for duplicates in the index after merging
+        duplicate_entries = df.index.duplicated().any()
+
+        if duplicate_entries:
+            print("Duplicate entries found in the index after merging. Handled mby taking the average.")
+            df = df.groupby(['timestamp', 'source'])['value'].mean()
+        
+        df_prep = df.unstack('source')
+        df_prep.columns = df_prep.columns.swaplevel(0,1)
+        df_prep.columns = ['_'.join(col) for col in df_prep.columns.values]
+        df_prep = df_prep.dropna(axis=1, how='all')
+        
+        return df_prep
+
+
+    @staticmethod
+    def analyze_intervals(df_prop, default_limit__min=90, property_limits=None, interpolate__min=5):
+        """
+        Analyzes the intervals of properties in the given DataFrame.
+        
+        Parameters:
+        - df_prop: DataFrame with a MultiIndex consisting of ['id', 'source_category', 'source_type'].
+        - default_limit__min: Default limit in minutes used for interval analysis.
+        - property_limits: Dictionary specifying custom limits for specific properties.
+        - interpolate__min: Minimum interpolation interval in minutes.
+
+        Returns:
+        - df_intervals: DataFrame with interval analysis results, indexed by ['id', 'source_category', 'source_type', 'property'].
+        """
+        if property_limits is None:
+            property_limits = {}
+        
+        df_prop = df_prop.sort_index()
+
+        # Initialize an empty list to store the results
+        intervals = []
+
+        # Iterate over unique 'id' values
+        for id_value in tqdm(df_prop.index.get_level_values('id').unique()):
+            for cat_value in df_prop.loc[id_value].index.get_level_values('source_category').unique():
+                for type_value in df_prop.loc[(id_value, cat_value)].index.get_level_values('source_type').unique():
+                    df_source = df_prop.loc[(id_value, cat_value, type_value), :]
+                    if not len(df_source):
+                        continue
+                    for col in df_source.columns:
+                        numcolvalues = df_source[col].count()
+                        if numcolvalues <= 2:
+                            if numcolvalues > 0:
+                                intervals.append({
+                                    'id': id_value,
+                                    'source_category': cat_value,
+                                    'source_type': type_value,
+                                    'property': col,
+                                    'status': 'Ignoring',
+                                    'numcolvalues': numcolvalues
+                                })
+                            continue
+                        else:
+                            modal_intv__min = int((df_source[col]
+                                                   .dropna()
+                                                   .index.to_series()
+                                                   .diff()
+                                                   .dropna()
+                                                   .dt.total_seconds() / 60
+                                                  )
+                                                  .round()
+                                                  .mode()
+                                                  .iloc[0]
+                                                 )
+
+                            limit__min = property_limits.get(col, default_limit__min)
+
+                            # Calculate the greatest common divisor of the modal interval, the desired interval and the limit
+                            # Also ensure the interval is at least 1 minute
+                            upsample__min = max(1, math.gcd(math.gcd(modal_intv__min, interpolate__min), limit__min))
+
+                            limit = max((limit__min // upsample__min) - 1, 1)
+
+                            # Append the processing intervals to the list
+                            intervals.append({
+                                'id': id_value,
+                                'source_category': cat_value,
+                                'source_type': type_value,
+                                'property': col,
+                                'status': 'Processing',
+                                'len_df_source_col': len(df_source[col]),
+                                'df_source_col_count': df_source[col].count(),
+                                'df_source_col_dtype': df_source[col].dtype,
+                                'modal_intv__min': modal_intv__min,
+                                'limit__min': limit__min, 
+                                'upsample__min': upsample__min,
+                                'interpolate__min': interpolate__min,
+                                'limit': limit
+                            })
+
+        # Convert the list of dictionaries to a DataFrame
+        df_intervals = pd.DataFrame(intervals).set_index(['id', 'source_category', 'source_type', 'property'])
+        
+        return df_intervals
+    
+    
+    @staticmethod
     def interpolate_time(df_prop: pd.DataFrame,
-                         property_dict = None,
-                         upsample__min = 5,
-                         interpolate__min = 15,
-                         limit__min = 60,
-                         inplace=False
-                        ) -> pd.DataFrame:
+                         default_limit__min = 90,
+                         property_limits: dict = None,
+                         interpolate__min: int = 5,
+                         restore_original_types: bool = False,
+                         inplace: bool = False) -> pd.DataFrame:
+
+        if property_limits is None:
+            property_limits = {}
+
+        if not isinstance(df_prop.index, pd.MultiIndex):
+            raise ValueError("Input DataFrame df_prop must have a MultiIndex.")
+
+        expected_levels = ['id', 'source_category', 'source_type', 'timestamp']
+        if not all(level in df_prop.index.names for level in expected_levels):
+            raise ValueError(f"Input DataFrame df_prop must have MultiIndex levels: {expected_levels}.")
+
+        df_prop = df_prop.sort_index()
+        df_result = pd.DataFrame() # Initialize an empty DataFrame 
         
-        """
-        Interpolate a DataFrame by resampling first to upsample_min intervals,
-        then interpolating to interpolate__min minutes using linear interpolation,
-        while making sure not to bridge gaps larger than limin__min minutes,
-        then resampling using interpolate__min
-        The final dataframe has column datatypes as indicated in the property_types dictionary
+        for id_value in tqdm(df_prop.index.get_level_values('id').unique()):
+            logging.info(f"\nProcessing id: {id_value}")
+            for cat_value in df_prop.loc[id_value].index.get_level_values('source_category').unique():
+                for type_value in df_prop.loc[(id_value, cat_value)].index.get_level_values('source_type').unique():
+                    df_source = df_prop.loc[(id_value, cat_value, type_value), :]
+                    df_result_id_cat_type = pd.DataFrame()  # Initialize an empty DataFrame for the current id, cat and type
+                    if not len(df_source):
+                        continue
+                    if not inplace:
+                        df_source = df_source.copy()
+                    for col in df_source.columns:
+                        logging.info(f"\nProcessing category/type/col: {cat_value}/{type_value}/{col}")
+                        logging.info(f"\nProcessing : ")
+
+                        logging.info(f"len(df_source[col]): {len(df_source[col])}")
+                        logging.info(f"df_source[col].count(): {df_source[col].count()}")
+                        logging.info(f"df_source[col].dtype: {df_source[col].dtype}")
+
+                        df_resultcol = pd.DataFrame() #  # Initialize an empty DataFrame 
+
+                        numcolvalues = df_source[col].count()
+
+                        if numcolvalues <= 2:
+                            if numcolvalues >0:
+                                print(f"\nIgnoring ({numcolvalues}) values for category/type/col: {cat_value}/{type_value}/{col}")
+                            logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                        else: 
+                            #Calculate most occuring interval (when rounded to minutes)
+                            modal_intv__min = int((df_source[col]
+                                                   .dropna()
+                                                   .index.to_series()
+                                                   .diff()
+                                                   .dropna()
+                                                   .dt.total_seconds() / 60
+                                                  )
+                                                  .round()
+                                                  .mode()
+                                                  .iloc[0]
+                                                 )
+                            
+                            limit__min = property_limits.get(col, default_limit__min)
+                            
+                            # Calculate the greatest common divisor of the modal interval, the desired interval and the limit
+                            # Also ensure the interval is at least 1 minute
+                            upsample__min = max(1, math.gcd(math.gcd(modal_intv__min, interpolate__min), limit__min))
+ 
+                            limit = max((limit__min // upsample__min) - 1, 1)
         
-        in: df_prop: pd.DataFrame with
-        - index = ['id', 'source', 'timestamp']
-        -- id: id of the unit studied (e.g. home / utility building / room) 
-        -- source: device_type from the database
-        -- timestamp: timezone-aware timestamp
-        - columns = properties with measurement values
-       
-        out: pd.DataFrame with same structure as df_prop 
-       
-        """
-        lim = (limit__min - 1) // upsample__min
-        df_result = pd.DataFrame()
-        for id in tqdm(df_prop.index.unique('id').dropna()):
-            for source in df_prop.loc[id].index.unique('source').dropna():
-                df_interpolated = df_prop.loc[id, source,:]
-                if not len(df_interpolated):
-                    continue
-                if not inplace:
-                    df_interpolated = df_interpolated.copy(deep=True)
-                df_interpolated = (df_interpolated
-                             .resample(str(upsample__min) + 'T')
-                             .first()
-                             .astype('float32')
-                             .interpolate(method='time', limit=lim)
-                             .resample(str(interpolate__min) + 'T').mean()
-                            )
-                df_interpolated['id'] = id
-                df_interpolated['source'] = source
-                df_result = pd.concat([df_result, df_interpolated.reset_index().set_index(['id','source','timestamp'])])
+                            logging.info(f"upsample to: {str(upsample__min) + 'T'}")
+                            logging.info(f"resample to: {str(interpolate__min) + 'T'}")
+                            logging.info(f"max number of fills: {limit}")
+                            
+
+                            if df_source[col].dtype in ['float64', 'Float64']:
+                                logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                                df_resultcol = (df_source[col]
+                                                .astype('float64')
+                                                .resample(str(upsample__min) + 'T')
+                                                .first()
+                                                .interpolate(method='time', limit=limit)
+                                                .resample(str(interpolate__min) + 'T')
+                                                .mean()
+                                                .to_frame(name=col)
+                                               ) 
+                            elif df_source[col].dtype in ['boolean', 'Int16', 'Int8', 'Float16', 'Float32']:
+                                logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                                df_resultcol = (df_source[col]
+                                                .astype('float64')
+                                                .resample(str(upsample__min) + 'T')
+                                                .first()
+                                                .interpolate(method='time', limit=limit)
+                                                .resample(str(interpolate__min) + 'T')
+                                                .mean()
+                                                .to_frame(name=col)
+                                               ) 
+                            elif df_source[col].dtype in ['object', 'string']:
+                                logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                                df_resultcol = (df_source[col]
+                                                .resample(str(upsample__min) + 'T')
+                                                .first()
+                                                .ffill(limit=limit)
+                                                .resample(str(interpolate__min) + 'T')
+                                                .first()
+                                                .to_frame(name=col)
+                                               ) 
+                            else:
+                                logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
+                                print(f"\nSpecial dtype ({df_source[col].dtype}) found for category/type/col: {cat_value}/{type_value}/{col}")
+                                df_resultcol = (df_source[col]
+                                                .resample(str(upsample__min) + 'T')
+                                                .first()
+                                                .ffill(limit=limit)
+                                                .resample(str(interpolate__min) + 'T')
+                                                .first()
+                                                .to_frame(name=col)
+                                               ) 
+
+ 
+                            logging.info(f"df_resultcol.columns: {df_resultcol.columns}")
+                            logging.info(f"df_resultcol[col].dtype: {df_resultcol[col].dtype}")
+                            logging.info(f"len(df_resultcol[col]: {len(df_resultcol[col])}")
+                            logging.info(f"df_resultcol[col].count(): {df_resultcol[col].count()}")
+                            buffer = io.StringIO()
+                            df_resultcol.info(buf=buffer)
+                            logging.info(f"df_resultcol.info(): {buffer.getvalue()}")
+                            logging.info(f"df_resultcol.count(): {df_resultcol.count()}")
+
+                        # After iterpolating each column
+                        if not df_resultcol.empty:
+                            # Concatenate df_resultcol to df_source_type horizontally
+                            df_result_id_cat_type = pd.concat([df_result_id_cat_type, df_resultcol], axis=1)
+                        else:
+                            logging.info("df_resultcol.empty is True")
+
+                        buffer = io.StringIO()
+                        df_result_id_cat_type.info(buf=buffer)
+                        logging.info(f"df_result_id_cat_type.info(): {buffer.getvalue()}")
+                        logging.info(f"df_result_id_cat_type.count(): {df_result_id_cat_type.count()}")
+
+                    # After processing all columns of a source_type
+                    if not df_result_id_cat_type.empty:
+                        df_result_id_cat_type['id'] = id_value
+                        df_result_id_cat_type['source_category'] = cat_value
+                        df_result_id_cat_type['source_type'] = type_value
+                        buffer = io.StringIO()
+                        df_result_id_cat_type.info(buf=buffer)
+                        logging.info(f"df_result_id_cat_type.info(): {buffer.getvalue()}")
+                        df_result = pd.concat([df_result, df_result_id_cat_type.reset_index()], axis=0)
+                    else:
+                        logging.info("df_result_id_cat_type.empty is True")
+
+                        buffer = io.StringIO()
+                    df_result.info(buf=buffer)
+                    logging.info(f"df_result.info(): {buffer.getvalue()}")
+                    logging.info(f"df_result.count(): {df_result.count()}")
+
+                # After processing all source_types of a source_category
         
-        df_result = df_result.sort_index()                  
-        for col in df_result.columns:
-            # match property_dict[col]:
-            #     case 'int'| 'Int8' | 'Int16' | 'Int32'| 'Int64' | 'UInt8' | 'UInt16' | 'UInt32' | 'UInt64':
-            #         df_result[col] = df_result[col].round(0).astype(property_dict[col])
-            #     case 'float' | 'float32' | 'float64':
-            #         df_result[col] = df_result[col].astype(property_dict[col])
-            if property_dict[col] in ['int', 'Int8', 'Int16', 'Int32', 'Int64', 'UInt8', 'UInt16', 'UInt32', 'UInt64']:
-                    df_result[col] = df_result[col].round(0).astype(property_dict[col])
-            elif property_dict[col] in ['float', 'float32', 'float64']:
-                    df_result[col] = df_result[col].astype(property_dict[col])
+            # After processing all source_categories of an id
+        
+        # After processing all ids
+        # Pivot the result DataFrame to have properties as columns
+        df_result = df_result.set_index(['id', 'source_category', 'source_type', 'timestamp']).sort_index()
+
+        if restore_original_types:
+            for col in df_result.columns:
+                original_dtype = df_prop[col].dtype
+                if original_dtype == 'boolean':
+                    df_result[col] = df_result[col].round().astype('Int32').astype('boolean')
+                elif original_dtype in ['Int16', 'Int8']:
+                    df_result[col] = df_result[col].round().astype(original_dtype)
+                elif original_dtype in ['Float16', 'Float32', 'Float64']:
+                    df_result[col] = df_result[col].astype(original_dtype)
+                elif original_dtype in ['object', 'string']:
+                    df_result[col] = df_result[col].astype(original_dtype)
+
         return df_result
+ 
+    @staticmethod
+    def get_consistent_interval(df):
+        # Check frequency for each id
+        frequencies = df.groupby(level='id').apply(lambda group: pd.infer_freq(group.index.get_level_values('timestamp')))
+        
+        # Check if all frequencies are the same
+        if frequencies.nunique() == 1:
+            interval = pd.to_timedelta(frequencies.iloc[0])
+            return interval
+        else:
+            return None
+
+    
+    @staticmethod
+    def calculate_streak_durations(df_prep, properties_include=None, properties_exclude=None):
+        
+        if properties_include is not None:
+            properties = properties_include
+        else:
+            properties = df_prep.columns
+    
+        if properties_exclude is not None:
+            properties = list(set(properties) - set(properties_exclude))
+                
+        df_streaks = df_prep[properties].notnull().all(axis=1).to_frame(name='data_available__bool')
+    
+        consistent_interval = Preprocessor.get_consistent_interval(df_prep)
+    
+        # Calculate interval durations based on the detected frequency
+        if consistent_interval:
+            df_streaks['interval_duration__s'] = consistent_interval.total_seconds()
+        else:
+            df_streaks['interval_duration__s'] = (df_streaks
+                                                  .index
+                                                  .get_level_values('timestamp')
+                                                  .to_series()
+                                                  .diff()
+                                                  .shift(-1)
+                                                  .dt
+                                                  .total_seconds()
+                                                  .fillna(0)
+                                                  .astype(int))
+    
+        # Identify streaks using cumulative sum of changes in availability
+        df_streaks['streak_id'] = df_streaks['data_available__bool'].ne(df_streaks['data_available__bool'].shift()).cumsum()
+    
+        # Set interval_duration__s to 0.0 where data_available__bool is False
+        df_streaks.loc[~df_streaks['data_available__bool'], 'interval_duration__s'] = 0.0
+    
+    
+        # Calculate the cumulative duration for each streak and convert to Timedelta directly
+        df_streaks['streak_cumulative_duration'] = pd.to_timedelta(df_streaks.groupby('streak_id')['interval_duration__s'].cumsum(), unit='s')
+    
+    
+        # Filter to keep only the final cumulative duration for each streak where data_available__bool is True
+        streak_durations = (df_streaks[df_streaks['data_available__bool']]
+                            .groupby(['id', 'streak_id'])['streak_cumulative_duration']
+                            .last()
+                            .reset_index(level='streak_id'))
+    
+        # Define bins and bin labels
+        bins = [pd.Timedelta(minutes=1),  # Convert Timedelta to seconds
+                pd.Timedelta(hours=1),
+                pd.Timedelta(days=1),
+                pd.Timedelta(weeks=1),
+                pd.Timedelta(days=30),
+                pd.Timedelta(days=100000)]  # last is large number to represent infinity
+        
+        bin_labels = ['[1T, 1H)', '[1H, 1D)', '[1D, 1W)', '[1W, 1M)', '[1M, inf)']
+        
+        pd.cut(df_streaks['streak_cumulative_duration'], bins=bins, labels=bin_labels)
+        
+        # Categorize streak durations into bins
+        streak_durations['duration_bin'] = pd.cut(streak_durations['streak_cumulative_duration'], bins=bins, labels=bin_labels)
+        
+        # Group by id and duration_bin, then sum the streak durations
+        df_result = streak_durations.groupby(['id', 'duration_bin'])['streak_cumulative_duration'].sum().unstack(level='duration_bin')
+                
+        return df_result
+
     
     @staticmethod
     def preprocess_room_data(df_prop: pd.DataFrame,
@@ -272,7 +1091,144 @@ class Preprocessor:
 
         return Preprocessor.merge_weather_data_nl(df_prep, lat, lon, interpolate__min, timezone_ids)
 
+    
+    @staticmethod
+    def convert_cumulative_to_avg_power(df_prep, props, heating_value__MJ_m_3, heating_value_name__str) -> pd.DataFrame:
+        """
+        Convert cumulative smart meter values to average energy flows.
+    
+        Parameters:
+        df_prep (pd.DataFrame): DataFrame with a MultiIndex (id, timestamp) containing cumulative meter readings.
+        props (list of str): List of column names to be converted. These should end with '_cum__kWh' or '_cum__m3'.
+        heating_value__MJ_m_3 (float): Heating value in MJ/m^3 used to convert gas volumes to energy.
+        heating_value_name__str (str): String to be used in the renamed property. Typically 'hhv' for higher heating value or 'lhv' for lower heating value.
+    
+        Returns:
+        pd.DataFrame: DataFrame with new columns containing the average power in the interval.
+    
+        Example usage:
+        df_prep = convert_cumulative_to_avg_power(df_prep, props=['e_use_cum__kWh', 'e_ret_cum__kWh', 'g_use_cum__m3'], 
+                                             heating_value__MJ_m_3=35.17, 
+                                             heating_value_name__str='hhv')
+        """        
+        # Ensure timestamp is sorted for each id
+        df_prep = df_prep.sort_index(level=['id', 'timestamp'])
+        
+        # Check for consistent interval
+        consistent_interval = Preprocessor.get_consistent_interval(df_prep)
 
+        # constants
+        s_min_1 = 60 # seconds per minute
+        min_h_1 = 60 # minutes per hour
+        s_h_1 = s_min_1 * min_h_1 # seconds per hour
+        W_kW_1 = 1e3 # Watts per kiloWatt
+        J_MJ_1 = 1e6 # Joules per MegaJoule
+        
+        for prop in tqdm(props):
+            # Check for the type of property (kWh or m3)
+            if prop.endswith('_cum__kWh'):
+                new_prop = prop.replace('_cum__kWh', '__W')
+                conversion_factor = s_h_1 * W_kW_1  # Joules (Ws) per kWh
+            elif prop.endswith('_cum__m3'):
+                new_prop = prop.replace('_cum__m3', f'_{heating_value_name__str}__W')
+                conversion_factor = heating_value__MJ_m_3 * J_MJ_1  # Joules per m^3
+            else:
+                continue  # Skip properties not matching the expected suffixes
+    
+            # Initialize the new property column with NaN values
+            df_prep[new_prop] = np.nan
+    
+            if consistent_interval:
+                # Vectorized calculation if interval is consistent
+                meter_value_diffs = df_prep[prop].diff() * conversion_factor
+                avg_power = meter_value_diffs / consistent_interval.total_seconds()
+                
+                # Filter out negative values and handle the last interval for each id
+                avg_power[avg_power < 0] = np.nan  # Set negative values to NaN
+                
+                # Apply avg_power values to df_prep using pandas operations
+                mask = df_prep.index.get_level_values('id').duplicated(keep='last')
+                df_prep.loc[mask, new_prop] = avg_power[mask]
+            else:
+                # Non-vectorized calculation if interval is not consistent
+                grouped = df_prep.groupby(level='id')
+                for name, group in grouped:
+                    time_diffs = group.index.get_level_values('timestamp').to_series().diff().dt.total_seconds().fillna(0).values
+                    meter_value_diffs = group[prop].diff().fillna(0).values * conversion_factor
+                    avg_power = np.divide(meter_value_diffs[1:], time_diffs[1:], out=np.zeros_like(meter_value_diffs[1:]), where=time_diffs[1:] != 0)
+                    avg_power = np.where(avg_power < 0, np.nan, avg_power)
+                    df_prep.loc[group.index[1:], new_prop] = avg_power
+        
+        return df_prep
+    
+
+
+    
+    @staticmethod
+    def convert_enelogic_excel_to_measurements(file_path: str, tz='Europe/Amsterdam') -> pd.DataFrame:
+
+        # Read the Excel file
+        try:
+            df = pd.read_excel(file_path)
+            print("File was successfully read without specifying compression codec.")
+        except Exception as e:
+            print(f"Error reading file: {e}")
+
+        # Function to map rate codes to property names
+        def map_rate_to_property(rate):
+            return {
+                180: 'g_use_monthly_cum__m3',
+                181: 'e_use_monthly_hi_cum__kWh',
+                182: 'e_use_monthly_lo_cum__kWh',
+                281: 'e_ret_monthly_hi_cum__kWh',
+                282: 'e_ret_monthly_lo_cum__kWh'
+            }.get(rate, None)
+        
+        # Initialize lists to store transformed data
+        ids = []
+        source_categories = []
+        source_types = []
+        timestamps = []
+        properties = []
+        values = []
+        
+        # Iterate over the rows of the DataFrame
+        for _, row in df.iterrows():
+            pseudonym = int(row['pseudonym'])
+            print(f'processing id: {pseudonym}')
+            for col in df.columns[1:]:
+                try:
+                    json_data = json.loads(row[col])
+                except (TypeError, json.JSONDecodeError) as e:
+                    print(f"Skipping pseudonym {pseudonym} due to error: {e}")
+                    continue
+                for entry in json_data:
+                    if not isinstance(entry, dict):
+                        print(f"Unexpected entry format for pseudonym {pseudonym}, column {col}: {entry}")
+                        continue
+        
+                    rate = entry.get('rate')
+                    property_name = map_rate_to_property(rate)
+                    if property_name:
+                        timestamp = pytz.timezone(tz).localize(
+                            datetime.strptime(entry['date'], "%Y-%m-%d %H:%M:%S")
+                        )
+                        ids.append(pseudonym)
+                        source_categories.append('batch_import')
+                        source_types.append('enelogic')
+                        timestamps.append(timestamp)
+                        properties.append(property_name)
+                        values.append(entry['quantity'])
+        
+        # Create the DataFrame
+        multi_index = pd.MultiIndex.from_arrays(
+            [ids, source_categories, source_types, timestamps, properties],
+            names=('id', 'source_category', 'source_type', 'timestamp', 'property')
+        )
+        
+        result_df = pd.DataFrame({'value': values}, index=multi_index)
+
+        return result_df
     
     @staticmethod
     def merge_weather_data_nl(df_prep: pd.DataFrame,
