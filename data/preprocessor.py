@@ -6,6 +6,7 @@ import pytz
 import math
 import logging
 import io
+import json
 from datetime import datetime, timedelta
 from extractor import WeatherExtractor
 
@@ -65,7 +66,12 @@ def track_metadata(func):
                 'measurements_deleted', 'ids_before', 'ids_after', 'ids_deleted',
                 'properties_before', 'properties_after', 'filtered_properties'
             ])
+
+        # Check if 'col' is in kwargs or as the second positional argument
         col = kwargs.get('col', '')
+        if not col and len(args) > 1:
+            col = args[1]
+
         params = {k: v for k, v in kwargs.items() if k != 'meta_df'}
         meta_df = update_metadata(meta_df, func.__name__, params, df_before, result, col)
         return result, meta_df
@@ -297,7 +303,6 @@ class Preprocessor:
 
     
     @staticmethod
-    @track_metadata
     def encode_categorical_property_as_boolean_properties(df: pd.DataFrame, 
                                                           property_to_encode: str,
                                                           property_categories: str) -> pd.DataFrame:
@@ -487,27 +492,34 @@ class Preprocessor:
         df_prop_final = pd.concat([df_prop, df_filtered_calibrated])
         return df_prop_final
 
+
     
     @staticmethod
-    def highlight_specific_value(val, specific_value=0):
+    def highlight_zero(val):
         """
-        Highlight cells in a DataFrame with a specific value.
+        Highlight cells in a DataFrame with a zero value.
         
         Parameters:
         -----------
         val : any
             The value to be checked.
-        specific_value : any
-            The value to be highlighted, default is 0.
         
         Returns:
         --------
         str
             The background color for highlighting.
         """
-        color = 'red' if val == specific_value else ''
-        return f'background-color: {color}'
-
+        # Check if val is a Timedelta and compare appropriately
+        if pd.isna(val):
+            return ''
+        if isinstance(val, pd.Timedelta) and val == pd.Timedelta(0):
+            return 'background-color: lightcoral; color: red;'
+        # Handle other types of comparisons
+        elif val == 0 & (~pd.isna(val)):
+            return 'background-color: lightcoral; color: red;'
+        else:
+            return ''
+    
     @staticmethod
     def count_non_null_measurements(df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -540,8 +552,7 @@ class Preprocessor:
         return non_null_counts_per_col
 
    
-    @staticmethod
-    def calculate_covered_time(df: pd.DataFrame, max_interval=90*60, unit='days', mandatory_props=None) -> pd.DataFrame:
+    def calculate_covered_time(df: pd.DataFrame, max_interval=90*60, mandatory_props=None) -> pd.DataFrame:
         """
         Calculate the total covered time excluding large intervals.
         
@@ -551,8 +562,6 @@ class Preprocessor:
             DataFrame with a MultiIndex with levels id, source_category, source_type, timestamp, and measured properties in columns.
         max_interval : int, optional
             Maximum interval in seconds to be considered for covered time, default is 90 minutes (5400 seconds).
-        unit : str, optional
-            Unit of time to return the covered time in. Options are 'seconds', 'minutes', 'hours', 'days'. Default is 'days'.
         mandatory_props : list of str, optional
             List of mandatory properties (columns) that must have non-null values for an additional time covered calculation.
             Each property should be prefixed with its respective source_type, e.g., ['living_room_temp_in__degC', 'remeha_temp_in__degC'].
@@ -560,7 +569,7 @@ class Preprocessor:
         Returns:
         --------
         pandas.DataFrame
-            DataFrame with total covered time per id, in the specified unit, and additional column if mandatory properties are provided.
+            DataFrame with total covered time per id as Timedelta objects, and an additional column if mandatory properties are provided.
         """
         df_analysis = df.copy()
         
@@ -577,39 +586,30 @@ class Preprocessor:
         
         # Sort DataFrame
         df_analysis.sort_values(by=['id', 'timestamp'], inplace=True)
-
+    
         # Calculate all_mandatory_props if provided
         if mandatory_props:
             df_analysis['all_mandatory_props'] = df_analysis[mandatory_props].notna().all(axis=1).replace(False, np.nan)
-
+    
         def calculate_time_covered(group):
-            intervals = group.dropna().index.get_level_values('timestamp').to_series().diff().dt.total_seconds()
-            valid_intervals = intervals[intervals <= max_interval]
+            intervals = group.dropna().index.get_level_values('timestamp').to_series().diff()
+            valid_intervals = intervals[intervals <= pd.Timedelta(seconds=max_interval)]
             return valid_intervals.sum()
             
         # Initialize an empty DataFrame to store covered time
         covered_time = pd.DataFrame(index=df_analysis.index.get_level_values('id').unique())
-
+    
         # Group by 'id' and calculate covered time for each property
         for col in df_analysis.columns:
             covered_time[col] = df_analysis.groupby('id')[col].apply(lambda x: calculate_time_covered(x))
-
-        # Convert to the desired unit
-        unit_conversion = {
-            'seconds': 1,
-            'minutes': 60,
-            'hours': 3600,
-            'days': 86400
-        }
-
-        if unit not in unit_conversion:
-            raise ValueError(f"Invalid unit '{unit}'. Choose from 'seconds', 'minutes', 'hours', 'days'.")
-
-        covered_time /= unit_conversion[unit]
+    
+        # Convert to Timedelta
+        covered_time = covered_time.apply(pd.to_timedelta, unit='s')
         covered_time['total'] = covered_time.sum(axis=1)
-
+    
         return covered_time
-   
+    
+       
     @staticmethod
     def unstack_prop(df_prop: pd.DataFrame) -> pd.DataFrame:
         
@@ -674,9 +674,137 @@ class Preprocessor:
         df_prep = df_prep.dropna(axis=1, how='all')
         
         return df_prep
+
+
+    @staticmethod
+    def analyze_intervals(df_prop, default_limit__min=90, property_limits=None, interpolate__min=5):
+        """
+        Analyzes the intervals of properties in the given DataFrame.
+        
+        Parameters:
+        - df_prop: DataFrame with a MultiIndex consisting of ['id', 'source_category', 'source_type'].
+        - default_limit__min: Default limit in minutes used for interval analysis.
+        - property_limits: Dictionary specifying custom limits for specific properties.
+        - interpolate__min: Minimum interpolation interval in minutes.
+
+        Returns:
+        - df_intervals: DataFrame with interval analysis results, indexed by ['id', 'source_category', 'source_type', 'property'].
+        """
+        if property_limits is None:
+            property_limits = {}
+        
+        df_prop = df_prop.sort_index()
+
+        # Initialize an empty list to store the results
+        intervals = []
+
+        # Iterate over unique 'id' values
+        for id_value in tqdm(df_prop.index.get_level_values('id').unique()):
+            for cat_value in df_prop.loc[id_value].index.get_level_values('source_category').unique():
+                for type_value in df_prop.loc[(id_value, cat_value)].index.get_level_values('source_type').unique():
+                    df_source = df_prop.loc[(id_value, cat_value, type_value), :]
+                    if not len(df_source):
+                        continue
+                    for col in df_source.columns:
+                        numcolvalues = df_source[col].count()
+                        if numcolvalues <= 2:
+                            if numcolvalues > 0:
+                                intervals.append({
+                                    'id': id_value,
+                                    'source_category': cat_value,
+                                    'source_type': type_value,
+                                    'property': col,
+                                    'status': 'Ignoring',
+                                    'numcolvalues': numcolvalues
+                                })
+                            continue
+                        else:
+                            modal_intv__min = int((df_source[col]
+                                                   .dropna()
+                                                   .index.to_series()
+                                                   .diff()
+                                                   .dropna()
+                                                   .dt.total_seconds() / 60
+                                                  )
+                                                  .round()
+                                                  .mode()
+                                                  .iloc[0]
+                                                 )
+
+                            limit__min = property_limits.get(col, default_limit__min)
+
+                            # Calculate the greatest common divisor of the modal interval, the desired interval and the limit
+                            # Also ensure the interval is at least 1 minute
+                            upsample__min = max(1, math.gcd(math.gcd(modal_intv__min, interpolate__min), limit__min))
+
+                            limit = max((limit__min // upsample__min) - 1, 1)
+
+                            # Append the processing intervals to the list
+                            intervals.append({
+                                'id': id_value,
+                                'source_category': cat_value,
+                                'source_type': type_value,
+                                'property': col,
+                                'status': 'Processing',
+                                'len_df_source_col': len(df_source[col]),
+                                'df_source_col_count': df_source[col].count(),
+                                'df_source_col_dtype': df_source[col].dtype,
+                                'modal_intv__min': modal_intv__min,
+                                'limit__min': limit__min, 
+                                'upsample__min': upsample__min,
+                                'interpolate__min': interpolate__min,
+                                'limit': limit
+                            })
+
+        # Convert the list of dictionaries to a DataFrame
+        df_intervals = pd.DataFrame(intervals).set_index(['id', 'source_category', 'source_type', 'property'])
+        
+        return df_intervals
+    
+    
+    @staticmethod
+    def unstack_source_cat_and_type(df_prop: pd.DataFrame) -> pd.DataFrame:
+        
+        """
+        in: 
+        - df_prop (DataFrame): DataFrame with measurements
+            - a multi-index consisting of
+            -- id: id of the unit studied (e.g. home / utility building / room) 
+            -- source_category: e.g. batch_import / cloud_feed / device
+            -- source_type: e.g. device_type from the database
+            -- timestamp: timezone-aware timestamp
+            - columns = properties with measurement values
+       
+        out: pd.DataFrame with the source_category and source_type names prefixed to column names 
+       
+        """
+        df = df_prop.copy()
+        
+        # Merge source_category, source_type, and property into a single index level
+        df.index = df.index.map(lambda x: (x[0], x[1], f"{x[1]}_{x[2]}", x[3]))
+        
+        # Drop the first two levels and rename the last two
+        df.index = df.index.droplevel([1])
+        
+        df.index.names = ['id', 'source', 'timestamp'] 
+        
+        # Check for duplicates in the index after merging
+        duplicate_entries = df.index.duplicated().any()
+
+        if duplicate_entries:
+            print("Duplicate entries found in the index after merging. Handled mby taking the average.")
+            df = df.groupby(['timestamp', 'source'])['value'].mean()
+        
+        df_prep = df.unstack('source')
+        df_prep.columns = df_prep.columns.swaplevel(0,1)
+        df_prep.columns = ['_'.join(col) for col in df_prep.columns.values]
+        df_prep = df_prep.dropna(axis=1, how='all')
+        
+        return df_prep
         
     @staticmethod
     def interpolate_time(df_prop: pd.DataFrame,
+                         default_limit__min = 90,
                          property_limits: dict = None,
                          interpolate__min: int = 5,
                          restore_original_types: bool = False,
@@ -684,8 +812,6 @@ class Preprocessor:
 
         if property_limits is None:
             property_limits = {}
-
-        default_limit_min = 90
 
         if not isinstance(df_prop.index, pd.MultiIndex):
             raise ValueError("Input DataFrame df_prop must have a MultiIndex.")
@@ -737,30 +863,14 @@ class Preprocessor:
                                                   .iloc[0]
                                                  )
                             
-                            limit__min = property_limits.get(col, default_limit_min)
+                            limit__min = property_limits.get(col, default_limit__min)
                             
-                            # upsample__min = max(1, min(modal_intv__min, limit__min))
-
-                            # Calculate the greatest common divisor of the modal interval and the limit, and ensure the interval is at least 1 minute
-                            upsample__min = max(1, math.gcd(modal_intv__min, limit__min))
+                            # Calculate the greatest common divisor of the modal interval, the desired interval and the limit
+                            # Also ensure the interval is at least 1 minute
+                            upsample__min = max(1, math.gcd(math.gcd(modal_intv__min, interpolate__min), limit__min))
  
                             limit = max((limit__min // upsample__min) - 1, 1)
         
-                            # gaps = df_source[col].index.to_series().diff().dt.total_seconds() / 60
-                            # large_gaps = gaps[gaps > limit__min]
-
-                            # if not large_gaps.empty:
-                            #     logging.info(f"Gaps longer than {limit__min} minutes for {col}:")
-                            #     # Bin gaps in multiples of limit__min
-                            #     bins = pd.cut(large_gaps, bins=[limit__min * i for i in range(1, 20)] + [float('inf')])
-                            #     logging.info(bins.value_counts().sort_index())
-
-                            #     # Calculate counts of proper intervals <= limit__min
-                            #     proper_intervals = gaps[gaps <= limit__min]
-                            #     logging.info(f"Proper intervals (<= {limit__min} minutes) for {col}:")
-                            #     proper_intervals_bins = pd.cut(proper_intervals, bins=[0, limit__min] + [float('inf')])
-                            #     logging.info(proper_intervals_bins.value_counts().sort_index())
-
                             logging.info(f"upsample to: {str(upsample__min) + 'T'}")
                             logging.info(f"resample to: {str(interpolate__min) + 'T'}")
                             logging.info(f"max number of fills: {limit}")
@@ -871,6 +981,86 @@ class Preprocessor:
 
         return df_result
  
+    @staticmethod
+    def get_consistent_interval(df):
+        # Check frequency for each id
+        frequencies = df.groupby(level='id').apply(lambda group: pd.infer_freq(group.index.get_level_values('timestamp')))
+        
+        # Check if all frequencies are the same
+        if frequencies.nunique() == 1:
+            interval = pd.to_timedelta(frequencies.iloc[0])
+            return interval
+        else:
+            return None
+
+    
+    @staticmethod
+    def calculate_streak_durations(df_prep, properties_include=None, properties_exclude=None):
+        
+        if properties_include is not None:
+            properties = properties_include
+        else:
+            properties = df_prep.columns
+    
+        if properties_exclude is not None:
+            properties = list(set(properties) - set(properties_exclude))
+                
+        df_streaks = df_prep[properties].notnull().all(axis=1).to_frame(name='data_available__bool')
+    
+        consistent_interval = Preprocessor.get_consistent_interval(df_prep)
+    
+        # Calculate interval durations based on the detected frequency
+        if consistent_interval:
+            df_streaks['interval_duration__s'] = consistent_interval.total_seconds()
+        else:
+            df_streaks['interval_duration__s'] = (df_streaks
+                                                  .index
+                                                  .get_level_values('timestamp')
+                                                  .to_series()
+                                                  .diff()
+                                                  .shift(-1)
+                                                  .dt
+                                                  .total_seconds()
+                                                  .fillna(0)
+                                                  .astype(int))
+    
+        # Identify streaks using cumulative sum of changes in availability
+        df_streaks['streak_id'] = df_streaks['data_available__bool'].ne(df_streaks['data_available__bool'].shift()).cumsum()
+    
+        # Set interval_duration__s to 0.0 where data_available__bool is False
+        df_streaks.loc[~df_streaks['data_available__bool'], 'interval_duration__s'] = 0.0
+    
+    
+        # Calculate the cumulative duration for each streak and convert to Timedelta directly
+        df_streaks['streak_cumulative_duration'] = pd.to_timedelta(df_streaks.groupby('streak_id')['interval_duration__s'].cumsum(), unit='s')
+    
+    
+        # Filter to keep only the final cumulative duration for each streak where data_available__bool is True
+        streak_durations = (df_streaks[df_streaks['data_available__bool']]
+                            .groupby(['id', 'streak_id'])['streak_cumulative_duration']
+                            .last()
+                            .reset_index(level='streak_id'))
+    
+        # Define bins and bin labels
+        bins = [pd.Timedelta(minutes=1),  # Convert Timedelta to seconds
+                pd.Timedelta(hours=1),
+                pd.Timedelta(days=1),
+                pd.Timedelta(weeks=1),
+                pd.Timedelta(days=30),
+                pd.Timedelta(days=100000)]  # last is large number to represent infinity
+        
+        bin_labels = ['[1T, 1H)', '[1H, 1D)', '[1D, 1W)', '[1W, 1M)', '[1M, inf)']
+        
+        pd.cut(df_streaks['streak_cumulative_duration'], bins=bins, labels=bin_labels)
+        
+        # Categorize streak durations into bins
+        streak_durations['duration_bin'] = pd.cut(streak_durations['streak_cumulative_duration'], bins=bins, labels=bin_labels)
+        
+        # Group by id and duration_bin, then sum the streak durations
+        df_result = streak_durations.groupby(['id', 'duration_bin'])['streak_cumulative_duration'].sum().unstack(level='duration_bin')
+                
+        return df_result
+
     
     @staticmethod
     def preprocess_room_data(df_prop: pd.DataFrame,
@@ -941,7 +1131,144 @@ class Preprocessor:
 
         return Preprocessor.merge_weather_data_nl(df_prep, lat, lon, interpolate__min, timezone_ids)
 
+    
+    @staticmethod
+    def convert_cumulative_to_avg_power(df_prep, props, heating_value__MJ_m_3, heating_value_name__str) -> pd.DataFrame:
+        """
+        Convert cumulative smart meter values to average energy flows.
+    
+        Parameters:
+        df_prep (pd.DataFrame): DataFrame with a MultiIndex (id, timestamp) containing cumulative meter readings.
+        props (list of str): List of column names to be converted. These should end with '_cum__kWh' or '_cum__m3'.
+        heating_value__MJ_m_3 (float): Heating value in MJ/m^3 used to convert gas volumes to energy.
+        heating_value_name__str (str): String to be used in the renamed property. Typically 'hhv' for higher heating value or 'lhv' for lower heating value.
+    
+        Returns:
+        pd.DataFrame: DataFrame with new columns containing the average power in the interval.
+    
+        Example usage:
+        df_prep = convert_cumulative_to_avg_power(df_prep, props=['e_use_cum__kWh', 'e_ret_cum__kWh', 'g_use_cum__m3'], 
+                                             heating_value__MJ_m_3=35.17, 
+                                             heating_value_name__str='hhv')
+        """        
+        # Ensure timestamp is sorted for each id
+        df_prep = df_prep.sort_index(level=['id', 'timestamp'])
+        
+        # Check for consistent interval
+        consistent_interval = Preprocessor.get_consistent_interval(df_prep)
 
+        # constants
+        s_min_1 = 60 # seconds per minute
+        min_h_1 = 60 # minutes per hour
+        s_h_1 = s_min_1 * min_h_1 # seconds per hour
+        W_kW_1 = 1e3 # Watts per kiloWatt
+        J_MJ_1 = 1e6 # Joules per MegaJoule
+        
+        for prop in tqdm(props):
+            # Check for the type of property (kWh or m3)
+            if prop.endswith('_cum__kWh'):
+                new_prop = prop.replace('_cum__kWh', '__W')
+                conversion_factor = s_h_1 * W_kW_1  # Joules (Ws) per kWh
+            elif prop.endswith('_cum__m3'):
+                new_prop = prop.replace('_cum__m3', f'_{heating_value_name__str}__W')
+                conversion_factor = heating_value__MJ_m_3 * J_MJ_1  # Joules per m^3
+            else:
+                continue  # Skip properties not matching the expected suffixes
+    
+            # Initialize the new property column with NaN values
+            df_prep[new_prop] = np.nan
+    
+            if consistent_interval:
+                # Vectorized calculation if interval is consistent
+                meter_value_diffs = df_prep[prop].diff() * conversion_factor
+                avg_power = meter_value_diffs / consistent_interval.total_seconds()
+                
+                # Filter out negative values and handle the last interval for each id
+                avg_power[avg_power < 0] = np.nan  # Set negative values to NaN
+                
+                # Apply avg_power values to df_prep using pandas operations
+                mask = df_prep.index.get_level_values('id').duplicated(keep='last')
+                df_prep.loc[mask, new_prop] = avg_power[mask]
+            else:
+                # Non-vectorized calculation if interval is not consistent
+                grouped = df_prep.groupby(level='id')
+                for name, group in grouped:
+                    time_diffs = group.index.get_level_values('timestamp').to_series().diff().dt.total_seconds().fillna(0).values
+                    meter_value_diffs = group[prop].diff().fillna(0).values * conversion_factor
+                    avg_power = np.divide(meter_value_diffs[1:], time_diffs[1:], out=np.zeros_like(meter_value_diffs[1:]), where=time_diffs[1:] != 0)
+                    avg_power = np.where(avg_power < 0, np.nan, avg_power)
+                    df_prep.loc[group.index[1:], new_prop] = avg_power
+        
+        return df_prep
+    
+
+
+    
+    @staticmethod
+    def convert_enelogic_excel_to_measurements(file_path: str, tz='Europe/Amsterdam') -> pd.DataFrame:
+
+        # Read the Excel file
+        try:
+            df = pd.read_excel(file_path)
+            print("File was successfully read without specifying compression codec.")
+        except Exception as e:
+            print(f"Error reading file: {e}")
+
+        # Function to map rate codes to property names
+        def map_rate_to_property(rate):
+            return {
+                180: 'g_use_monthly_cum__m3',
+                181: 'e_use_monthly_hi_cum__kWh',
+                182: 'e_use_monthly_lo_cum__kWh',
+                281: 'e_ret_monthly_hi_cum__kWh',
+                282: 'e_ret_monthly_lo_cum__kWh'
+            }.get(rate, None)
+        
+        # Initialize lists to store transformed data
+        ids = []
+        source_categories = []
+        source_types = []
+        timestamps = []
+        properties = []
+        values = []
+        
+        # Iterate over the rows of the DataFrame
+        for _, row in df.iterrows():
+            pseudonym = int(row['pseudonym'])
+            print(f'processing id: {pseudonym}')
+            for col in df.columns[1:]:
+                try:
+                    json_data = json.loads(row[col])
+                except (TypeError, json.JSONDecodeError) as e:
+                    print(f"Skipping pseudonym {pseudonym} due to error: {e}")
+                    continue
+                for entry in json_data:
+                    if not isinstance(entry, dict):
+                        print(f"Unexpected entry format for pseudonym {pseudonym}, column {col}: {entry}")
+                        continue
+        
+                    rate = entry.get('rate')
+                    property_name = map_rate_to_property(rate)
+                    if property_name:
+                        timestamp = pytz.timezone(tz).localize(
+                            datetime.strptime(entry['date'], "%Y-%m-%d %H:%M:%S")
+                        )
+                        ids.append(pseudonym)
+                        source_categories.append('batch_import')
+                        source_types.append('enelogic')
+                        timestamps.append(timestamp)
+                        properties.append(property_name)
+                        values.append(entry['quantity'])
+        
+        # Create the DataFrame
+        multi_index = pd.MultiIndex.from_arrays(
+            [ids, source_categories, source_types, timestamps, properties],
+            names=('id', 'source_category', 'source_type', 'timestamp', 'property')
+        )
+        
+        result_df = pd.DataFrame({'value': values}, index=multi_index)
+
+        return result_df
     
     @staticmethod
     def merge_weather_data_nl(df_prep: pd.DataFrame,

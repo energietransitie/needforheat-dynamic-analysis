@@ -1,5 +1,6 @@
-# NeedForHeat analysis tools for homes and utility buildings
-This repository contains source code for the NeedForHeat heat balance models and analysis tools, based on [GEKKO Python](https://github.com/BYU-PRISM/GEKKO). This analysis software can be regarded as a particular form of physics informed machine learning for automated estimation of crucial parameters of buildings, installations and comfort needs in individual homes and utility buildings based on time-series monitoring data.
+# NeedForHeat analysis tools for domestic and utility buildings energy data using dynamic models
+
+This repository contains source code for the NeedForHeat dynamic heat balance and mass balance models and analysis tools, based on [GEKKO Python](https://github.com/BYU-PRISM/GEKKO). This analysis software can be regarded as a particular form of physics informed machine learning for automated estimation of crucial parameters of buildings, installations and comfort needs in individual homes and utility buildings based on time-series monitoring data.
 
 ## Table of contents
 * [General info](#general-info)
@@ -13,7 +14,7 @@ This repository contains source code for the NeedForHeat heat balance models and
 
 ## General info
 
-This repository contains the GEKKO Python-based implementation of inverse grey-box analysis software. The purpose of this sofware is to (help) speedup the energy transition, in particular the heating transition. 
+This repository contains the GEKKO Python-based implementation of physics informed machine learning (f.k.a. inverse grey-box analysis). The purpose of this sofware is to (help) speedup the energy transition, in particular the heating transition. 
 
 This software was developed in the context of multiple projects:
 
@@ -23,14 +24,14 @@ This software was developed in the context of multiple projects:
 
 This repository also contains synthetic home data and synthetic room data that we generated used to verify the proper implementation of the GEKKO models. 
 
-Field data, including a metadata can be found in these related repositories:
+Field data, including metadata descriptions can be found in these related repositories:
 
-* [twomes-dataset-assendorp2021](https://github.com/energietransitie/twomes-dataset-assendorp2021).
+* [twomes-dataset-assendorp2021](https://github.com/energietransitie/twomes-dataset-assendorp2021);
 * [brains4buildings-dataset-windesheim2022](https://github.com/energietransitie/brains4buildings-dataset-windesheim2022).
 
 ## Prerequisites
 
-We recommend to [install and use JupyterLab in a docker container on a server](https://github.com/energietransitie/twomes-backoffice-configuration#jupyterlab).
+We recommend to [install and use JupyterLab in a docker container on a server](https://github.com/energietransitie/needforheat-server-configuration#jupyterlab).
 
 As an alternative, you can use a [JupyterLab](https://jupyter.org/) environment on your local machine. Other environments, such as [PyCharm](https://www.jetbrains.com/pycharm/download/#section=windows) and [Visual Studio Code](https://code.visualstudio.com/) may work as well, but we do not include documentation for this here. 
 
@@ -81,7 +82,7 @@ This will install all the required dependencies listed in the [`requirements.txt
 
 This section describes how you can use the IPython notebooks, without changing the Python code. After installing JupyterLab as described above, you can run the software by opening up `.ipynb ` files and run the contents from the [`examples`](/examples/) folder. We've created example files based on or work in multiple projects:
 
-- `<Project>ExtractionBackup.ipynb` files contain code you can run to extract measurement data from a Twomes server and save it as [parquet](https://parquet.apache.org/) files. These .ipynb files only work when you run the code in a JupyterLab environment that has access to the [MariaDB database](https://github.com/energietransitie/twomes-backoffice-configuration#twomes_db_url-1) on a [Twomes backoffice server](https://github.com/energietransitie/twomes-backoffice-configuration).
+- `<Project>ExtractionBackup.ipynb` files contain code you can run to extract measurement data from a NeedForHeat DataGear server and save it as [parquet](https://parquet.apache.org/) files. These .ipynb files only work when you run the code in a JupyterLab environment that has access to the [MariaDB database](https://github.com/energietransitie/needforheat-server-configuration#twomes_db_url-1) on a [NeedForHeat DataGear server](https://github.com/energietransitie/needforheat-server-configuration).
 - `<Project>_to_CSV.ipynb` files contain code you can run to convert a parquet file containing DataFrames to multiple [zip](https://en.wikipedia.org/wiki/ZIP_(file_format))ped [csv](https://en.wikipedia.org/wiki/Comma-separated_values) files, a single file containing all measurements and one zipped csv file per id. Parquet files load faster and are smaller than zipped csv files. Nevertheless, for backward compatibility with data analytics tools that are not yet able to process parquet files, we used the code in these .ipynb files to create the contents for the open data repositories. You can find more information about the formatting of DataFrames with measurements and DataFrames with properties, as well as the open data itself in the repositories [twomes-dataset-assendorp2021](https://github.com/energietransitie/twomes-dataset-assendorp2021) and [brains4buildings-dataset-windesheim2022](https://github.com/energietransitie/brains4buildings-dataset-windesheim2022). 
 - `<Project>_analysis_virtual_ds.ipynb` files contain code you can run to verify whether a mathematical model is properly implemented in GEKKO code the functions `learn_home_parameters()` or `learn_room_parameters()` from [`inversegreyboxmodel.py`](/analysis/inversegreyboxmodel.py). To perform the validation, we created 'virtual data', i.e. time series data for a virtual home or virtual room that behaves exactly according to the the mathematical model and has no measurement errors nor measurement hickups. This 'virtual data' was generated using an Excel implementation of the same mathematical model. You can find the virtual data in the `/data/<project>_virtual_ds/` folders.
 - `<Project>_PlotTest.ipynb` files contain example code that demonstrate the various ways you can plot (parts of) a DataFrame contraining properties or preprocessed data, using the functions `dataframe_properties_plot()` and `dataframe_preprocessed_plot()`, respectively, from [`plotter.py`](/view/plotter.py).
@@ -94,7 +95,7 @@ This section describes how you can use the IPython notebooks, without changing t
 ## Developing
 This section describes how you can change the source code. You can do this using JupyterLab, as described in the section [Deploying](#deploying). Other development environments, such as [PyCharm](https://www.jetbrains.com/pycharm/download/#section=windows) and [Visual Studio Code](https://code.visualstudio.com/) may work as well, but we do not include documentation for this here. 
 
-Should you find any issues or bugs in our code, please report them via the [issues](https://github.com/energietransitie/twomes-inverse-grey-box-analysis/issues) tab of this repository.
+Should you find any issues or bugs in our code, please report them via the [issues](https://github.com/energietransitie/needforheat-dynamic-analysis/issues) tab of this repository.
 
 To change the code, we recommend:
 
@@ -143,7 +144,7 @@ It is partially based on earlier work by the following students:
 Product owner:
 * Henri ter Hofte · [@henriterhofte](https://github.com/henriterhofte) · Twitter [@HeNRGi](https://twitter.com/HeNRGi)
 
-We use and gratefully aknowlegde the efforts of the makers of the following source code and libraries:
+We use and gratefully acknowlegde the efforts of the makers of the following source code and libraries:
 * [GEKKO Python](https://github.com/BYU-PRISM/GEKKO), by Advanced Process Solutions, LLC., licensed under [an MIT-style licence](https://github.com/BYU-PRISM/GEKKO/blob/master/LICENSE)
 * [Twomes Analysis Pipeline, v1](https://github.com/energietransitie/twomes-analysis-pipeline), by Research group Energy Transition, Windesheim University of Applied Sciences, licensed under [Apache-2.0 License](https://github.com/energietransitie/twomes-analysis-pipeline/blob/main/LICENSE)
 * [HourlyHistoricWeather](https://github.com/stephanpcpeters/HourlyHistoricWeather), by [@stephanpcpeters](https://github.com/stephanpcpeters), licensed under [an MIT-style licence](https://raw.githubusercontent.com/stephanpcpeters/HourlyHistoricWeather/master/historicdutchweather/LICENSE)
