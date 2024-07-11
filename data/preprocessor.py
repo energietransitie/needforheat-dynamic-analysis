@@ -763,6 +763,46 @@ class Preprocessor:
     
     
     @staticmethod
+    def unstack_source_cat_and_type(df_prop: pd.DataFrame) -> pd.DataFrame:
+        
+        """
+        in: 
+        - df_prop (DataFrame): DataFrame with measurements
+            - a multi-index consisting of
+            -- id: id of the unit studied (e.g. home / utility building / room) 
+            -- source_category: e.g. batch_import / cloud_feed / device
+            -- source_type: e.g. device_type from the database
+            -- timestamp: timezone-aware timestamp
+            - columns = properties with measurement values
+       
+        out: pd.DataFrame with the source_category and source_type names prefixed to column names 
+       
+        """
+        df = df_prop.copy()
+        
+        # Merge source_category, source_type, and property into a single index level
+        df.index = df.index.map(lambda x: (x[0], x[1], f"{x[1]}_{x[2]}", x[3]))
+        
+        # Drop the first two levels and rename the last two
+        df.index = df.index.droplevel([1])
+        
+        df.index.names = ['id', 'source', 'timestamp'] 
+        
+        # Check for duplicates in the index after merging
+        duplicate_entries = df.index.duplicated().any()
+
+        if duplicate_entries:
+            print("Duplicate entries found in the index after merging. Handled mby taking the average.")
+            df = df.groupby(['timestamp', 'source'])['value'].mean()
+        
+        df_prep = df.unstack('source')
+        df_prep.columns = df_prep.columns.swaplevel(0,1)
+        df_prep.columns = ['_'.join(col) for col in df_prep.columns.values]
+        df_prep = df_prep.dropna(axis=1, how='all')
+        
+        return df_prep
+        
+    @staticmethod
     def interpolate_time(df_prop: pd.DataFrame,
                          default_limit__min = 90,
                          property_limits: dict = None,
