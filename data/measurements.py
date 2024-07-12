@@ -5,6 +5,8 @@ import pytz
 from tqdm.notebook import tqdm
 from sqlalchemy import create_engine, text
 import logging
+import historicdutchweather
+from urllib.error import HTTPError
 
 class Measurements:
     """
@@ -472,6 +474,62 @@ class Measurements:
         
         return df
         
+    @staticmethod
+    def get_weather_measurements(df_weather_locations, weather_min_timestamp, weather_max_timestamp):
+        """
+        Retrieve and process KNMI weather data for given locations and timestamps, and compile it into a cumulative dataframe.
+        
+        Parameters:
+        df_weather_locations (pd.DataFrame): DataFrame containing weather location data with a home id for index and 'weather_lat__degN' and 'weather_lon__degE' columns.
+        weather_min_timestamp (pd.Timestamp): Minimum timestamp for weather data retrieval.
+        weather_max_timestamp (pd.Timestamp): Maximum timestamp for weather data retrieval.
+        
+        Returns:
+        pd.DataFrame: Cumulative DataFrame with weather measurements.
+        """
+        new_column_names = {'T': 'temp_in__degC', 'FH': 'wind__m_s_1', 'Q': 'ghi__J_h_1_cm_2'}
+        
+        # Initialize an empty DataFrame to store cumulative weather measurements
+        df_meas_weather = pd.DataFrame()
+        
+        # Get unique weather locations
+        weather_locations = df_weather_locations[['weather_lat__degN', 'weather_lon__degE']].drop_duplicates()
+        
+        for lat, lon in tqdm(weather_locations.values):
+            try:
+                # Extractor start and end time
+                extractor_starttime = weather_min_timestamp - pd.Timedelta(hours=1)
+                extractor_endtime = weather_max_timestamp - pd.Timedelta(hours=1)
+                
+                # Retrieve weather data
+                df_weather = historicdutchweather.get_local_weather(
+                    extractor_starttime, extractor_endtime, lat, lon, metrics=['T', 'FH', 'Q']
+                )
+                
+                # Transform the DataFrame to fit the desired format
+                df_weather.rename(columns=new_column_names, inplace=True)
+                df_weather = df_weather.stack().reset_index()
+                df_weather.columns = ['timestamp', 'property', 'value']
+                
+                # Find home_ids with this weather location
+                home_ids = df_weather_locations[
+                    (df_weather_locations.weather_lat__degN == lat) & 
+                    (df_weather_locations.weather_lon__degE == lon)
+                ].index
+                
+                for home_id in home_ids:
+                    # Set id and other columns for df_weather
+                    df_weather_home = df_weather.copy()
+                    df_weather_home['id'] = home_id
+                    df_weather_home['source_category'] = 'batch_import'
+                    df_weather_home['source_type'] = 'KNMI'
+                    df_weather_home.set_index(['id', 'source_category', 'source_type', 'timestamp', 'property'], inplace=True)
+                    
+                    # Concatenate to cumulative df_meas_weather
+                    df_meas_weather = pd.concat([df_meas_weather, df_weather_home])
+                    
+            except HTTPError as e
+       
         
     @staticmethod
     def get_interpolated_weather_nl(first_day:datetime, last_day:datetime, 
@@ -528,6 +586,7 @@ class Measurements:
        
         return df
 
+    
     @staticmethod
     def get_weather_parameter_timeseries_mean(df: pd.DataFrame, parameter: str, seriesname: str, 
                                  up_to: str, int_intv: str,
