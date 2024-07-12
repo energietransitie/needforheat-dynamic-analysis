@@ -11,6 +11,6 @@ requests==2.31.0
 matplotlib==3.6.3
 matplotlib-inline==0.1.6
 seaborn==0.12.2
--e git+https://github.com/stephanpcpeters/HourlyHistoricWeather.git#egg=historicdutchweather
+-e git+https://github.com/energietransitie/HourlyHistoricWeather.git#egg=historicdutchweather
 mysql-connector-python==8.0.32
 SQLAlchemy==2.0.3
