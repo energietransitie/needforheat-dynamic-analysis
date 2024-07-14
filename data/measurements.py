@@ -528,7 +528,11 @@ class Measurements:
                     # Concatenate to cumulative df_meas_weather
                     df_meas_weather = pd.concat([df_meas_weather, df_weather_home])
                     
-            except HTTPError as e
+            except HTTPError as e:
+                print(f"HTTP error {e.code} for lat {lat}, lon {lon}. Skipping...")
+                continue
+        
+        return df_meas_weather
        
         
     @staticmethod
