@@ -7,6 +7,12 @@ from sqlalchemy import create_engine, text
 import logging
 import historicdutchweather
 from urllib.error import HTTPError
+import requests
+import io
+
+import re
+from pytz import NonExistentTimeError
+
 
 class Measurements:
     """
@@ -473,7 +479,142 @@ class Measurements:
             df = pd.concat([df, chunk])
         
         return df
+
+class WeatherMeasurements:
+
+
+    @staticmethod
+    def download_knmi_weather_data(start_date, end_date, metrics=['T', 'FH', 'Q']):
+        # KNMI API endpoint
+        KNMI_API_URL = "https://www.daggegevens.knmi.nl/klimatologie/uurgegevens"
         
+        # NB For a future version of these functions, you may also need an  API key for KNMI and put it in a file with the name below and one line KNMI_API_KEY=your_KNMI_API_key 
+        knmi_api_keys_file='knmi_api_key.txt'
+        # If your organistion does not have one yet, request one here: https://developer.dataplatform.knmi.nl/open-data-api#token
+        base_url = KNMI_API_URL
+        params = {
+            'start': start_date.strftime('%Y%m%d')+'01',
+            'end': end_date.strftime('%Y%m%d')+'24',
+            'vars': ':'.join(metrics)
+        }
+        response = requests.get(base_url, params=params)
+        if response.status_code != 200:
+            raise Exception(f"Error fetching data from KNMI: {response.text}")
+        return response.text
+    
+    @staticmethod
+    def process_knmi_weather_data(raw_data):
+       # Split raw data by lines
+        lines = raw_data.splitlines()
+        
+    
+        # Ignore the first 5 lines
+        lines = lines[5:]
+    
+        # Extract station info
+        station_lines = [lines[0].lstrip('# ')]
+        header_found = False
+        data_start_line = 0
+    
+    
+        for i, line in enumerate(lines):
+            if re.match(r'^# \d{3}', line):
+                station_lines.append(line.lstrip('# '))
+            elif line.startswith('# YYYYMMDD'):
+                continue
+            elif line.startswith('# STN,YYYYMMDD'):
+                header_found = True
+            elif header_found:
+                data_start_line = i
+                break
+    
+    
+        # Create station DataFrame
+        station_data = "\n".join(station_lines)
+    
+        df_stations = pd.read_fwf(io.StringIO(station_data))
+        df_stations.columns = df_stations.columns.str.replace(r'\(.*\)', '', regex=True).str.strip().str.lower()
+        df_stations.set_index(['stn'])
+    
+        
+        df_data = pd.read_csv(io.StringIO(raw_data), skiprows=data_start_line+4, delimiter=',')    
+    
+        # Rename columns
+        df_data.columns = [col.replace('#', '').strip().lower() for col in df_data.columns]
+    
+        # Parse timestamp
+        df_data['timestamp'] = pd.to_datetime(df_data['yyyymmdd'].astype(str)) + pd.to_timedelta(df_data['hh'].astype(int) - 1, unit='h')
+        try:
+            df_data['timestamp'] = df_data['timestamp'].dt.tz_localize('Europe/Amsterdam')
+        except NonExistentTimeError:
+            # Handle non-existent times by re-creating the timestamp in a different way
+            df_data['timestamp'] = pd.to_datetime(df_data['yyyymmdd'].astype(str)).dt.tz_localize('Europe/Amsterdam') + pd.to_timedelta(df_data['hh'].astype(int) - 1, unit='h')
+    
+    
+        df_data.drop(columns=['yyyymmdd', 'hh'], inplace=True)
+    
+        # drop rows where timestamps are NaT (Not a Time)
+        df_data = df_data.dropna(subset=['timestamp'])
+    
+        df_data.set_index(['stn', 'timestamp'])
+    
+        return df_data, df_stations
+    
+    @staticmethod
+    def fetch_weather_data_in_chunks(start_date, end_date, freq="4W", tz='Europe/Amsterdam', metrics=['T', 'FH', 'Q']):
+        all_data = pd.DataFrame()
+        all_stations = pd.DataFrame()
+        
+        # Make sure the start date is included in the first chunk
+        first_chunk_start = pd.date_range(start=start_date, end=end_date, freq=freq)[0]
+        first_chunk_start = first_chunk_start if start_date >= first_chunk_start else first_chunk_start - pd.Timedelta(freq)
+         
+        # Iterate over date ranges using the specified frequency
+        for current_start in tqdm(pd.date_range(start=first_chunk_start, end=end_date, freq=freq)):
+            current_start = max(start_date, current_start)
+            current_end = min(end_date, current_start + pd.Timedelta(freq) - timedelta(seconds=1))
+    
+            raw_data = WeatherMeasurements.download_knmi_weather_data(current_start, current_end, metrics)
+            chunk_data, chunk_stations = WeatherMeasurements.process_knmi_weather_data(raw_data)
+            
+            # Append chunk data to all_data
+            all_data = pd.concat([all_data, chunk_data])
+            
+            # Append chunk stations to all_stations
+            all_stations = pd.concat([all_stations, chunk_stations])
+    
+        # Convert columns to numeric, replacing errors with NaNs
+        all_data['t'] = pd.to_numeric(all_data['t'], errors='coerce')
+        all_data['fh'] = pd.to_numeric(all_data['fh'], errors='coerce')
+        all_data['q'] = pd.to_numeric(all_data['q'], errors='coerce')
+        
+        # Set appropriate data types
+        all_data['t'] = all_data['t'].astype('Int16')
+        all_data['fh'] = all_data['fh'].astype('UInt8')
+        all_data['q'] = all_data['q'].astype('UInt16')
+        
+    
+        all_data = all_data.set_index(['stn','timestamp'])
+        all_stations = all_stations.set_index(['stn'])
+    
+        # Find all unique stations with data in all_data
+        stations_with_data = all_data.index.get_level_values('stn').unique()
+     
+        # Filter all_stations to include only stations with data
+        all_stations = all_stations[all_stations.index.isin(stations_with_data)]
+    
+        # Identify stations with missing values in any of t, fh, or q
+        stations_with_missing_data = all_data[all_data[['t', 'fh', 'q']].isna().any(axis=1)].index.get_level_values(0).unique()
+        
+    
+        # Drop rows with missing values in t, fh, or q from all_data
+        all_data = all_data.dropna(subset=['t', 'fh', 'q'])
+        
+        # Remove the stations with missing data from all_stations
+        all_stations = all_stations.drop(stations_with_missing_data, errors='ignore')
+          
+        return all_data, all_stations
+    
     @staticmethod
     def get_weather_measurements(df_weather_locations, weather_min_timestamp, weather_max_timestamp):
         """
