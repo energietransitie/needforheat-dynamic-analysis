@@ -8,6 +8,8 @@ import seaborn as sns
 from preprocessor import Preprocessor
 import missingno as msno
 import warnings
+import folium
+import h3
 
 
 class Plot:
@@ -690,4 +692,48 @@ class Plot:
             g = sns.PairGrid(df.loc[num[i]][features])
             g.map(sns.scatterplot)
             g.fig.suptitle(num[i])
+
+
+    @staticmethod
+    def plot_h3_cells_and_markers(h3_cell_ids, marker_df, output_file="map_with_h3_cells.html"):
+        """
+        Plot H3 cells and markers on a Folium map.
+
+        Parameters:
+        - h3_cell_ids (list): List of H3 cell ids to plot.
+        - marker_df (DataFrame): DataFrame with columns 'lat', 'lon', 'popup_text' containing marker information.
+        - output_file (str, optional): File path to save the HTML map. Default is 'map_with_h3_cells.html'.
+        
+        Returns:
+        - folium.Map: Folium map object with plotted markers and H3 cells.
+        """
+        # Calculate map center based on H3 cell centers
+        h3_centers = []
+        for cell_id in h3_cell_ids:
+            lat_lon = h3.h3_to_geo(cell_id)
+            h3_centers.append(lat_lon)
+        map_center = [sum([coord[0] for coord in h3_centers]) / len(h3_centers),
+                      sum([coord[1] for coord in h3_centers]) / len(h3_centers)]
+        
+        # Create folium map
+        mymap = folium.Map(location=map_center, zoom_start=7)
+        
+        # Add markers from marker_df
+        if not marker_df.empty:
+            for index, row in marker_df.iterrows():
+                folium.Marker([row['lat'], row['lon']], popup=row['popup_text']).add_to(mymap)
+        
+        # Add H3 cells and center points
+        for cell_id in h3_cell_ids:
+            lat_lon = h3.h3_to_geo(cell_id)
+            folium.Marker(lat_lon, icon=folium.Icon(color='red', icon='cross')).add_to(mymap)
+            hexagon = h3.h3_to_geo_boundary(cell_id)
+            folium.Polygon(locations=hexagon, color='blue', fill=True, fill_opacity=0.2, popup=cell_id).add_to(mymap)
+        
+        # Save map to HTML file
+        mymap.save(output_file)
+        
+        # Return the folium map object
+        return mymap
+
 
