@@ -10,7 +10,7 @@ import missingno as msno
 import warnings
 import folium
 import h3
-
+from geopy.distance import distance
 
 class Plot:
 
@@ -693,20 +693,23 @@ class Plot:
             g.map(sns.scatterplot)
             g.fig.suptitle(num[i])
 
-
+    
     @staticmethod
     def plot_h3_cells_and_markers(h3_cell_ids, marker_df, output_file="map_with_h3_cells.html"):
         """
-        Plot H3 cells and markers on a Folium map.
+        Plot H3 cells and markers on a Folium map, highlighting the 3 nearest markers to each H3 cell.
 
         Parameters:
         - h3_cell_ids (list): List of H3 cell ids to plot.
-        - marker_df (DataFrame): DataFrame with columns 'lat', 'lon', 'popup_text' containing marker information.
+        - marker_df (DataFrame): DataFrame with columns 'lat', 'lon', and 'popup_text' containing marker information.
         - output_file (str, optional): File path to save the HTML map. Default is 'map_with_h3_cells.html'.
         
         Returns:
         - folium.Map: Folium map object with plotted markers and H3 cells.
         """
+        def calculate_distance(marker_lat_lon, h3_center):
+            return distance(marker_lat_lon, h3_center).meters
+        
         # Calculate map center based on H3 cell centers
         h3_centers = []
         for cell_id in h3_cell_ids:
@@ -726,6 +729,27 @@ class Plot:
         # Add H3 cells and center points
         for cell_id in h3_cell_ids:
             lat_lon = h3.h3_to_geo(cell_id)
+            h3_center = (lat_lon[0], lat_lon[1])
+            
+            # Find distances to all markers
+            marker_distances = []
+            for index, row in marker_df.iterrows():
+                marker_lat_lon = (row['lat'], row['lon'])
+                dist = calculate_distance(marker_lat_lon, h3_center)
+                marker_distances.append((index, dist))
+            
+            # Sort distances by closest to farthest
+            marker_distances.sort(key=lambda x: x[1])
+            
+            # Highlight the closest 3 markers
+            for i in range(min(3, len(marker_distances))):
+                index = marker_distances[i][0]
+                row = marker_df.iloc[index]
+                folium.Marker([row['lat'], row['lon']], 
+                              popup=row['popup_text'],
+                              icon=folium.Icon(color='green', icon='info-sign')).add_to(mymap)
+            
+            # Plot H3 cell and center point
             folium.Marker(lat_lon, icon=folium.Icon(color='red', icon='cross')).add_to(mymap)
             hexagon = h3.h3_to_geo_boundary(cell_id)
             folium.Polygon(locations=hexagon, color='blue', fill=True, fill_opacity=0.2, popup=cell_id).add_to(mymap)
@@ -735,5 +759,3 @@ class Plot:
         
         # Return the folium map object
         return mymap
-
-
