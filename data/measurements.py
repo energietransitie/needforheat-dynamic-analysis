@@ -605,15 +605,24 @@ class WeatherMeasurements:
     
         # Identify stations with missing values in any of t, fh, or q
         stations_with_missing_data = all_data[all_data[['t', 'fh', 'q']].isna().any(axis=1)].index.get_level_values(0).unique()
-        
     
         # Drop rows with missing values in t, fh, or q from all_data
         all_data = all_data.dropna(subset=['t', 'fh', 'q'])
         
         # Remove the stations with missing data from all_stations
         all_stations = all_stations.drop(stations_with_missing_data, errors='ignore')
-          
-        return all_data, all_stations
+
+        # Merge the weather data with station metadata
+        df_weather = all_data.merge(all_stations[['lon', 'lat']], left_on='stn', right_index=True, how='left')
+
+        # Set the multi-index with lat, lon, and timestamp
+        df_weather = df_weather.reset_index().set_index(['lat', 'lon', 'timestamp']).sort_index()
+                  
+        # Drop the station identifier from the data
+        df_weather = df_weather.drop(columns=['stn'])
+
+        # return df_weather
+        return df_weather
     
     @staticmethod
     def get_weather_measurements(df_weather_locations, weather_min_timestamp, weather_max_timestamp):
