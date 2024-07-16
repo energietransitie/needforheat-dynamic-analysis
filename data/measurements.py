@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 import pytz
 from tqdm.notebook import tqdm
@@ -10,9 +11,9 @@ from urllib.error import HTTPError
 from pandas.errors import ParserError
 import requests
 import io
-
 import re
 from pytz import NonExistentTimeError
+from scipy.interpolate import CloughTocher2DInterpolator
 
 
 class Measurements:
@@ -560,6 +561,7 @@ class WeatherMeasurements:
         df_data.set_index(['STN', 'timestamp'])
     
         return df_data, df_stations
+
     
     @staticmethod
     def fetch_weather_data_in_chunks(start_date, end_date, chunk_freq="4W", tz='Europe/Amsterdam', metrics={'T': 'Int16', 'FH': 'UInt8', 'Q': 'UInt16'}):
@@ -632,8 +634,62 @@ class WeatherMeasurements:
         df_weather = df_weather.drop(columns=['STN'])
 
         return df_weather.rename_axis(index=str.lower)
-
+        
     
+    @staticmethod
+    def interpolate_weather_data(df_weather, df_home_weather_locations):
+        """
+        Interpolate weather data to home locations using CloughTocher2DInterpolator.
+        
+        Parameters:
+        - df_weather (pd.DataFrame): DataFrame containing weather data with multi-index ['lat', 'lon', 'timestamp'].
+        - df_home_weather_locations (pd.DataFrame): DataFrame containing home locations with index ['pseudonym'].
+        
+        Returns:
+        - pd.DataFrame: Interpolated weather data with multi-index ['id', 'source_category', 'source_type', 'timestamp', 'property'].
+        """
+        # Transform the weather metrics to Float32
+        df_weather = df_weather.astype(np.float32)
+        
+        # Prepare the output DataFrame
+        interpolated_data = []
+        
+        # Iterate over each timestamp
+        for timestamp in tqdm(df_weather.index.get_level_values('timestamp').unique()):
+            df_timestamp = df_weather.xs(timestamp, level='timestamp')
+            
+            lat_lon = df_timestamp.index.values
+            lat_lon_array = np.array([[lat, lon] for lat, lon in lat_lon])
+        
+            for metric in df_timestamp.columns:
+                values = df_timestamp[metric].values
+        
+                # Set up the interpolator
+                interpolator = CloughTocher2DInterpolator(lat_lon_array, values)
+        
+                # Perform interpolation for each home location
+                for pseudonym, home_location in df_home_weather_locations.iterrows():
+                    interpolated_value = interpolator(home_location['weather_lat__degN'], home_location['weather_lon__degE'])
+                    
+                    # Append the interpolated value to the results list
+                    interpolated_data.append({
+                        'id': pseudonym,
+                        'source_category': 'batch_import',
+                        'source_type': 'KNMI',
+                        'timestamp': timestamp,
+                        'property': metric,
+                        'value': str(interpolated_value)
+                    })
+        
+        # Convert the results list to a DataFrame
+        df_meas_weather = pd.DataFrame(interpolated_data)
+        
+        # Set the appropriate multi-index
+        df_meas_weather.set_index(['id', 'source_category', 'source_type', 'timestamp', 'property'], inplace=True)
+        
+        return df_meas_weather 
+
+
     @staticmethod
     def get_weather_measurements(df_weather_locations, weather_min_timestamp, weather_max_timestamp):
         """
