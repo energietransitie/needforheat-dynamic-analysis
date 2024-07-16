@@ -7,6 +7,7 @@ from sqlalchemy import create_engine, text
 import logging
 import historicdutchweather
 from urllib.error import HTTPError
+from pandas.errors import ParserError
 import requests
 import io
 
@@ -533,96 +534,105 @@ class WeatherMeasurements:
         station_data = "\n".join(station_lines)
     
         df_stations = pd.read_fwf(io.StringIO(station_data))
-        df_stations.columns = df_stations.columns.str.replace(r'\(.*\)', '', regex=True).str.strip().str.lower()
-        df_stations.set_index(['stn'])
+        df_stations.columns = df_stations.columns.str.replace(r'\(.*\)', '', regex=True).str.strip()
+        df_stations.set_index(['STN'])
     
         
         df_data = pd.read_csv(io.StringIO(raw_data), skiprows=data_start_line+4, delimiter=',')    
     
         # Rename columns
-        df_data.columns = [col.replace('#', '').strip().lower() for col in df_data.columns]
+        df_data.columns = [col.replace('#', '').strip() for col in df_data.columns]
     
         # Parse timestamp
-        df_data['timestamp'] = pd.to_datetime(df_data['yyyymmdd'].astype(str)) + pd.to_timedelta(df_data['hh'].astype(int) - 1, unit='h')
+        df_data['timestamp'] = pd.to_datetime(df_data['YYYYMMDD'].astype(str)) + pd.to_timedelta(df_data['HH'].astype(int) - 1, unit='h')
         try:
             df_data['timestamp'] = df_data['timestamp'].dt.tz_localize('Europe/Amsterdam')
         except NonExistentTimeError:
             # Handle non-existent times by re-creating the timestamp in a different way
-            df_data['timestamp'] = pd.to_datetime(df_data['yyyymmdd'].astype(str)).dt.tz_localize('Europe/Amsterdam') + pd.to_timedelta(df_data['hh'].astype(int) - 1, unit='h')
+            df_data['timestamp'] = pd.to_datetime(df_data['YYYYMMDD'].astype(str)).dt.tz_localize('Europe/Amsterdam') + pd.to_timedelta(df_data['HH'].astype(int) - 1, unit='h')
     
     
-        df_data.drop(columns=['yyyymmdd', 'hh'], inplace=True)
+        df_data.drop(columns=['YYYYMMDD', 'HH'], inplace=True)
     
         # drop rows where timestamps are NaT (Not a Time)
         df_data = df_data.dropna(subset=['timestamp'])
     
-        df_data.set_index(['stn', 'timestamp'])
+        df_data.set_index(['STN', 'timestamp'])
     
         return df_data, df_stations
     
     @staticmethod
-    def fetch_weather_data_in_chunks(start_date, end_date, freq="4W", tz='Europe/Amsterdam', metrics=['T', 'FH', 'Q']):
+    def fetch_weather_data_in_chunks(start_date, end_date, chunk_freq="4W", tz='Europe/Amsterdam', metrics={'T': 'Int16', 'FH': 'UInt8', 'Q': 'UInt16'}):
+        """
+        Fetch and process weather data in chunks over a specified period.
+        
+        Parameters:
+        start_date (pd.Timestamp): Start date of the data collection period.
+        end_date (pd.Timestamp): End date of the data collection period.
+        chunk_freq (str): Frequency for dividing the data collection period into chunks.
+        tz (str): Time zone for the data timestamps.
+        metrics (dict): Dictionary of metrics with their corresponding pandas data types.
+        
+        Returns:
+        pd.DataFrame: Processed weather data with multi-index of latitude, longitude, and timestamp.
+        """
         all_data = pd.DataFrame()
         all_stations = pd.DataFrame()
-        
-        # Make sure the start date is included in the first chunk
-        first_chunk_start = pd.date_range(start=start_date, end=end_date, freq=freq)[0]
-        first_chunk_start = first_chunk_start if start_date >= first_chunk_start else first_chunk_start - pd.Timedelta(freq)
-         
+
+        # Ensure the start date is included in the first chunk
+        first_chunk_start = pd.date_range(start=start_date, end=end_date, freq=chunk_freq)[0]
+        first_chunk_start = first_chunk_start if start_date >= first_chunk_start else first_chunk_start - pd.Timedelta(chunk_freq)
+
         # Iterate over date ranges using the specified frequency
-        for current_start in tqdm(pd.date_range(start=first_chunk_start, end=end_date, freq=freq)):
+        for current_start in tqdm(pd.date_range(start=first_chunk_start, end=end_date, freq=chunk_freq)):
             current_start = max(start_date, current_start)
-            current_end = min(end_date, current_start + pd.Timedelta(freq) - timedelta(seconds=1))
-    
-            raw_data = WeatherMeasurements.download_knmi_weather_data(current_start, current_end, metrics)
-            chunk_data, chunk_stations = WeatherMeasurements.process_knmi_weather_data(raw_data)
-            
+            current_end = min(end_date, current_start + pd.Timedelta(chunk_freq) - timedelta(seconds=1))
+
+            raw_data = WeatherMeasurements.download_knmi_weather_data(current_start, current_end, metrics.keys())
+            try:
+                chunk_data, chunk_stations = WeatherMeasurements.process_knmi_weather_data(raw_data)
+            except pd.errors.ParserError:
+                print(f"Parsing raw data with start {current_start} and end {current_end} gives ParserError; date: {raw_data}")
+                continue
+
             # Append chunk data to all_data
-            all_data = pd.concat([all_data, chunk_data])
-            
+            all_data = pd.concat([all_data, chunk_data], ignore_index=True)
             # Append chunk stations to all_stations
-            all_stations = pd.concat([all_stations, chunk_stations])
-    
-        # Convert columns to numeric, replacing errors with NaNs
-        all_data['t'] = pd.to_numeric(all_data['t'], errors='coerce')
-        all_data['fh'] = pd.to_numeric(all_data['fh'], errors='coerce')
-        all_data['q'] = pd.to_numeric(all_data['q'], errors='coerce')
-        
-        # Set appropriate data types
-        all_data['t'] = all_data['t'].astype('Int16')
-        all_data['fh'] = all_data['fh'].astype('UInt8')
-        all_data['q'] = all_data['q'].astype('UInt16')
-        
-    
-        all_data = all_data.set_index(['stn','timestamp'])
-        all_stations = all_stations.set_index(['stn'])
-    
+            all_stations = pd.concat([all_stations, chunk_stations], ignore_index=True)
+
+        # Convert columns to specified data types
+        for metric, dtype in metrics.items():
+            all_data[metric] = pd.to_numeric(all_data[metric], errors='coerce').astype(dtype)
+
+        all_data = all_data.set_index(['STN', 'timestamp'])
+        all_stations = all_stations.drop_duplicates(subset=['STN']).set_index('STN')
+
         # Find all unique stations with data in all_data
-        stations_with_data = all_data.index.get_level_values('stn').unique()
-     
+        stations_with_data = all_data.index.get_level_values('STN').unique()
+
         # Filter all_stations to include only stations with data
-        all_stations = all_stations[all_stations.index.isin(stations_with_data)]
-    
-        # Identify stations with missing values in any of t, fh, or q
-        stations_with_missing_data = all_data[all_data[['t', 'fh', 'q']].isna().any(axis=1)].index.get_level_values(0).unique()
-    
-        # Drop rows with missing values in t, fh, or q from all_data
-        all_data = all_data.dropna(subset=['t', 'fh', 'q'])
-        
+        all_stations = all_stations.loc[stations_with_data]
+
+        # Identify stations with missing values in any of the metrics
+        stations_with_missing_data = all_data[all_data[list(metrics.keys())].isna().any(axis=1)].index.get_level_values(0).unique()
+
+        # Drop rows with missing values in any of the metrics from all_data
+        all_data = all_data.dropna(subset=list(metrics.keys()))
+
         # Remove the stations with missing data from all_stations
         all_stations = all_stations.drop(stations_with_missing_data, errors='ignore')
 
         # Merge the weather data with station metadata
-        df_weather = all_data.merge(all_stations[['lon', 'lat']], left_on='stn', right_index=True, how='left')
+        df_weather = all_data.merge(all_stations[['LON', 'LAT']], left_on='STN', right_index=True, how='left')
 
         # Set the multi-index with lat, lon, and timestamp
-        df_weather = df_weather.reset_index().set_index(['lat', 'lon', 'timestamp']).sort_index()
-                  
-        # Drop the station identifier from the data
-        df_weather = df_weather.drop(columns=['stn'])
+        df_weather = df_weather.reset_index().set_index(['LAT', 'LON', 'timestamp']).sort_index()
 
-        # return df_weather
-        return df_weather
+        # Drop the station identifier from the data
+        df_weather = df_weather.drop(columns=['STN'])
+
+        return df_weather.rename_axis(index=str.lower)
+
     
     @staticmethod
     def get_weather_measurements(df_weather_locations, weather_min_timestamp, weather_max_timestamp):
