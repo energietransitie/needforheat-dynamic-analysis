@@ -11,6 +11,7 @@ from urllib.error import HTTPError
 from pandas.errors import ParserError
 import requests
 import io
+import json
 import re
 from pytz import NonExistentTimeError
 from scipy.interpolate import RBFInterpolator
@@ -482,6 +483,77 @@ class Measurements:
         
         return df
 
+    @staticmethod
+    def convert_enelogic_excel_to_measurements(file_path: str, tz='Europe/Amsterdam') -> pd.DataFrame:
+
+        # Read the Excel file
+        try:
+            df = pd.read_excel(file_path)
+            print("File was successfully read without specifying compression codec.")
+        except Exception as e:
+            print(f"Error reading file: {e}")
+
+        # Function to map rate codes to property names
+        def map_rate_to_property(rate):
+            return {
+                180: 'g_use_monthly_cum__m3',
+                181: 'e_use_monthly_hi_cum__kWh',
+                182: 'e_use_monthly_lo_cum__kWh',
+                281: 'e_ret_monthly_hi_cum__kWh',
+                282: 'e_ret_monthly_lo_cum__kWh'
+            }.get(rate, None)
+        
+        # Initialize lists to store transformed data
+        ids = []
+        source_categories = []
+        source_types = []
+        timestamps = []
+        properties = []
+        values = []
+        
+        # Iterate over the rows of the DataFrame
+        for _, row in df.iterrows():
+            pseudonym = int(row['pseudonym'])
+            print(f'processing id: {pseudonym}')
+            for col in df.columns[1:]:
+                try:
+                    json_data = json.loads(row[col])
+                except (TypeError, json.JSONDecodeError) as e:
+                    print(f"Skipping pseudonym {pseudonym} due to error: {e}")
+                    continue
+                for entry in json_data:
+                    if not isinstance(entry, dict):
+                        print(f"Unexpected entry format for pseudonym {pseudonym}, column {col}: {entry}")
+                        continue
+        
+                    rate = entry.get('rate')
+                    property_name = map_rate_to_property(rate)
+                    if property_name:
+                        timestamp = pytz.timezone(tz).localize(
+                            datetime.strptime(entry['date'], "%Y-%m-%d %H:%M:%S")
+                        )
+                        ids.append(pseudonym)
+                        source_categories.append('batch_import')
+                        source_types.append('enelogic')
+                        timestamps.append(timestamp)
+                        properties.append(property_name)
+                        values.append(entry['quantity'])
+                        
+        # Convert relevant arrays to categorical type
+        source_categories = pd.Categorical(source_categories)
+        source_types = pd.Categorical(source_types)
+        properties = pd.Categorical(properties)
+
+        # Create the DataFrame
+        multi_index = pd.MultiIndex.from_arrays(
+            [ids, source_categories, source_types, timestamps, properties],
+            names=('id', 'source_category', 'source_type', 'timestamp', 'property')
+        )
+        
+        result_df = pd.DataFrame({'value': values}, index=multi_index)
+
+        return result_df
+    
 class WeatherMeasurements:
 
 
@@ -612,7 +684,10 @@ class WeatherMeasurements:
                                                                      current_end.strftime('%Y%m%d'),
                                                                      metrics.keys()
                                                                     )
-            df_weather_chunk = WeatherMeasurements.process_knmi_weather_data(raw_data)
+            try:
+                df_weather_chunk = WeatherMeasurements.process_knmi_weather_data(raw_data)
+            except ParserError:
+                print(f"ParserError on: {raw_data}")
               
 
             if df_weather_chunk.empty:
@@ -712,13 +787,46 @@ class WeatherMeasurements:
         
         # Convert the results list to a DataFrame
         df_meas_weather = pd.DataFrame(interpolated_data)
-        
+
+        # Convert relevant columns to categorical type
+        df_meas_weather['source_category'] = df_meas_weather['source_category'].astype('category')
+        df_meas_weather['source_type'] = df_meas_weather['source_type'].astype('category')
+        df_meas_weather['property'] = df_meas_weather['property'].astype('category')
+
         # Set the appropriate multi-index
         df_meas_weather.set_index(['id', 'source_category', 'source_type', 'timestamp', 'property'], inplace=True)
         
         return df_meas_weather 
 
 
+    @staticmethod
+    def get_nfh_weather_measurements(df_meas, df_homes):
+        """
+        """
+        # Determine weather start and end dates
+        mask = ~((df_meas.index.get_level_values('source_category') == 'batch_import') & (df_meas.index.get_level_values('source_type') == 'enelogic'))
+        filtered_df = df_meas[mask]
+        
+        # Step 2: Calculate the min and max timestamp for the entire DataFrame (generic)
+        weather_min_timestamp = filtered_df.index.get_level_values('timestamp').min()
+        weather_max_timestamp = filtered_df.index.get_level_values('timestamp').max()
+        
+        metrics={'T': ('temp_out__degC', 0.1), # H Temperature (in 0.1 degrees Celsius) at 1.50 m at the time of observation
+                'FH': ('wind__m_s_1', 0.1), # FH: Hourly mean wind speed (in 0.1 m/s)
+                'Q': ('ghi__W_m_2', (100 * 100) / (60 * 60)) # Q: Global radiation (in J/cm^2) during the hourly division, 1 m^2 = 100 cm/m^2 * 100 cm/m^2, 1 h = 60 min/h * 60 s/min
+               }
+        
+        weather_interval = pd.Interval(left=weather_min_timestamp, right=weather_max_timestamp, closed='both') 
+        
+        print("Downloading ...")
+        df_weather = WeatherMeasurements.fetch_weather_data(weather_interval, metrics=metrics)
+
+        print("Geospatial interpolation ...")
+        df_meas_weather = WeatherMeasurements.interpolate_weather_data(df_weather, df_homes)
+
+        return df_meas_weather
+
+    
     @staticmethod
     def get_weather_measurements(df_weather_locations, weather_min_timestamp, weather_max_timestamp):
         """
