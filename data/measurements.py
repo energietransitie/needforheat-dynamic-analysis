@@ -1,10 +1,21 @@
 import os
 import pandas as pd
+import numpy as np
 from datetime import datetime, timedelta
 import pytz
 from tqdm.notebook import tqdm
 from sqlalchemy import create_engine, text
 import logging
+import historicdutchweather
+from urllib.error import HTTPError
+from pandas.errors import ParserError
+import requests
+import io
+import json
+import re
+from pytz import NonExistentTimeError
+from scipy.interpolate import RBFInterpolator
+
 
 class Measurements:
     """
@@ -471,7 +482,411 @@ class Measurements:
             df = pd.concat([df, chunk])
         
         return df
+
+    @staticmethod
+    def convert_enelogic_excel_to_measurements(file_path: str, tz='Europe/Amsterdam') -> pd.DataFrame:
+
+        # Read the Excel file
+        try:
+            df = pd.read_excel(file_path)
+            print("File was successfully read without specifying compression codec.")
+        except Exception as e:
+            print(f"Error reading file: {e}")
+
+        # Function to map rate codes to property names
+        def map_rate_to_property(rate):
+            return {
+                180: 'g_use_monthly_cum__m3',
+                181: 'e_use_monthly_hi_cum__kWh',
+                182: 'e_use_monthly_lo_cum__kWh',
+                281: 'e_ret_monthly_hi_cum__kWh',
+                282: 'e_ret_monthly_lo_cum__kWh'
+            }.get(rate, None)
         
+        # Initialize lists to store transformed data
+        ids = []
+        source_categories = []
+        source_types = []
+        timestamps = []
+        properties = []
+        values = []
+        
+        # Iterate over the rows of the DataFrame
+        for _, row in df.iterrows():
+            pseudonym = int(row['pseudonym'])
+            print(f'processing id: {pseudonym}')
+            for col in df.columns[1:]:
+                try:
+                    json_data = json.loads(row[col])
+                except (TypeError, json.JSONDecodeError) as e:
+                    print(f"Skipping pseudonym {pseudonym} due to error: {e}")
+                    continue
+                for entry in json_data:
+                    if not isinstance(entry, dict):
+                        print(f"Unexpected entry format for pseudonym {pseudonym}, column {col}: {entry}")
+                        continue
+        
+                    rate = entry.get('rate')
+                    property_name = map_rate_to_property(rate)
+                    if property_name:
+                        timestamp = pytz.timezone(tz).localize(
+                            datetime.strptime(entry['date'], "%Y-%m-%d %H:%M:%S")
+                        )
+                        ids.append(pseudonym)
+                        source_categories.append('batch_import')
+                        source_types.append('enelogic')
+                        timestamps.append(timestamp)
+                        properties.append(property_name)
+                        values.append(entry['quantity'])
+                        
+        # Convert relevant arrays to categorical type
+        source_categories = pd.Categorical(source_categories)
+        source_types = pd.Categorical(source_types)
+        properties = pd.Categorical(properties)
+
+        # Create the DataFrame
+        multi_index = pd.MultiIndex.from_arrays(
+            [ids, source_categories, source_types, timestamps, properties],
+            names=('id', 'source_category', 'source_type', 'timestamp', 'property')
+        )
+        
+        result_df = pd.DataFrame({'value': values}, index=multi_index)
+
+        return result_df
+    
+class WeatherMeasurements:
+
+
+    @staticmethod
+    def download_knmi_uurgegevens(start__YYYYMMDD, end_YYYYMMDD, metrics=['T', 'FH', 'Q']):
+        # KNMI API endpoint
+        KNMI_API_URL = "https://www.daggegevens.knmi.nl/klimatologie/uurgegevens"
+        
+        # NB For a future version of these functions, you may also need an  API key for KNMI and put it in a file with the name below and one line KNMI_API_KEY=your_KNMI_API_key 
+        knmi_api_keys_file='knmi_api_key.txt'
+        # If your organistion does not have one yet, request one here: https://developer.dataplatform.knmi.nl/open-data-api#token
+        base_url = KNMI_API_URL
+        params = {
+            'start': start__YYYYMMDD+'01',
+            'end': end_YYYYMMDD+'24',
+            'vars': ':'.join(metrics)
+        }
+        response = requests.get(base_url, params=params)
+        if response.status_code != 200:
+            raise Exception(f"Error fetching data from KNMI: {response.text}")
+        return response.text
+    
+    @staticmethod
+    def process_knmi_weather_data(raw_data):
+       # Split raw data by lines
+        lines = raw_data.splitlines()
+    
+        # Ignore the first 5 lines
+        lines = lines[5:]
+    
+        # Extract station info
+        station_lines = [lines[0].lstrip('# ')]
+        header_found = False
+        data_start_line = 0
+    
+    
+        for i, line in enumerate(lines):
+            if re.match(r'^# \d{3}', line):
+                station_lines.append(line.lstrip('# '))
+            elif line.startswith('# YYYYMMDD'):
+                continue
+            elif line.startswith('# STN,YYYYMMDD'):
+                header_found = True
+            elif header_found:
+                data_start_line = i
+                break
+    
+        
+        # Create station DataFrame
+        station_data = "\n".join(station_lines)
+    
+        df_stations = pd.read_fwf(io.StringIO(station_data))
+        df_stations.columns = df_stations.columns.str.replace(r'\(.*\)', '', regex=True).str.strip()
+        df_stations = df_stations.set_index(['STN'])
+        if (not header_found) & (data_start_line == 0):
+            return pd.DataFrame() # Return an empty DataFrame
+        else: 
+            df_weather_chunk = pd.read_csv(io.StringIO(raw_data), skiprows=data_start_line+4, delimiter=',')    
+        
+            # Rename columns
+            df_weather_chunk.columns = [col.replace('#', '').strip() for col in df_weather_chunk.columns]
+            
+            # Parse timestamp
+            df_weather_chunk['timestamp'] = pd.to_datetime(df_weather_chunk['YYYYMMDD'].astype(str) + df_weather_chunk['HH'].astype(int).sub(1).astype(str).str.zfill(2), format='%Y%m%d%H')
+            
+            # Localize to UTC
+            df_weather_chunk['timestamp'] = df_weather_chunk['timestamp'].dt.tz_localize('UTC')
+        
+            df_weather_chunk.drop(columns=['YYYYMMDD', 'HH'], inplace=True)
+        
+            # drop rows where timestamps are NaT (Not a Time)
+            df_weather_chunk = df_weather_chunk.dropna(subset=['timestamp'])
+        
+            df_weather_chunk = df_weather_chunk.set_index(['STN', 'timestamp'])
+    
+            df_weather_chunk = df_weather_chunk.merge(df_stations[['LON', 'LAT']], left_on='STN', right_index=True, how='left')
+    
+            # Set the multi-index with lat, lon, and timestamp
+            df_weather_chunk = df_weather_chunk.reset_index()
+    
+            # Drop the station identifier from the data
+            df_weather_chunk = df_weather_chunk.drop(columns=['STN'])
+            
+            # Rename columns
+            df_weather_chunk = df_weather_chunk.rename(columns={'LAT': 'lat__degN', 'LON': 'lon__degE'})
+            df_weather_chunk = df_weather_chunk.set_index(['lat__degN', 'lon__degE', 'timestamp']).sort_index()
+    
+            # Drop rows with missing values 
+            df_weather_chunk = df_weather_chunk.dropna()
+    
+            return df_weather_chunk
+
+    
+    @staticmethod
+    def fetch_weather_data(time_interval, 
+                           chunk_freq="4W", 
+                           metrics={'T': ('temp_in__degC', 0.1), # H Temperature (in 0.1 degrees Celsius) at 1.50 m at the time of observation
+                                    'FH': ('wind__m_s_1', 0.1), # FH: Hourly mean wind speed (in 0.1 m/s)
+                                    'Q': ('ghi__W_m_2', (100 * 100) / (60 * 60)) # Q: Global radiation (in J/cm^2) during the hourly division, 1 m^2 = 100 cm/m^2 * 100 cm/m^2, 1 h = 60 min/h * 60 s/min 
+                                   }
+                          ):
+        """
+        Fetch and process weather data in chunks over a specified period.
+        
+        Parameters:
+        time_interval (pd.Interval): Closed interval for the data collection period.
+        chunk_freq (str): Frequency for dividing the data collection period into chunks.
+        metrics (dict): Dictionary of metrics with a tuple specifying a property name following the physiquant__unit naming convention and conversion factor.
+        
+        Returns:
+        pd.DataFrame: Processed weather data with multi-index of latitude, longitude, and timestamp. The timezone of time_interval.left.tzinfo (if any) is used as the target timezone for the timestamps.
+        """
+        df_weather = pd.DataFrame()
+
+        # Ensure the start date is included in the first chunk
+        target__tz = time_interval.left.tzinfo
+        start_date = time_interval.left.tz_convert('UTC').normalize()
+        end_date = time_interval.right.tz_convert('UTC').normalize() + pd.Timedelta(days=1)
+        first_chunk_start = pd.date_range(start=start_date, end=end_date, freq=chunk_freq)[0]
+        first_chunk_start = first_chunk_start if start_date >= first_chunk_start else first_chunk_start - pd.Timedelta(chunk_freq)
+
+        # Iterate over date ranges using the specified frequency
+        for current_start in tqdm(pd.date_range(start=first_chunk_start, end=end_date, freq=chunk_freq)):
+            current_end = min(end_date, current_start + pd.Timedelta(chunk_freq) - timedelta(seconds=1))
+            current_start = max(start_date, current_start)
+
+            raw_data = WeatherMeasurements.download_knmi_uurgegevens(current_start.strftime('%Y%m%d'),
+                                                                     current_end.strftime('%Y%m%d'),
+                                                                     metrics.keys()
+                                                                    )
+            try:
+                df_weather_chunk = WeatherMeasurements.process_knmi_weather_data(raw_data)
+            except ParserError:
+                print(f"ParserError on: {raw_data}")
+              
+
+            if df_weather_chunk.empty:
+                print(f"No data found between {current_start} and {current_end} for {metrics.keys()}. Skipping to next iteration.")
+                continue  # Move to the next iteration of the loop
+                
+            # Convert all columns to numeric, coercing errors to NaN
+            df_weather_chunk = df_weather_chunk.apply(pd.to_numeric, errors='coerce')
+
+            # Apply property renaming and conversion factors
+            columns_to_drop = []
+            for metric, (new_name, conversion_factor) in metrics.items():
+                if metric in df_weather_chunk.columns:
+                    if conversion_factor is not None:
+                        df_weather_chunk[new_name] = df_weather_chunk[metric] * conversion_factor
+                    else:
+                        df_weather_chunk[new_name] = df_weather_chunk[metric
+                        ]
+                # Mark original column for dropping if the new name is different
+                if new_name != metric:
+                    columns_to_drop.append(metric)
+            
+            # Remove original metric columns if they were renamed
+            df_weather_chunk = df_weather_chunk.drop(columns=columns_to_drop)
+        
+            # Append chunk data to df_weather
+            df_weather = pd.concat([df_weather, df_weather_chunk])
+
+        if not df_weather_chunk.empty:
+            
+            # Cleanup and final formatting
+    
+            df_weather = df_weather.reset_index()
+            df_weather = df_weather.dropna()
+            df_weather = df_weather.drop_duplicates()
+            
+            # Convert the 'timestamp' column to the target timezone, if any
+            if target__tz is not None:
+                df_weather['timestamp'] = df_weather['timestamp'].dt.tz_convert(target__tz)
+    
+            df_weather = df_weather.set_index(['timestamp', 'lat__degN', 'lon__degE']).sort_index()
+
+        return df_weather
+        
+    
+    @staticmethod
+    def interpolate_weather_data(df_weather, df_homes):
+        """
+        Interpolate weather data to home locations using scipy.interpolate.RBFInterpolator.
+        
+        Parameters:
+        - df_weather (pd.DataFrame): DataFrame containing weather data with multi-index ['lat__degN', 'lon__degE', 'timestamp'].
+        - df_homes (pd.DataFrame): DataFrame containing index ['id'] and the weather location of the home in columns 'weather_lat__degN', 'weather_lon__degE'.
+        
+        Returns:
+        - pd.DataFrame: Interpolated weather data with multi-index ['id', 'source_category', 'source_type', 'timestamp', 'property'].
+        """
+        
+        # Prepare the output DataFrame
+        interpolated_data = []
+
+        df_weather = df_weather.reorder_levels(['timestamp', 'lat__degN', 'lon__degE']).sort_index()
+        
+       
+        # Iterate over each timestamp
+        for timestamp in tqdm(df_weather.index.get_level_values('timestamp').unique()):
+            df_timestamp = df_weather.xs(timestamp, level='timestamp')
+            lat_lon = df_timestamp.index.values
+            lat_lon_array = np.array([[lat__degN, lon__degE] for lat__degN, lon__degE in lat_lon])
+            
+            for metric in df_timestamp.columns:
+                values = df_timestamp[metric].values
+        
+                # Set up the interpolator
+                interpolator = RBFInterpolator(lat_lon_array, values)
+        
+                # Perform interpolation for each home location
+                for home_id, home_data in df_homes.iterrows():
+
+                    # Create an array of the weather location coordinates
+                    weather_coords = np.array([[home_data['weather_lat__degN'], home_data['weather_lon__degE']]])
+ 
+                    interpolated_value = interpolator(weather_coords)
+
+                    # Convert the interpolated value to Float32
+                    interpolated_value = float(interpolated_value.astype('float32'))
+                    
+                    # Append the interpolated value to the results list
+                    interpolated_data.append({
+                        'id': home_id,
+                        'source_category': 'batch_import',
+                        'source_type': 'KNMI',
+                        'timestamp': timestamp,
+                        'property': metric,
+                        'value': interpolated_value
+                    })
+        
+        # Convert the results list to a DataFrame
+        df_meas_weather = pd.DataFrame(interpolated_data)
+
+        # Convert relevant columns to categorical type
+        df_meas_weather['source_category'] = df_meas_weather['source_category'].astype('category')
+        df_meas_weather['source_type'] = df_meas_weather['source_type'].astype('category')
+        df_meas_weather['property'] = df_meas_weather['property'].astype('category')
+
+        # Set the appropriate multi-index
+        df_meas_weather.set_index(['id', 'source_category', 'source_type', 'timestamp', 'property'], inplace=True)
+        
+        return df_meas_weather 
+
+
+    @staticmethod
+    def get_nfh_weather_measurements(df_meas, df_homes):
+        """
+        """
+        # Determine weather start and end dates
+        mask = ~((df_meas.index.get_level_values('source_category') == 'batch_import') & (df_meas.index.get_level_values('source_type') == 'enelogic'))
+        filtered_df = df_meas[mask]
+        
+        # Step 2: Calculate the min and max timestamp for the entire DataFrame (generic)
+        weather_min_timestamp = filtered_df.index.get_level_values('timestamp').min()
+        weather_max_timestamp = filtered_df.index.get_level_values('timestamp').max()
+        
+        metrics={'T': ('temp_out__degC', 0.1), # H Temperature (in 0.1 degrees Celsius) at 1.50 m at the time of observation
+                'FH': ('wind__m_s_1', 0.1), # FH: Hourly mean wind speed (in 0.1 m/s)
+                'Q': ('ghi__W_m_2', (100 * 100) / (60 * 60)) # Q: Global radiation (in J/cm^2) during the hourly division, 1 m^2 = 100 cm/m^2 * 100 cm/m^2, 1 h = 60 min/h * 60 s/min
+               }
+        
+        weather_interval = pd.Interval(left=weather_min_timestamp, right=weather_max_timestamp, closed='both') 
+        
+        print("Downloading ...")
+        df_weather = WeatherMeasurements.fetch_weather_data(weather_interval, metrics=metrics)
+
+        print("Geospatial interpolation ...")
+        df_meas_weather = WeatherMeasurements.interpolate_weather_data(df_weather, df_homes)
+
+        return df_meas_weather
+
+    
+    @staticmethod
+    def get_weather_measurements(df_weather_locations, weather_min_timestamp, weather_max_timestamp):
+        """
+        Retrieve and process KNMI weather data for given locations and timestamps, and compile it into a cumulative dataframe.
+        
+        Parameters:
+        df_weather_locations (pd.DataFrame): DataFrame containing weather location data with a home id for index and 'weather_lat__degN' and 'weather_lon__degE' columns.
+        weather_min_timestamp (pd.Timestamp): Minimum timestamp for weather data retrieval.
+        weather_max_timestamp (pd.Timestamp): Maximum timestamp for weather data retrieval.
+        
+        Returns:
+        pd.DataFrame: Cumulative DataFrame with weather measurements.
+        """
+        new_column_names = {'T': 'temp_in__degC', 'FH': 'wind__m_s_1', 'Q': 'ghi__J_h_1_cm_2'}
+        
+        # Initialize an empty DataFrame to store cumulative weather measurements
+        df_meas_weather = pd.DataFrame()
+        
+        # Get unique weather locations
+        weather_locations = df_weather_locations[['weather_lat__degN', 'weather_lon__degE']].drop_duplicates()
+        
+        for lat, lon in tqdm(weather_locations.values):
+            try:
+                # Extractor start and end time
+                extractor_starttime = weather_min_timestamp - pd.Timedelta(hours=1)
+                extractor_endtime = weather_max_timestamp - pd.Timedelta(hours=1)
+                
+                # Retrieve weather data
+                df_weather = historicdutchweather.get_local_weather(
+                    extractor_starttime, extractor_endtime, lat, lon, metrics=['T', 'FH', 'Q']
+                )
+                
+                # Transform the DataFrame to fit the desired format
+                df_weather.rename(columns=new_column_names, inplace=True)
+                df_weather = df_weather.stack().reset_index()
+                df_weather.columns = ['timestamp', 'property', 'value']
+                
+                # Find home_ids with this weather location
+                home_ids = df_weather_locations[
+                    (df_weather_locations.weather_lat__degN == lat) & 
+                    (df_weather_locations.weather_lon__degE == lon)
+                ].index
+                
+                for home_id in home_ids:
+                    # Set id and other columns for df_weather
+                    df_weather_home = df_weather.copy()
+                    df_weather_home['id'] = home_id
+                    df_weather_home['source_category'] = 'batch_import'
+                    df_weather_home['source_type'] = 'KNMI'
+                    df_weather_home.set_index(['id', 'source_category', 'source_type', 'timestamp', 'property'], inplace=True)
+                    
+                    # Concatenate to cumulative df_meas_weather
+                    df_meas_weather = pd.concat([df_meas_weather, df_weather_home])
+                    
+            except HTTPError as e:
+                print(f"HTTP error {e.code} for lat {lat}, lon {lon}. Skipping...")
+                continue
+        
+        return df_meas_weather
+       
         
     @staticmethod
     def get_interpolated_weather_nl(first_day:datetime, last_day:datetime, 
@@ -528,6 +943,7 @@ class Measurements:
        
         return df
 
+    
     @staticmethod
     def get_weather_parameter_timeseries_mean(df: pd.DataFrame, parameter: str, seriesname: str, 
                                  up_to: str, int_intv: str,

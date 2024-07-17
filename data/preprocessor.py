@@ -6,7 +6,6 @@ import pytz
 import math
 import logging
 import io
-import json
 from datetime import datetime, timedelta
 from extractor import WeatherExtractor
 
@@ -418,11 +417,14 @@ class Preprocessor:
         pivoted_df = filtered_df.pivot_table(index=['id', 'date'], columns='source_type', values=prop, aggfunc=['mean', 'std'])
         pivoted_columns = [f'{agg_func}_{source_type}' for agg_func, source_type in pivoted_df.columns]
         pivoted_df.columns = pivoted_columns
-        pivoted_df = pivoted_df.reset_index()
-    
-        pivoted_df.dropna(subset=pivoted_columns, inplace=True)
-    
-        df_corrections = pivoted_df.groupby('id').mean().reset_index()
+        df_corrections = (pivoted_df
+                          .reset_index()
+                          .drop(columns=['date'])
+                          .dropna(subset=pivoted_columns)
+                          .groupby('id')
+                          .mean()
+                          .reset_index()
+                         )
 
         return df_corrections
 
@@ -810,6 +812,8 @@ class Preprocessor:
                          restore_original_types: bool = False,
                          inplace: bool = False) -> pd.DataFrame:
 
+        freq_min__str = 'min'
+        
         if property_limits is None:
             property_limits = {}
 
@@ -871,8 +875,8 @@ class Preprocessor:
  
                             limit = max((limit__min // upsample__min) - 1, 1)
         
-                            logging.info(f"upsample to: {str(upsample__min) + 'T'}")
-                            logging.info(f"resample to: {str(interpolate__min) + 'T'}")
+                            logging.info(f"upsample to: {str(upsample__min) + freq_min__str}")
+                            logging.info(f"resample to: {str(interpolate__min) + freq_min__str}")
                             logging.info(f"max number of fills: {limit}")
                             
 
@@ -880,31 +884,31 @@ class Preprocessor:
                                 logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
                                 df_resultcol = (df_source[col]
                                                 .astype('float64')
-                                                .resample(str(upsample__min) + 'T')
+                                                .resample(str(upsample__min) + freq_min__str)
                                                 .first()
                                                 .interpolate(method='time', limit=limit)
-                                                .resample(str(interpolate__min) + 'T')
+                                                .resample(str(interpolate__min) + freq_min__str)
                                                 .mean()
                                                 .to_frame(name=col)
                                                ) 
-                            elif df_source[col].dtype in ['boolean', 'Int16', 'Int8', 'Float16', 'Float32']:
+                            elif df_source[col].dtype in ['boolean', 'Int16', 'Int8', 'Float16', 'float32', 'Float32']:
                                 logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
                                 df_resultcol = (df_source[col]
                                                 .astype('float64')
-                                                .resample(str(upsample__min) + 'T')
+                                                .resample(str(upsample__min) + freq_min__str)
                                                 .first()
                                                 .interpolate(method='time', limit=limit)
-                                                .resample(str(interpolate__min) + 'T')
+                                                .resample(str(interpolate__min) + freq_min__str)
                                                 .mean()
                                                 .to_frame(name=col)
                                                ) 
                             elif df_source[col].dtype in ['object', 'string']:
                                 logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
                                 df_resultcol = (df_source[col]
-                                                .resample(str(upsample__min) + 'T')
+                                                .resample(str(upsample__min) + freq_min__str)
                                                 .first()
                                                 .ffill(limit=limit)
-                                                .resample(str(interpolate__min) + 'T')
+                                                .resample(str(interpolate__min) + freq_min__str)
                                                 .first()
                                                 .to_frame(name=col)
                                                ) 
@@ -912,10 +916,10 @@ class Preprocessor:
                                 logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
                                 print(f"\nSpecial dtype ({df_source[col].dtype}) found for category/type/col: {cat_value}/{type_value}/{col}")
                                 df_resultcol = (df_source[col]
-                                                .resample(str(upsample__min) + 'T')
+                                                .resample(str(upsample__min) + freq_min__str)
                                                 .first()
                                                 .ffill(limit=limit)
-                                                .resample(str(interpolate__min) + 'T')
+                                                .resample(str(interpolate__min) + freq_min__str)
                                                 .first()
                                                 .to_frame(name=col)
                                                ) 
@@ -964,6 +968,11 @@ class Preprocessor:
             # After processing all source_categories of an id
         
         # After processing all ids
+
+        # Convert relevant columns to categorical type
+        df_result['source_category'] = df_result['source_category'].astype('category')
+        df_result['source_type'] = df_result['source_type'].astype('category')
+        
         # Pivot the result DataFrame to have properties as columns
         df_result = df_result.set_index(['id', 'source_category', 'source_type', 'timestamp']).sort_index()
 
@@ -1200,75 +1209,7 @@ class Preprocessor:
                     df_prep.loc[group.index[1:], new_prop] = avg_power
         
         return df_prep
-    
 
-
-    
-    @staticmethod
-    def convert_enelogic_excel_to_measurements(file_path: str, tz='Europe/Amsterdam') -> pd.DataFrame:
-
-        # Read the Excel file
-        try:
-            df = pd.read_excel(file_path)
-            print("File was successfully read without specifying compression codec.")
-        except Exception as e:
-            print(f"Error reading file: {e}")
-
-        # Function to map rate codes to property names
-        def map_rate_to_property(rate):
-            return {
-                180: 'g_use_monthly_cum__m3',
-                181: 'e_use_monthly_hi_cum__kWh',
-                182: 'e_use_monthly_lo_cum__kWh',
-                281: 'e_ret_monthly_hi_cum__kWh',
-                282: 'e_ret_monthly_lo_cum__kWh'
-            }.get(rate, None)
-        
-        # Initialize lists to store transformed data
-        ids = []
-        source_categories = []
-        source_types = []
-        timestamps = []
-        properties = []
-        values = []
-        
-        # Iterate over the rows of the DataFrame
-        for _, row in df.iterrows():
-            pseudonym = int(row['pseudonym'])
-            print(f'processing id: {pseudonym}')
-            for col in df.columns[1:]:
-                try:
-                    json_data = json.loads(row[col])
-                except (TypeError, json.JSONDecodeError) as e:
-                    print(f"Skipping pseudonym {pseudonym} due to error: {e}")
-                    continue
-                for entry in json_data:
-                    if not isinstance(entry, dict):
-                        print(f"Unexpected entry format for pseudonym {pseudonym}, column {col}: {entry}")
-                        continue
-        
-                    rate = entry.get('rate')
-                    property_name = map_rate_to_property(rate)
-                    if property_name:
-                        timestamp = pytz.timezone(tz).localize(
-                            datetime.strptime(entry['date'], "%Y-%m-%d %H:%M:%S")
-                        )
-                        ids.append(pseudonym)
-                        source_categories.append('batch_import')
-                        source_types.append('enelogic')
-                        timestamps.append(timestamp)
-                        properties.append(property_name)
-                        values.append(entry['quantity'])
-        
-        # Create the DataFrame
-        multi_index = pd.MultiIndex.from_arrays(
-            [ids, source_categories, source_types, timestamps, properties],
-            names=('id', 'source_category', 'source_type', 'timestamp', 'property')
-        )
-        
-        result_df = pd.DataFrame({'value': values}, index=multi_index)
-
-        return result_df
     
     @staticmethod
     def merge_weather_data_nl(df_prep: pd.DataFrame,
