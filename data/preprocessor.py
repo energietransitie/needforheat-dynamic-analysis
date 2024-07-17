@@ -417,11 +417,14 @@ class Preprocessor:
         pivoted_df = filtered_df.pivot_table(index=['id', 'date'], columns='source_type', values=prop, aggfunc=['mean', 'std'])
         pivoted_columns = [f'{agg_func}_{source_type}' for agg_func, source_type in pivoted_df.columns]
         pivoted_df.columns = pivoted_columns
-        pivoted_df = pivoted_df.reset_index()
-    
-        pivoted_df.dropna(subset=pivoted_columns, inplace=True)
-    
-        df_corrections = pivoted_df.groupby('id').mean().reset_index()
+        df_corrections = (pivoted_df
+                          .reset_index()
+                          .drop(columns=['date'])
+                          .dropna(subset=pivoted_columns)
+                          .groupby('id')
+                          .mean()
+                          .reset_index()
+                         )
 
         return df_corrections
 
@@ -809,6 +812,8 @@ class Preprocessor:
                          restore_original_types: bool = False,
                          inplace: bool = False) -> pd.DataFrame:
 
+        freq_min__str = 'min'
+        
         if property_limits is None:
             property_limits = {}
 
@@ -870,8 +875,8 @@ class Preprocessor:
  
                             limit = max((limit__min // upsample__min) - 1, 1)
         
-                            logging.info(f"upsample to: {str(upsample__min) + 'T'}")
-                            logging.info(f"resample to: {str(interpolate__min) + 'T'}")
+                            logging.info(f"upsample to: {str(upsample__min) + freq_min__str}")
+                            logging.info(f"resample to: {str(interpolate__min) + freq_min__str}")
                             logging.info(f"max number of fills: {limit}")
                             
 
@@ -879,31 +884,31 @@ class Preprocessor:
                                 logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
                                 df_resultcol = (df_source[col]
                                                 .astype('float64')
-                                                .resample(str(upsample__min) + 'T')
+                                                .resample(str(upsample__min) + freq_min__str)
                                                 .first()
                                                 .interpolate(method='time', limit=limit)
-                                                .resample(str(interpolate__min) + 'T')
+                                                .resample(str(interpolate__min) + freq_min__str)
                                                 .mean()
                                                 .to_frame(name=col)
                                                ) 
-                            elif df_source[col].dtype in ['boolean', 'Int16', 'Int8', 'Float16', 'Float32']:
+                            elif df_source[col].dtype in ['boolean', 'Int16', 'Int8', 'Float16', 'float32', 'Float32']:
                                 logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
                                 df_resultcol = (df_source[col]
                                                 .astype('float64')
-                                                .resample(str(upsample__min) + 'T')
+                                                .resample(str(upsample__min) + freq_min__str)
                                                 .first()
                                                 .interpolate(method='time', limit=limit)
-                                                .resample(str(interpolate__min) + 'T')
+                                                .resample(str(interpolate__min) + freq_min__str)
                                                 .mean()
                                                 .to_frame(name=col)
                                                ) 
                             elif df_source[col].dtype in ['object', 'string']:
                                 logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
                                 df_resultcol = (df_source[col]
-                                                .resample(str(upsample__min) + 'T')
+                                                .resample(str(upsample__min) + freq_min__str)
                                                 .first()
                                                 .ffill(limit=limit)
-                                                .resample(str(interpolate__min) + 'T')
+                                                .resample(str(interpolate__min) + freq_min__str)
                                                 .first()
                                                 .to_frame(name=col)
                                                ) 
@@ -911,10 +916,10 @@ class Preprocessor:
                                 logging.info(f"df_source[col].describe(): {df_source[col].describe()}")
                                 print(f"\nSpecial dtype ({df_source[col].dtype}) found for category/type/col: {cat_value}/{type_value}/{col}")
                                 df_resultcol = (df_source[col]
-                                                .resample(str(upsample__min) + 'T')
+                                                .resample(str(upsample__min) + freq_min__str)
                                                 .first()
                                                 .ffill(limit=limit)
-                                                .resample(str(interpolate__min) + 'T')
+                                                .resample(str(interpolate__min) + freq_min__str)
                                                 .first()
                                                 .to_frame(name=col)
                                                ) 
@@ -963,6 +968,12 @@ class Preprocessor:
             # After processing all source_categories of an id
         
         # After processing all ids
+
+        # Convert relevant arrays to categorical type
+        source_categories = pd.Categorical(source_categories)
+        source_types = pd.Categorical(source_types)
+        properties = pd.Categorical(properties)
+        
         # Pivot the result DataFrame to have properties as columns
         df_result = df_result.set_index(['id', 'source_category', 'source_type', 'timestamp']).sort_index()
 

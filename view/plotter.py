@@ -316,7 +316,7 @@ class Plot:
         
 
         # Localize timestamps in df_prep_filtered 
-        df_prep_filtered.index.set_levels(df_prep_filtered.index.levels[1].tz_convert('UTC').tz_localize(None), level=1, inplace=True)
+        df_prep_filtered.index = df_prep_filtered.index.set_levels(df_prep_filtered.index.levels[1].tz_convert('UTC').tz_localize(None), level=1)
         
         df_pivot = df_prep_filtered[properties].notnull().all(axis=1).replace(False, np.nan).unstack('id')
 
