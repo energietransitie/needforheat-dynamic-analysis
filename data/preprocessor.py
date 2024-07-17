@@ -969,10 +969,9 @@ class Preprocessor:
         
         # After processing all ids
 
-        # Convert relevant arrays to categorical type
-        source_categories = pd.Categorical(source_categories)
-        source_types = pd.Categorical(source_types)
-        properties = pd.Categorical(properties)
+        # Convert relevant columns to categorical type
+        df_result['source_category'] = df_result['source_category'].astype('category')
+        df_result['source_type'] = df_result['source_type'].astype('category')
         
         # Pivot the result DataFrame to have properties as columns
         df_result = df_result.set_index(['id', 'source_category', 'source_type', 'timestamp']).sort_index()
