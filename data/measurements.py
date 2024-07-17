@@ -13,7 +13,7 @@ import requests
 import io
 import re
 from pytz import NonExistentTimeError
-from scipy.interpolate import CloughTocher2DInterpolator
+from scipy.interpolate import RBFInterpolator
 
 
 class Measurements:
@@ -656,13 +656,13 @@ class WeatherMeasurements:
         
     
     @staticmethod
-    def interpolate_weather_data(df_weather, df_home_weather_locations):
+    def interpolate_weather_data(df_weather, df_homes):
         """
-        Interpolate weather data to home locations using CloughTocher2DInterpolator.
+        Interpolate weather data to home locations using scipy.interpolate.RBFInterpolator.
         
         Parameters:
         - df_weather (pd.DataFrame): DataFrame containing weather data with multi-index ['lat__degN', 'lon__degE', 'timestamp'].
-        - df_home_weather_locations (pd.DataFrame): DataFrame containing home locations with index ['pseudonym'].
+        - df_homes (pd.DataFrame): DataFrame containing index ['id'] and the weather location of the home in columns 'weather_lat__degN', 'weather_lon__degE'.
         
         Returns:
         - pd.DataFrame: Interpolated weather data with multi-index ['id', 'source_category', 'source_type', 'timestamp', 'property'].
@@ -673,8 +673,7 @@ class WeatherMeasurements:
 
         df_weather = df_weather.reorder_levels(['timestamp', 'lat__degN', 'lon__degE']).sort_index()
         
-        # lat_lon_array = np.array(df_weather.index.droplevel('timestamp').drop_duplicates().tolist())
-        
+       
         # Iterate over each timestamp
         for timestamp in tqdm(df_weather.index.get_level_values('timestamp').unique()):
             df_timestamp = df_weather.xs(timestamp, level='timestamp')
@@ -685,15 +684,22 @@ class WeatherMeasurements:
                 values = df_timestamp[metric].values
         
                 # Set up the interpolator
-                interpolator = CloughTocher2DInterpolator(lat_lon_array, values)
+                interpolator = RBFInterpolator(lat_lon_array, values)
         
                 # Perform interpolation for each home location
-                for pseudonym, home_location in df_home_weather_locations.iterrows():
-                    interpolated_value = interpolator(home_location['weather_lat__degN'], home_location['weather_lon__degE'])
+                for home_id, home_data in df_homes.iterrows():
+
+                    # Create an array of the weather location coordinates
+                    weather_coords = np.array([[home_data['weather_lat__degN'], home_data['weather_lon__degE']]])
+ 
+                    interpolated_value = interpolator(weather_coords)
+
+                    # Convert the interpolated value to Float32
+                    interpolated_value = float(interpolated_value.astype('float32'))
                     
                     # Append the interpolated value to the results list
                     interpolated_data.append({
-                        'id': pseudonym,
+                        'id': home_id,
                         'source_category': 'batch_import',
                         'source_type': 'KNMI',
                         'timestamp': timestamp,
