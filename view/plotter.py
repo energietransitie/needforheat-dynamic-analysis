@@ -698,13 +698,13 @@ class Plot:
     def plot_h3_cells_and_markers(h3_cell_ids, marker_df, output_file="map_with_h3_cells.html", num_closest_markers=0):
         """
         Plot H3 cells and markers on a Folium map, highlighting the specified number of nearest markers to each H3 cell.
-
+    
         Parameters:
         - h3_cell_ids (list): List of H3 cell ids to plot.
-        - marker_df (DataFrame): DataFrame with columns 'lat', 'lon', and 'popup_text' containing marker information.
+        - marker_df (DataFrame): DataFrame with columns 'lat__degN', 'lon__degE', and 'popup_text' containing marker information.
         - output_file (str, optional): File path to save the HTML map. Default is 'map_with_h3_cells.html'.
         - num_closest_markers (int, optional): Number of closest markers to highlight in green and add to H3 cell popup text. Default is 3.
-
+    
         Returns:
         - folium.Map: Folium map object with plotted markers and H3 cells.
         """
@@ -718,13 +718,36 @@ class Plot:
                 popup_text += f"{popup} {dist:.2f} km<br>"
             return popup_text
         
-        # Calculate map center based on H3 cell centers
+        # Calculate H3 cell centers
         h3_centers = {cell_id: h3.h3_to_geo(cell_id) for cell_id in h3_cell_ids}
-        map_center = [sum([coord[0] for coord in h3_centers.values()]) / len(h3_centers),
-                      sum([coord[1] for coord in h3_centers.values()]) / len(h3_centers)]
+        
+        # Collect all coordinates to determine the bounds, including H3 cell boundaries
+        all_coords = [coord for coord in h3_centers.values()]
+        for cell_id in h3_cell_ids:
+            all_coords.extend(h3.h3_to_geo_boundary(cell_id))
+        all_coords.extend(zip(marker_df['lat__degN'], marker_df['lon__degE']))
+        
+        if all_coords:
+            # Determine the bounds of all points
+            min_lat = min(coord[0] for coord in all_coords)
+            max_lat = max(coord[0] for coord in all_coords)
+            min_lon = min(coord[1] for coord in all_coords)
+            max_lon = max(coord[1] for coord in all_coords)
+    
+            # Calculate the center of the bounds
+            map_center = [(min_lat + max_lat) / 2, (min_lon + max_lon) / 2]
+            map_bounds = [[min_lat, min_lon], [max_lat, max_lon]]
+        else:
+            # Default center if no coordinates are provided (Windesheim University of Applied Sciences in Zwolle)
+            map_center = [52.5012, 6.0796]
+            map_bounds = None
         
         # Create folium map
         mymap = folium.Map(location=map_center, zoom_start=7)
+        
+        if map_bounds:
+            # Fit the map to the bounds
+            mymap.fit_bounds(map_bounds)
         
         # Initialize empty dictionary to store closest markers for each cell
         closest_markers_dict = {cell_id: [] for cell_id in h3_cell_ids}
@@ -732,12 +755,12 @@ class Plot:
         # Add markers from marker_df
         if not marker_df.empty:
             for index, row in marker_df.iterrows():
-                folium.Marker([row['lat'], row['lon']], popup=row['popup_text']).add_to(mymap)
+                folium.Marker([row['lat__degN'], row['lon__degE']], popup=row['popup_text']).add_to(mymap)
                 
                 # Calculate distances to each H3 cell center and update closest markers list
                 for cell_id in h3_cell_ids:
                     h3_center = h3_centers[cell_id]
-                    marker_lat_lon = (row['lat'], row['lon'])
+                    marker_lat_lon = (row['lat__degN'], row['lon__degE'])
                     dist = calculate_distance(marker_lat_lon, h3_center)
                     closest_markers_dict[cell_id].append((row['popup_text'], dist))
         
@@ -767,7 +790,7 @@ class Plot:
             if num_closest_markers > 0:
                 for i, (popup, _) in enumerate(closest_markers_info):
                     marker_row = marker_df[marker_df['popup_text'] == popup].iloc[0]
-                    folium.Marker([marker_row['lat'], marker_row['lon']], 
+                    folium.Marker([marker_row['lat__degN'], marker_row['lon__degE']], 
                                   popup=popup,
                                   icon=folium.Icon(color='green', icon=f'{i+1}')).add_to(mymap)
         
