@@ -508,7 +508,6 @@ class WeatherMeasurements:
     def process_knmi_weather_data(raw_data):
        # Split raw data by lines
         lines = raw_data.splitlines()
-        
     
         # Ignore the first 5 lines
         lines = lines[5:]
@@ -530,48 +529,50 @@ class WeatherMeasurements:
                 data_start_line = i
                 break
     
-    
+        
         # Create station DataFrame
         station_data = "\n".join(station_lines)
     
         df_stations = pd.read_fwf(io.StringIO(station_data))
         df_stations.columns = df_stations.columns.str.replace(r'\(.*\)', '', regex=True).str.strip()
         df_stations = df_stations.set_index(['STN'])
+        if (not header_found) & (data_start_line == 0):
+            return pd.DataFrame() # Return an empty DataFrame
+        else: 
+            df_weather_chunk = pd.read_csv(io.StringIO(raw_data), skiprows=data_start_line+4, delimiter=',')    
         
-        df_weather_chunk = pd.read_csv(io.StringIO(raw_data), skiprows=data_start_line+4, delimiter=',')    
-    
-        # Rename columns
-        df_weather_chunk.columns = [col.replace('#', '').strip() for col in df_weather_chunk.columns]
+            # Rename columns
+            df_weather_chunk.columns = [col.replace('#', '').strip() for col in df_weather_chunk.columns]
+            
+            # Parse timestamp
+            df_weather_chunk['timestamp'] = pd.to_datetime(df_weather_chunk['YYYYMMDD'].astype(str) + df_weather_chunk['HH'].astype(int).sub(1).astype(str).str.zfill(2), format='%Y%m%d%H')
+            
+            # Localize to UTC
+            df_weather_chunk['timestamp'] = df_weather_chunk['timestamp'].dt.tz_localize('UTC')
         
-        # Parse timestamp
-        df_weather_chunk['timestamp'] = pd.to_datetime(df_weather_chunk['YYYYMMDD'].astype(str) + df_weather_chunk['HH'].astype(int).sub(1).astype(str).str.zfill(2), format='%Y%m%d%H')
+            df_weather_chunk.drop(columns=['YYYYMMDD', 'HH'], inplace=True)
         
-        # Localize to UTC
-        df_weather_chunk['timestamp'] = df_weather_chunk['timestamp'].dt.tz_localize('UTC')
-    
-        df_weather_chunk.drop(columns=['YYYYMMDD', 'HH'], inplace=True)
-    
-        # drop rows where timestamps are NaT (Not a Time)
-        df_weather_chunk = df_weather_chunk.dropna(subset=['timestamp'])
-    
-        df_weather_chunk = df_weather_chunk.set_index(['STN', 'timestamp'])
-
-        df_weather_chunk = df_weather_chunk.merge(df_stations[['LON', 'LAT']], left_on='STN', right_index=True, how='left')
-
-        # Set the multi-index with lat, lon, and timestamp
-        df_weather_chunk = df_weather_chunk.reset_index()
-
-        # Drop the station identifier from the data
-        df_weather_chunk = df_weather_chunk.drop(columns=['STN'])
+            # drop rows where timestamps are NaT (Not a Time)
+            df_weather_chunk = df_weather_chunk.dropna(subset=['timestamp'])
         
-        # Rename columns
-        df_weather_chunk = df_weather_chunk.rename(columns={'LAT': 'lat__degN', 'LON': 'lon__degE'})
-        df_weather_chunk = df_weather_chunk.set_index(['lat__degN', 'lon__degE', 'timestamp']).sort_index()
-
-        # Drop rows with missing values 
-        df_weather_chunk = df_weather_chunk.dropna()
+            df_weather_chunk = df_weather_chunk.set_index(['STN', 'timestamp'])
     
-        return df_weather_chunk
+            df_weather_chunk = df_weather_chunk.merge(df_stations[['LON', 'LAT']], left_on='STN', right_index=True, how='left')
+    
+            # Set the multi-index with lat, lon, and timestamp
+            df_weather_chunk = df_weather_chunk.reset_index()
+    
+            # Drop the station identifier from the data
+            df_weather_chunk = df_weather_chunk.drop(columns=['STN'])
+            
+            # Rename columns
+            df_weather_chunk = df_weather_chunk.rename(columns={'LAT': 'lat__degN', 'LON': 'lon__degE'})
+            df_weather_chunk = df_weather_chunk.set_index(['lat__degN', 'lon__degE', 'timestamp']).sort_index()
+    
+            # Drop rows with missing values 
+            df_weather_chunk = df_weather_chunk.dropna()
+    
+            return df_weather_chunk
 
     
     @staticmethod
@@ -611,13 +612,13 @@ class WeatherMeasurements:
                                                                      current_end.strftime('%Y%m%d'),
                                                                      metrics.keys()
                                                                     )
-            try:
-                df_weather_chunk = WeatherMeasurements.process_knmi_weather_data(raw_data)
-                
-            except pd.errors.ParserError:
-                print(f"Parsing raw data with start {current_start} and end {current_end} gives ParserError; date: {raw_data}")
-                continue
+            df_weather_chunk = WeatherMeasurements.process_knmi_weather_data(raw_data)
+              
 
+            if df_weather_chunk.empty:
+                print(f"No data found between {current_start} and {current_end} for {metrics.keys()}. Skipping to next iteration.")
+                continue  # Move to the next iteration of the loop
+                
             # Convert all columns to numeric, coercing errors to NaN
             df_weather_chunk = df_weather_chunk.apply(pd.to_numeric, errors='coerce')
 
@@ -640,17 +641,19 @@ class WeatherMeasurements:
             # Append chunk data to df_weather
             df_weather = pd.concat([df_weather, df_weather_chunk])
 
-        # Cleanup and final formatting
-
-        df_weather = df_weather.reset_index()
-        df_weather = df_weather.dropna()
-        df_weather = df_weather.drop_duplicates()
-        
-        # Convert the 'timestamp' column to the target timezone, if any
-        if target__tz is not None:
-            df_weather['timestamp'] = df_weather['timestamp'].dt.tz_convert(target__tz)
-
-        df_weather = df_weather.set_index(['timestamp', 'lat__degN', 'lon__degE']).sort_index()
+        if not df_weather_chunk.empty:
+            
+            # Cleanup and final formatting
+    
+            df_weather = df_weather.reset_index()
+            df_weather = df_weather.dropna()
+            df_weather = df_weather.drop_duplicates()
+            
+            # Convert the 'timestamp' column to the target timezone, if any
+            if target__tz is not None:
+                df_weather['timestamp'] = df_weather['timestamp'].dt.tz_convert(target__tz)
+    
+            df_weather = df_weather.set_index(['timestamp', 'lat__degN', 'lon__degE']).sort_index()
 
         return df_weather
         
