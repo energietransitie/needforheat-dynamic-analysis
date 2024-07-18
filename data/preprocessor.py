@@ -991,13 +991,33 @@ class Preprocessor:
         return df_result
  
     @staticmethod
+    def safe_to_timedelta(freq_str):
+        try:
+            # Directly attempt conversion for fixed-length periods
+            return pd.to_timedelta(freq_str)
+        except ValueError as e:
+            # Handle special cases for unit abbreviation without a number
+            if str(e) == "unit abbreviation w/o a number":
+                try:
+                    return pd.to_timedelta('1 ' + freq_str)
+                except ValueError:
+                    pass  # Fall through to the next section
+
+        # Handle calendar-based frequencies and other special cases
+        try:
+            period = pd.Period(freq=freq_str)
+            return pd.to_timedelta(period.asfreq('D').n * np.timedelta64(1, 'D'))
+        except (ValueError, TypeError):
+            raise ValueError(f"Cannot convert frequency string '{freq_str}' to timedelta")
+
+    @staticmethod
     def get_consistent_interval(df):
         # Check frequency for each id
-        frequencies = df.groupby(level='id').apply(lambda group: pd.infer_freq(group.index.get_level_values('timestamp')))
+        timedeltas = df.groupby(level='id').apply(lambda group: Preprocessor.safe_to_timedelta(pd.infer_freq(group.index.get_level_values('timestamp'))))
         
         # Check if all frequencies are the same
-        if frequencies.nunique() == 1:
-            interval = pd.to_timedelta(frequencies.iloc[0])
+        if timedeltas.nunique() == 1:
+            interval = timedeltas.iloc[0]
             return interval
         else:
             return None
@@ -1194,6 +1214,9 @@ class Preprocessor:
                 
                 # Filter out negative values and handle the last interval for each id
                 avg_power[avg_power < 0] = np.nan  # Set negative values to NaN
+
+                # Cast avg_power to pandas' nullable float type
+                avg_power = avg_power.astype('Float64')
                 
                 # Apply avg_power values to df_prep using pandas operations
                 mask = df_prep.index.get_level_values('id').duplicated(keep='last')
