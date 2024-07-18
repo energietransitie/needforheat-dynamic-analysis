@@ -409,7 +409,7 @@ class Preprocessor:
 
         df_prop_filtered = df_prop_filtered[df_prop_filtered['source_type'].isin([source_type_to_calibrate, reference_source_type])]
         
-        counts = df_prop_filtered.groupby(['id', 'date', 'source_type']).size().reset_index(name='count')
+        counts = df_prop_filtered.groupby(['id', 'date', 'source_type'], observed=True).size().reset_index(name='count')
         counts = counts[counts['count'] >= min_measurements_per_day]
 
         filtered_df = pd.merge(df_prop_filtered, counts[['id', 'date', 'source_type']], on=['id', 'date', 'source_type'])
