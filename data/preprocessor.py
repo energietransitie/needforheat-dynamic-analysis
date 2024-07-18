@@ -1204,8 +1204,8 @@ class Preprocessor:
             else:
                 continue  # Skip properties not matching the expected suffixes
     
-            # Initialize the new property column with NaN values
-            df_prep[new_prop] = np.nan
+            # Initialize the new property column with NaN values of type Float64
+            df_prep[new_prop] = pd.Series(dtype='Float64')
     
             if consistent_interval:
                 # Vectorized calculation if interval is consistent
