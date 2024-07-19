@@ -414,7 +414,7 @@ class Preprocessor:
 
         filtered_df = pd.merge(df_prop_filtered, counts[['id', 'date', 'source_type']], on=['id', 'date', 'source_type'])
 
-        pivoted_df = filtered_df.pivot_table(index=['id', 'date'], columns='source_type', values=prop, aggfunc=['mean', 'std'])
+        pivoted_df = filtered_df.pivot_table(index=['id', 'date'], columns='source_type', observed=True, values=prop, aggfunc=['mean', 'std'])
         pivoted_columns = [f'{agg_func}_{source_type}' for agg_func, source_type in pivoted_df.columns]
         pivoted_df.columns = pivoted_columns
         df_corrections = (pivoted_df
