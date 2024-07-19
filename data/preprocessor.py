@@ -668,7 +668,7 @@ class Preprocessor:
 
         if duplicate_entries:
             print("Duplicate entries found in the index after merging. Handled mby taking the average.")
-            df = df.groupby(['timestamp', 'source'])['value'].mean()
+            df = df.groupby(['timestamp', 'source'], observed=True)['value'].mean()
         
         df_prep = df.unstack('source')
         df_prep.columns = df_prep.columns.swaplevel(0,1)
@@ -1061,7 +1061,7 @@ class Preprocessor:
     
     
         # Calculate the cumulative duration for each streak and convert to Timedelta directly
-        df_streaks['streak_cumulative_duration'] = pd.to_timedelta(df_streaks.groupby('streak_id')['interval_duration__s'].cumsum(), unit='s')
+        df_streaks['streak_cumulative_duration'] = pd.to_timedelta(df_streaks.groupby('streak_id', observed=True)['interval_duration__s'].cumsum(), unit='s')
     
     
         # Filter to keep only the final cumulative duration for each streak where data_available__bool is True
@@ -1086,7 +1086,7 @@ class Preprocessor:
         streak_durations['duration_bin'] = pd.cut(streak_durations['streak_cumulative_duration'], bins=bins, labels=bin_labels)
         
         # Group by id and duration_bin, then sum the streak durations
-        df_result = streak_durations.groupby(['id', 'duration_bin'])['streak_cumulative_duration'].sum().unstack(level='duration_bin')
+        df_result = streak_durations.groupby(['id', 'duration_bin'], observed=True)['streak_cumulative_duration'].sum().unstack(level='duration_bin')
                 
         return df_result
 
@@ -1122,7 +1122,7 @@ class Preprocessor:
         df_prop = Preprocessor.filter_min_max(df_prop, prop, min=5)
 
         # also filter out measurements by CO₂sensors that are always constant
-        std = df_prop[prop].groupby(['id', 'source']).transform('std')
+        std = df_prop[prop].groupby(['id', 'source'], observed=True).transform('std')
         # set values to np.nan where std is zero
         mask = std == 0
         df_prop[mask] = np.nan
