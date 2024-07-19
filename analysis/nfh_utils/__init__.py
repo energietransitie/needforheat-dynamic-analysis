@@ -14,5 +14,5 @@ from .nfh_constants import (
     metabolism__molCO2_molO2_1, average_Dutch_adult_weight__kg,
     O2umol_s_1_p_1_MET_1, co2_exhale_desk_work__umol_p_1_s_1,
     g_groningen_hhv___MJ_m_3, g_groningen_lhv___MJ_m_3,
-    eta_ch_nl_avg_hhv__J0
+    eta_ch_nl_avg_hhv__W0, g_not_ch_nl_avg__m3_a_1, g_not_ch_nl_avg_hhv__W
 )

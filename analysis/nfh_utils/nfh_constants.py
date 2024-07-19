@@ -58,5 +58,10 @@ g_groningen_hhv___MJ_m_3=35.17                                # average higher h
 g_groningen_lhv___MJ_m_3=31.65                                # average lower heating value of natural gas from the Groningen gas field
 
 # average Dutch boiler efficiency
-eta_ch_nl_avg_hhv__J0 = 0.963                                 # average superior efficiency of boilers in the Netherlands (source: WoON2008; ISSO 82.3)
-
+eta_ch_nl_avg_hhv__W0 = 0.963                                 # average superior efficiency of boilers in the Netherlands (source: WoON2008; ISSO 82.3)
+g_not_ch_nl_avg__m3_a_1 = 339                                 # average gas use in m^3 per year for other purposes than home heating 
+g_not_ch_nl_avg_hhv__W = (g_not_ch_nl_avg__m3_a_1 
+                           * g_groningen_hhv___MJ_m_3
+                           * J_MJ_1
+                           / s_a_1
+                          )                                   # average gas power (heating value) for other purposes than home heating [W]
