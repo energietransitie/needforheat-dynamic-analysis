@@ -409,12 +409,12 @@ class Preprocessor:
 
         df_prop_filtered = df_prop_filtered[df_prop_filtered['source_type'].isin([source_type_to_calibrate, reference_source_type])]
         
-        counts = df_prop_filtered.groupby(['id', 'date', 'source_type']).size().reset_index(name='count')
+        counts = df_prop_filtered.groupby(['id', 'date', 'source_type'], observed=True).size().reset_index(name='count')
         counts = counts[counts['count'] >= min_measurements_per_day]
 
         filtered_df = pd.merge(df_prop_filtered, counts[['id', 'date', 'source_type']], on=['id', 'date', 'source_type'])
 
-        pivoted_df = filtered_df.pivot_table(index=['id', 'date'], columns='source_type', values=prop, aggfunc=['mean', 'std'])
+        pivoted_df = filtered_df.pivot_table(index=['id', 'date'], columns='source_type', observed=True, values=prop, aggfunc=['mean', 'std'])
         pivoted_columns = [f'{agg_func}_{source_type}' for agg_func, source_type in pivoted_df.columns]
         pivoted_df.columns = pivoted_columns
         df_corrections = (pivoted_df
@@ -668,7 +668,7 @@ class Preprocessor:
 
         if duplicate_entries:
             print("Duplicate entries found in the index after merging. Handled mby taking the average.")
-            df = df.groupby(['timestamp', 'source'])['value'].mean()
+            df = df.groupby(['timestamp', 'source'], observed=True)['value'].mean()
         
         df_prep = df.unstack('source')
         df_prep.columns = df_prep.columns.swaplevel(0,1)
@@ -991,13 +991,33 @@ class Preprocessor:
         return df_result
  
     @staticmethod
+    def safe_to_timedelta(freq_str):
+        try:
+            # Directly attempt conversion for fixed-length periods
+            return pd.to_timedelta(freq_str)
+        except ValueError as e:
+            # Handle special cases for unit abbreviation without a number
+            if str(e) == "unit abbreviation w/o a number":
+                try:
+                    return pd.to_timedelta('1 ' + freq_str)
+                except ValueError:
+                    pass  # Fall through to the next section
+
+        # Handle calendar-based frequencies and other special cases
+        try:
+            period = pd.Period(freq=freq_str)
+            return pd.to_timedelta(period.asfreq('D').n * np.timedelta64(1, 'D'))
+        except (ValueError, TypeError):
+            raise ValueError(f"Cannot convert frequency string '{freq_str}' to timedelta")
+
+    @staticmethod
     def get_consistent_interval(df):
         # Check frequency for each id
-        frequencies = df.groupby(level='id').apply(lambda group: pd.infer_freq(group.index.get_level_values('timestamp')))
+        timedeltas = df.groupby(level='id').apply(lambda group: Preprocessor.safe_to_timedelta(pd.infer_freq(group.index.get_level_values('timestamp'))))
         
         # Check if all frequencies are the same
-        if frequencies.nunique() == 1:
-            interval = pd.to_timedelta(frequencies.iloc[0])
+        if timedeltas.nunique() == 1:
+            interval = timedeltas.iloc[0]
             return interval
         else:
             return None
@@ -1041,7 +1061,7 @@ class Preprocessor:
     
     
         # Calculate the cumulative duration for each streak and convert to Timedelta directly
-        df_streaks['streak_cumulative_duration'] = pd.to_timedelta(df_streaks.groupby('streak_id')['interval_duration__s'].cumsum(), unit='s')
+        df_streaks['streak_cumulative_duration'] = pd.to_timedelta(df_streaks.groupby('streak_id', observed=True)['interval_duration__s'].cumsum(), unit='s')
     
     
         # Filter to keep only the final cumulative duration for each streak where data_available__bool is True
@@ -1066,7 +1086,7 @@ class Preprocessor:
         streak_durations['duration_bin'] = pd.cut(streak_durations['streak_cumulative_duration'], bins=bins, labels=bin_labels)
         
         # Group by id and duration_bin, then sum the streak durations
-        df_result = streak_durations.groupby(['id', 'duration_bin'])['streak_cumulative_duration'].sum().unstack(level='duration_bin')
+        df_result = streak_durations.groupby(['id', 'duration_bin'], observed=True)['streak_cumulative_duration'].sum().unstack(level='duration_bin')
                 
         return df_result
 
@@ -1102,7 +1122,7 @@ class Preprocessor:
         df_prop = Preprocessor.filter_min_max(df_prop, prop, min=5)
 
         # also filter out measurements by CO₂sensors that are always constant
-        std = df_prop[prop].groupby(['id', 'source']).transform('std')
+        std = df_prop[prop].groupby(['id', 'source'], observed=True).transform('std')
         # set values to np.nan where std is zero
         mask = std == 0
         df_prop[mask] = np.nan
@@ -1184,8 +1204,8 @@ class Preprocessor:
             else:
                 continue  # Skip properties not matching the expected suffixes
     
-            # Initialize the new property column with NaN values
-            df_prep[new_prop] = np.nan
+            # Initialize the new property column with NaN values of type Float64
+            df_prep[new_prop] = pd.Series(dtype='Float64')
     
             if consistent_interval:
                 # Vectorized calculation if interval is consistent
@@ -1194,6 +1214,9 @@ class Preprocessor:
                 
                 # Filter out negative values and handle the last interval for each id
                 avg_power[avg_power < 0] = np.nan  # Set negative values to NaN
+
+                # Cast avg_power to pandas' nullable float type
+                avg_power = avg_power.astype('Float64')
                 
                 # Apply avg_power values to df_prep using pandas operations
                 mask = df_prep.index.get_level_values('id').duplicated(keep='last')
