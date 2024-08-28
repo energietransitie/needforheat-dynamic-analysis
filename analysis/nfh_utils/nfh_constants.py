@@ -1,9 +1,11 @@
 # Time conversion factors
 s_min_1 = 60                                                  # [s] per [min]
 min_h_1 = 60                                                  # [min] per [h]
+h_d_1 = 24                                                    # [h] per [d]
+d_a_1 = 365.25                                                # [d] per [a]]
 s_h_1 = s_min_1 * min_h_1                                     # [s] per [h]
-s_d_1 = (24 * s_h_1)                                          # [s] per [d]
-s_a_1 = (365.25 * s_d_1)                                      # [s] per [a] 
+s_d_1 = (h_d_1 * s_h_1)                                       # [s] per [d]
+s_a_1 = (d_a_1 * s_d_1)                                      # [s] per [a] 
 
 # Energy conversion factors
 J_kWh_1 = 1000 * s_h_1                                        # [J] per [kWh]
@@ -34,6 +36,7 @@ room_std__mol_m_3 = (P_std__Pa
 gas_std__mol_m_3 = (P_std__Pa 
                 / (R__m3_Pa_K_1_mol_1 * temp_gas_std__K)
                )                                              # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
+air_std__J_m_3_K_1 = 1210                                     # volumetric specific heat of air at standard conditions, based on Wikipedia
 
 # CO₂ concentration averages
 co2_ext_2022__ppm = 415                                       # Yearly average CO₂ concentration in Europe in 2022
@@ -42,9 +45,9 @@ co2_ext_2022__ppm = 415                                       # Yearly average C
 O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
 desk_work__MET = 1.5                                          # Metabolic Equivalent of Task for desk work [MET]
 metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
-average_Dutch_adult_weight__kg = 77.5                         # average weight of Dutch adult [kg]
+adult_weight_nl_avg__kg = 77.5                                # average weight of Dutch adult [kg]
 O2umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
-                   * average_Dutch_adult_weight__kg
+                   * adult_weight_nl_avg__kg
                    / s_min_1 
                    * (umol_mol_1 * room_std__mol_m_3 / ml_m_3)
                    )                                          # molar quantity of O₂ inhaled by an average Dutch adult at 1 MET [µmol/(p⋅s)]
@@ -53,15 +56,58 @@ co2_exhale_desk_work__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
                             * O2umol_s_1_p_1_MET_1
                            )                                  # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
 
+# Average Dutch occupancy and internal heat gain
+household_nl_avg__p = 2.2                                     # average number of persons per Dutch household
+asleep_at_home_nl_avg__h_d_1 = 8.6                            # average hours per day asleep for an average Dutch person
+awake_at_home_nl_avg__h_d_1 = 7.7                             # average hours per day awake and at home for an average Dutch person
+at_home_nl_avg__h_d_1 = (asleep_at_home_nl_avg__h_d_1
+                         + 
+                         awake_at_home_nl_avg__h_d_1
+                        )
+away_from_home_nl_avg = h_d_1 - at_home_nl_avg__h_d_1
+occupancy_nl_avg__p = (household_nl_avg__p
+                      * 
+                      at_home_nl_avg__h_d_1
+                      / h_d_1
+                     )
+Q_gain_awake_int_nl_avg__W_p_1 = 105
+Q_gain_asleep_int_nl_avg__W_p_1 = 77
+
+Q_gain_int_present_nl_avg__W_p_1 = (
+    (Q_gain_asleep_int_nl_avg__W_p_1 * asleep_at_home_nl_avg__h_d_1 
+    +
+    Q_gain_awake_int_nl_avg__W_p_1 * awake_at_home_nl_avg__h_d_1)
+    /
+    at_home_nl_avg__h_d_1
+)                                                             # average internal heat gain from an average Dutch person present at home 
+
+Q_gain_int_nl_avg__W_p_1 = (
+    Q_gain_int_present_nl_avg__W_p_1
+    * at_home_nl_avg__h_d_1
+    / h_d_1
+)                                                             # daily average internal heat gain from an average Dutch person with average presence
+                     
 # Groningen natural gas averages 
-g_groningen_hhv___MJ_m_3=35.17                                # average higher heating value of natural gas from the Groningen gas field
-g_groningen_lhv___MJ_m_3=31.65                                # average lower heating value of natural gas from the Groningen gas field
+g_groningen_hhv__MJ_m_3 = 35.17                              # average higher heating value of natural gas from the Groningen gas field
+g_groningen_lhv__MJ_m_3 = 31.65                              # average lower heating value of natural gas from the Groningen gas field
 
 # average Dutch boiler efficiency
 eta_ch_nl_avg_hhv__W0 = 0.963                                 # average superior efficiency of boilers in the Netherlands (source: WoON2008; ISSO 82.3)
 g_not_ch_nl_avg__m3_a_1 = 339                                 # average gas use in m^3 per year for other purposes than home heating 
 g_not_ch_nl_avg_hhv__W = (g_not_ch_nl_avg__m3_a_1 
-                           * g_groningen_hhv___MJ_m_3
+                           * g_groningen_hhv__MJ_m_3
                            * J_MJ_1
                            / s_a_1
                           )                                   # average gas power (heating value) for other purposes than home heating [W]
+
+# Dutch home and weather related averages
+wind_chill_nl_avg__K_s_m_1 =  0.67 
+H_nl_avg__W_K_1 = 400
+temp_in_nl_heating_season_avg__degC = 18.33                   # derived from reference climate used in NTA8800
+temp_out_nl_heating_season_avg__degC = 6.44                   # derived from reference climate used in NTA8800
+delta_temp_nl_heating_season_avg__K = temp_in_nl_heating_season_avg__degC - temp_out_nl_heating_season_avg__degC
+A_inf_nl_avg__m2 = (
+    (H_nl_avg__W_K_1 * wind_chill_nl_avg__K_s_m_1)
+    /
+    (delta_temp_nl_heating_season_avg__K * air_std__J_m_3_K_1)
+)                                      
