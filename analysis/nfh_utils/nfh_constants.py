@@ -88,8 +88,8 @@ Q_gain_int_nl_avg__W_p_1 = (
 )                                                             # daily average internal heat gain from an average Dutch person with average presence
                      
 # Groningen natural gas averages 
-g_groningen_hhv__MJ_m_3 = 35.17                              # average higher heating value of natural gas from the Groningen gas field
-g_groningen_lhv__MJ_m_3 = 31.65                              # average lower heating value of natural gas from the Groningen gas field
+g_groningen_hhv__MJ_m_3 = 35.17                               # average higher heating value of natural gas from the Groningen gas field
+g_groningen_lhv__MJ_m_3 = 31.65                               # average lower heating value of natural gas from the Groningen gas field
 
 # average Dutch boiler efficiency
 eta_ch_nl_avg_hhv__W0 = 0.963                                 # average superior efficiency of boilers in the Netherlands (source: WoON2008; ISSO 82.3)
@@ -101,13 +101,14 @@ g_not_ch_nl_avg_hhv__W = (g_not_ch_nl_avg__m3_a_1
                           )                                   # average gas power (heating value) for other purposes than home heating [W]
 
 # Dutch home and weather related averages
-wind_chill_nl_avg__K_s_m_1 =  0.67 
-H_nl_avg__W_K_1 = 400
-temp_in_nl_heating_season_avg__degC = 18.33                   # derived from reference climate used in NTA8800
-temp_out_nl_heating_season_avg__degC = 6.44                   # derived from reference climate used in NTA8800
-delta_temp_nl_heating_season_avg__K = temp_in_nl_heating_season_avg__degC - temp_out_nl_heating_season_avg__degC
+wind_chill_nl_avg__K_s_m_1 =  0.67                            # derived from KNMI report 
+H_nl_avg__W_K_1 = 445
+A_sol_nl_avg__m2 = 16.8
+temp_in_heating_season_nl_avg__degC = 18.33                   # derived from reference climate used in NTA8800
+temp_out_heating_season_nl_avg__degC = 6.44                   # derived from reference climate used in NTA8800
+delta_temp_heating_season_nl_avg__K = temp_in_heating_season_nl_avg__degC - temp_out_heating_season_nl_avg__degC
 A_inf_nl_avg__m2 = (
     (H_nl_avg__W_K_1 * wind_chill_nl_avg__K_s_m_1)
     /
-    (delta_temp_nl_heating_season_avg__K * air_std__J_m_3_K_1)
+    (delta_temp_heating_season_nl_avg__K * air_std__J_m_3_K_1)
 )                                      
