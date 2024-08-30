@@ -799,3 +799,46 @@ class Plot:
         
         # Return the folium map object
         return mymap
+
+    @staticmethod
+    def nfh_property_per_id_boxplot(df, filter_col, property_col, filter_value=True):
+        """
+        Create a boxplot for a specific property in the DataFrame, grouped by 'id' and filtered by a condition.
+
+        Parameters:
+        df (pd.DataFrame): The DataFrame containing the data.
+        filter_col (str): The column name used to filter the DataFrame.
+        property_col (str): The column name representing the property to be plotted.
+        filter_value (bool): The value to filter the filter_col by. Defaults to True.
+
+        Returns:
+        None: Displays a boxplot.
+        """
+
+        # Step 1: Filter the DataFrame based on the filter_col and filter_value
+        df_filtered = df[df[filter_col] == filter_value]
+
+        # Step 2: Calculate the mean of the property_col per id and sort in descending order
+        mean_per_id = df_filtered.groupby(level='id')[property_col].mean().sort_values(ascending=False)
+
+        # Step 3: Extract 'id' and the selected property into a new DataFrame and drop missing values
+        df_boxplot = df_filtered.reset_index()[['id', property_col]].dropna()
+
+        # Step 4: Convert 'id' to a categorical type based on the sorted 'id' values
+        df_boxplot['id'] = pd.Categorical(df_boxplot['id'], categories=mean_per_id.index, ordered=True)
+        df_boxplot = df_boxplot.sort_values('id')
+
+        # Step 5: Group by 'id' and collect the property_col values
+        grouped = df_boxplot.groupby('id', observed=True)[property_col].apply(list)
+
+        # Step 6: Create a list of lists for the boxplot
+        data = [grouped[id] for id in grouped.index]
+
+        # Step 7: Create the boxplot using matplotlib
+        plt.figure(figsize=(12, 6))
+        plt.boxplot(data, labels=grouped.index)
+        plt.title(f'{property_col} per id (Sorted by High Average {property_col})')
+        plt.xlabel('ID')
+        plt.ylabel(property_col)
+        plt.xticks(rotation=45)  # Rotate x labels if needed
+        plt.show()

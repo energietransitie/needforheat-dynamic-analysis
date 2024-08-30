@@ -30,8 +30,10 @@ P_std__Pa = 101325                                            # standard gas pre
 R__m3_Pa_K_1_mol_1 = 8.3145                                   # gas constant [m^3⋅Pa⋅K^-1⋅mol^-1)]
 temp_room_std__degC = 20.0                                    # standard room temperature [°C]
 temp_gas_std__degC = 0.0                                      # standard gas temperature [°C]
+temp_gas_ref__degC = 15.0                                     # gas temperature for reference conditions, according to EN 437:2021 (E) [°C]
 temp_gas_std__K = temp_gas_std__degC + temp_0__degC__K        # standard gas temperature [K]
 temp_room_std__K = temp_room_std__degC + temp_0__degC__K      # standard room temperature [K]
+temp_gas_ref__K = temp_gas_ref__degC + temp_0__degC__K        # gas temperature for reference conditions, according to EN 437:2021 (E) [K]
 room_std__mol_m_3 = (P_std__Pa
                 / (R__m3_Pa_K_1_mol_1 * temp_room_std__K)
                )                                              # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
@@ -86,15 +88,28 @@ Q_gain_int_nl_avg__W_p_1 = (
     / h_d_1
 )                                                             # daily average internal heat gain from an average Dutch person with average presence
                      
-# Groningen natural gas averages 
-g_groningen_hhv__MJ_m_3 = 35.17                               # average higher heating value of natural gas from the Groningen gas field
-g_groningen_lhv__MJ_m_3 = 31.65                               # average lower heating value of natural gas from the Groningen gas field
+# Groningen natural gas averages, presumably at P_std__Pa and temp_gas_std__degC
+gas_groningen_nl_avg_hhv__J_m_3 = 35.17e6                     # average higher heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
+gas_groningen_nl_avg_lhv__J_m_3 = 31.65e6                     # average lower heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
+
+# Characteristics of G20 according to NEN-EN 437:2021, Table 2 (reference gas prescribed for tests by Kiwa BRL 2021 c.q. NEN-EN 437:2021)
+gas_g20_lhv__J_m_3 = 34.02e6                                  # Lower heating value of Gronings gas at P_std__Pa and temp_gas_ref__degC
+gas_g20_hhv__J_m_3 = 37.78e6                                  # Higher heating value of Gronings gas at P_std__Pa and temp_gas_ref__degC
+
+# Characteristics of gas G25 according to NEN-EN 437:2021, Table 2
+gas_g25_lhv__J__m3 = 29.25e6                                  # Lower heating value of G25 reference gas at P_std__Pa and temp_gas_ref__degC
+gas_g25_hhv__J__m3 = 33.20e6                                  # Higher heating value of G25 reference gas at P_std__Pa and temp_gas_ref__degC
+
+# Characteristics of gas G25.3 according to EN 437:2021 (E), Table B.5
+gas_g25_3_lhv__J__m3 = 29.92e6                                # Lower heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC 
+gas_g25_3_hhv__J__m3 = 33.20e6                                # Higher heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC
+
 
 # average Dutch boiler efficiency
 eta_ch_nl_avg_hhv__W0 = 0.963                                 # average superior efficiency of boilers in the Netherlands (source: WoON2008; ISSO 82.3)
 g_not_ch_nl_avg__m3_a_1 = 339                                 # average gas use in m^3 per year for other purposes than home heating 
 g_not_ch_nl_avg_hhv__W = (g_not_ch_nl_avg__m3_a_1 
-                           * g_groningen_hhv__MJ_m_3
+                           * gas_groningen_nl_avg_hhv__J_m_3
                            * J_MJ_1
                            / s_a_1
                           )                                   # average gas power (heating value) for other purposes than home heating [W]
