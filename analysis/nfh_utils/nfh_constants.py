@@ -1,3 +1,5 @@
+import numpy as np
+
 # Time conversion factors
 s_min_1 = 60                                                  # [s] per [min]
 min_h_1 = 60                                                  # [min] per [h]
@@ -73,13 +75,10 @@ occupancy_nl_avg__p = (household_nl_avg__p
 Q_gain_awake_int_nl_avg__W_p_1 = 105
 Q_gain_asleep_int_nl_avg__W_p_1 = 77
 
-Q_gain_int_present_nl_avg__W_p_1 = (
-    (Q_gain_asleep_int_nl_avg__W_p_1 * asleep_at_home_nl_avg__h_d_1 
-    +
-    Q_gain_awake_int_nl_avg__W_p_1 * awake_at_home_nl_avg__h_d_1)
-    /
-    at_home_nl_avg__h_d_1
-)                                                             # average internal heat gain from an average Dutch person present at home 
+Q_gain_int_present_nl_avg__W_p_1 = np.average(
+    np.array([Q_gain_asleep_int_nl_avg__W_p_1, Q_gain_awake_int_nl_avg__W_p_1]),
+    weights=np.array([asleep_at_home_nl_avg__h_d_1, awake_at_home_nl_avg__h_d_1])
+)
 
 Q_gain_int_nl_avg__W_p_1 = (
     Q_gain_int_present_nl_avg__W_p_1
@@ -100,15 +99,31 @@ g_not_ch_nl_avg_hhv__W = (g_not_ch_nl_avg__m3_a_1
                            / s_a_1
                           )                                   # average gas power (heating value) for other purposes than home heating [W]
 
-# Dutch home and weather related averages
-wind_chill_nl_avg__K_s_m_1 =  0.67                            # derived from KNMI report https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub219.pdf 
-H_nl_avg__W_K_1 = 445
-A_sol_nl_avg__m2 = 16.8
+# Dutch weather related averages
 temp_in_heating_season_nl_avg__degC = 18.33                   # derived from reference climate used in NTA8800
 temp_out_heating_season_nl_avg__degC = 6.44                   # derived from reference climate used in NTA8800
 delta_temp_heating_season_nl_avg__K = temp_in_heating_season_nl_avg__degC - temp_out_heating_season_nl_avg__degC
+
+# Dutch home related averages
+wind_chill_nl_avg__K_s_m_1 =  0.67                            # derived from KNMI report https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub219.pdf 
+H_nl_avg__W_K_1 = 250                                         # derived from NTA8800; TODO: move calculation from Excel EnergyFingerPrintCalculation.xlsx to here
+A_sol_nl_avg__m2 = 3.7                                        # derived from NTA8800; TODO: move calculation from Excel EnergyFingerPrintCalculation.xlsx to here  
 A_inf_nl_avg__m2 = (
     (H_nl_avg__W_K_1 * wind_chill_nl_avg__K_s_m_1)
     /
     (delta_temp_heating_season_nl_avg__K * air_std__J_m_3_K_1)
 )                                      
+
+# Dutch household related averages
+g_use_cooking_nl_avg__m3_a_1 = 65                             # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
+eta_sup_cooking_nl_avg__0 = 0.444                             # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf 
+frac_remain_cooking_nl_avg__0= 0.460                          # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf 
+
+g_use_dhw_nl_avg__m3_a_1 = 193                                # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
+eta_sup_dhw_nl_avg__0 = 0.716                                 # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
+frac_remain_dhw_nl_avg__0 = 0.500                             # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
+
+eta_not_ch_nl_avg_hhv__W0 = np.average(
+    np.array([eta_sup_cooking_nl_avg__0 * frac_remain_cooking_nl_avg__0, eta_sup_dhw_nl_avg__0 * frac_remain_dhw_nl_avg__0]),
+    weights=np.array([g_use_cooking_nl_avg__m3_a_1, g_use_dhw_nl_avg__m3_a_1])
+)
