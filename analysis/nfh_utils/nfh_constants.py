@@ -101,7 +101,7 @@ g_not_ch_nl_avg_hhv__W = (g_not_ch_nl_avg__m3_a_1
                           )                                   # average gas power (heating value) for other purposes than home heating [W]
 
 # Dutch home and weather related averages
-wind_chill_nl_avg__K_s_m_1 =  0.67                            # derived from KNMI report 
+wind_chill_nl_avg__K_s_m_1 =  0.67                            # derived from KNMI report https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub219.pdf 
 H_nl_avg__W_K_1 = 445
 A_sol_nl_avg__m2 = 16.8
 temp_in_heating_season_nl_avg__degC = 18.33                   # derived from reference climate used in NTA8800
