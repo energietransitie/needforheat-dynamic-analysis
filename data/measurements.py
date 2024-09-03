@@ -814,7 +814,7 @@ class WeatherMeasurements:
         metrics={'T': ('temp_out__degC', 0.1),                  # H Temperature (in 0.1 degrees Celsius) at 1.50 m at the time of observation
                 'FH': ('wind__m_s_1', 0.1),                     # FH: Hourly mean wind speed (in 0.1 m/s)
                 'Q': ('ghi__W_m_2', (100 * 100) / (60 * 60)),   # Q: Global radiation (in J/cm^2) during the hourly division, 1 m^2 = 100 cm/m^2 * 100 cm/m^2, 1 h = 60 min/h * 60 s/min
-                'P': ('air__hPa', 0.1 * 100),                   # P: Air pressure (in 0.1 hPa) adjusted to sea level, during the observation * 100 Pa/hPa
+                'P': ('air__Pa', 0.1 * 100),                   # P: Air pressure (in 0.1 hPa) adjusted to sea level, during the observation * 100 Pa/hPa
                 'U': ('air_rel_humidity__0', (1/100))          # Relative humidity (in percent) at 1.50 meters height during the observation * (1/100) to convert % to a fraction 
                }
         
