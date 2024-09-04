@@ -667,7 +667,8 @@ class WeatherMeasurements:
         pd.DataFrame: Processed weather data with multi-index of latitude, longitude, and timestamp. The timezone of time_interval.left.tzinfo (if any) is used as the target timezone for the timestamps.
         """
         df_weather = pd.DataFrame()
-
+        df_weather_chunk = pd.DataFrame()
+        
         # Ensure the start date is included in the first chunk
         target__tz = time_interval.left.tzinfo
         start_date = time_interval.left.tz_convert('UTC').normalize()
