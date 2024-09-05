@@ -113,7 +113,7 @@ Q_gain_int_nl_avg__W_p_1 = (
 # Groningen natural gas averages (81,30%vol CH4, 14,35%vol N2), presumably at P_std__Pa and temp_gas_std__degC
 gas_groningen_nl_avg_std_hhv__J_m_3 = 35.17e6                # average higher heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
 gas_groningen_nl_avg_std_lhv__J_m_3 = 31.65e6                # average lower heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
-overpressure_gas_nl_avg__Pa = 28 * Pa_mbar_1              # Presumed overpressure of the gas arriving at a home, relative to air pressure
+overpressure_gas_nl_avg__Pa = 28 * Pa_mbar_1                 # Presumed overpressure of the gas arriving at a home, relative to air pressure
 temp_gas_avg_nl__degC = 10                                   # Presumed average heating season temperature of the gas arriving at a home
 temp_gas_avg_nl__K = temp_gas_avg_nl__degC + temp_0__degC__K  
 
