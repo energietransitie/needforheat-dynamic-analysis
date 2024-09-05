@@ -113,9 +113,6 @@ Q_gain_int_nl_avg__W_p_1 = (
 # Groningen natural gas averages (81,30%vol CH4, 14,35%vol N2), presumably at P_std__Pa and temp_gas_std__degC
 gas_groningen_nl_avg_std_hhv__J_m_3 = 35.17e6                # average higher heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
 gas_groningen_nl_avg_std_lhv__J_m_3 = 31.65e6                # average lower heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
-overpressure_gas_nl_avg__Pa = 28 * Pa_mbar_1                 # Presumed overpressure of the gas arriving at a home, relative to air pressure
-temp_gas_avg_nl__degC = 10                                   # Presumed average heating season temperature of the gas arriving at a home
-temp_gas_avg_nl__K = temp_gas_avg_nl__degC + temp_0__degC__K  
 
 # Characteristics of reference gas G25.3 (88%vol CH4, 12%vol N2) according to EN 437:2021 (E), Table B.5 (reference gas prescribed by Kiwa BRL 2021 for tests)
 gas_g25_3_ref_lhv__J__m3 = 29.92e6                            # Lower heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC 
@@ -131,11 +128,17 @@ g_not_ch_nl_avg_hhv__W = (g_not_ch_nl_avg__m3_a_1
                            / s_a_1
                           )                                   # average gas power (heating value) for other purposes than home heating [W]
 
+# Dutch meter code related averages
+# Source: https://www.acm.nl/sites/default/files/old_publication/publicaties/12068_wijziging-informatiecode-elektriciteit-en-gas-en-begrippenlijst-gas-over-administratieve-volumeherleiding-voor-gasmeters.pdf
+P_nl_avg__Pa = 101550                                         # average air pressure to be used for conversion of measured gas volumes 
+overpressure_gas_nl_avg__Pa = 28 * Pa_mbar_1                  # Presumed overpressure of the gas arriving at a home, relative to air pressure
+temp_gas_avg_nl__degC = 15                                    # Presumed average temperature of the gas arriving at a home
+temp_gas_avg_nl__K = temp_gas_avg_nl__degC + temp_0__degC__K  
+
 # Dutch weather related averages
 temp_in_heating_season_nl_avg__degC = 18.33                   # derived from reference climate used in NTA8800
 temp_out_heating_season_nl_avg__degC = 6.44                   # derived from reference climate used in NTA8800
 delta_temp_heating_season_nl_avg__K = temp_in_heating_season_nl_avg__degC - temp_out_heating_season_nl_avg__degC
-P_nl_avg__Pa = 101550                                         # Presumed average absolute air pressure to be used for conversion of measured gas volumes in the smart meter to standard gas conditions
 
 # Dutch home related averages
 wind_chill_nl_avg__K_s_m_1 =  0.67                            # derived from KNMI report https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub219.pdf 
