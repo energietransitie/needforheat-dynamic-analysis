@@ -115,8 +115,8 @@ gas_groningen_nl_avg_std_hhv__J_m_3 = 35.17e6                # average higher he
 gas_groningen_nl_avg_std_lhv__J_m_3 = 31.65e6                # average lower heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
 
 # Characteristics of reference gas G25.3 (88%vol CH4, 12%vol N2) according to EN 437:2021 (E), Table B.5 (reference gas prescribed by Kiwa BRL 2021 for tests)
-gas_g25_3_ref_lhv__J__m3 = 29.92e6                            # Lower heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC 
-gas_g25_3_ref_hhv__J__m3 = 33.20e6                            # Higher heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC
+gas_g25_3_ref_lhv__J_m_3 = 29.92e6                            # Lower heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC 
+gas_g25_3_ref_hhv__J_m_3 = 33.20e6                            # Higher heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC
 gas_g25_3_test_pressure__Pa = 25  * Pa_mbar_1                 # Test pressure (gauge pressure) to be used in tests
 
 # average Dutch boiler efficiency

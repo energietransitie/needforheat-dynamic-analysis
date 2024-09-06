@@ -17,7 +17,7 @@ from .nfh_utils import (
     O2umol_s_1_p_1_MET_1, co2_exhale_desk_work__umol_p_1_s_1,
     gas_groningen_nl_avg_std_hhv__J_m_3, gas_groningen_nl_avg_std_lhv__J_m_3,
     overpressure_gas_nl_avg__Pa, temp_gas_avg_nl__degC, temp_gas_avg_nl__K, 
-    gas_g25_3_ref_lhv__J__m3, gas_g25_3_ref_hhv__J__m3,
+    gas_g25_3_ref_lhv__J_m_3, gas_g25_3_ref_hhv__J_m_3,
     household_nl_avg__p, 
     asleep_at_home_nl_avg__h_d_1, awake_at_home_nl_avg__h_d_1,
     at_home_nl_avg__h_d_1, away_from_home_nl_avg, 
