@@ -31,7 +31,7 @@ class Learner():
             logging.info(f'No values for id: {id} between {learn_period_start} and {learn_period_end}; skipping...')
             return None
         #also check whether there are at least two sane values
-        if len(df_learn.query('sanity == True')) <=1:
+        if (df_learn['sanity'].sum()) <=1: #counts the number of sane rows, since True values will be coutnd as 1 in suming
             logging.info(f'Less than two sane values for id: {id} between {learn_period_start} and {learn_period_start}; skipping...')
             return None                       
         learn_period_start = df_learn.index.min()
@@ -152,10 +152,12 @@ class Learner():
                 - but there may be gaps of multiple intervals with no measurements
                 - multiple sources for the same property are already dealth with in preprocessing
             - columns:
+              - property_sources['temp_in__degC']: 
               - property_sources['temp_out__degC']: 
               - property_sources['wind__m_s_1']:
               - property_sources['ghi__W_m_2']:
-              - property_sources['g_use_hhv__W']:
+              - property_sources['g_use_ch_hhv__W']:
+              - property_sources['g_use_dhw_hhv__W']
               - property_sources['e_use__W']:
               - property_sources['e_ret__W']:
         - 'property_sources', a dictionary that maps key listed above to actual column names in df_data
@@ -170,18 +172,17 @@ class Learner():
             - 'eta_ch_hhv__W0': higher heating value efficiency [-] of the heating system 
               In the Netherlands, eta_ch_nl_avg_hhv__W0 = 0.963 from nfh_utils is a reasonable hint
             - 'g_not_ch_hhv__W': average yearly gas power (higher heating value)  for other purposes than heating 
-              In the Netherlands, g_not_ch_nl_avg_hhv__W = 378 from nfh_utils is a reasonable hint
+              In the Netherlands, g_not_ch_nl_avg_hhv__W = 377 from nfh_utils is a reasonable hint
             - 'eta_not_ch_hhv__W0': superior efficiency [-] of heating the home indirectly using gas
               I the Netherlands, 0.34 is a reasonable hint
-            - 'wind_chill__K_s_m_1'
-              In the Netherlands, for an average home, wind_chill__K_s_m_1 = 0.67, according to KNMI: https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub219.pdf)
-            - This parameter will be converted to an effective infiltration area: A_inf__m2
-              In the Netherlands, wind_chill__K_s_m_1 = 0.67 corresponds to  A_inf__m2 = 0.01795; this is based on these approximations:
-                  - average specific_heat_loss__W_K_1 = 400
-                  - heating season average temp_in__degC = 19.0
-                  - heating season average temp_out_degC = 6.7
-                  - heating season average delta_T__K = 12.3
-                  - volumetric_heat_capacity_air__J_m_3_K_1: 1210 (based on Table of specific heat capacities - Wikipedia 0.00121 [J/(m3K)] * 100 ^3 [cm3/m3] )
+            - 'wind_chill__K_s_m_1': wind chill factor (in NL: 0.67 is a reasonable hint)
+            - 'A_inf__m2': effective infiltration area (in NL, 0,0108 is a reasonable hint)
+            - 'H_nl_avg__W_K_1': specific heat loss (in NL, 250 is a reasonable hint)
+            - 'eta_dhw_hhv__W0': domestic hot water efficiency (in NL, 0.716 is a reasonable hint)
+            - 'frac_remain_dhw__0': fraction of domestic hot water heat contributing to heating the home (in NL, 0.500 is a reasonable hint)
+            - 'g_use_cooking_hhv__W': average gas power (higher heating value) for cooking (in NL, 72 is a reasonable hint)
+            - 'eta_cooking_hhv__W0': cooking efficiency (in NL, 0.444 is a reasonable hint)
+            - 'frac_remain_cooking__0': fraction of cooking heat contributing to heating the home (in NL, 0.460 is a reasonable hint)
          and optionally,
         - the number of days to use as learn period in the analysis
         - 'ev_type': type 2 is usually recommended, since this is typically more than 50 times faster
@@ -195,12 +196,17 @@ class Learner():
         
         # check presence of hints
         mandatory_hints = ['A_sol__m2',
-                           'eta_ch_hhv__W0',
-                           'eta_not_ch_hhv__W0',
-                           'g_not_ch_hhv__W',
                            'occupancy__p',
                            'Q_gain_int__W_p_1',
-                           'wind_chill__K_s_m_1'
+                           'wind_chill__K_s_m_1',
+                           'A_inf__m2',
+                           'H__W_K_1', 
+                           'eta_ch_hhv__W0',
+                           'eta_dhw_hhv__W0',
+                           'frac_remain_dhw__0',
+                           'g_use_cooking_hhv__W', 
+                           'eta_cooking_hhv__W0',
+                           'frac_remain_cooking__0',
                           ]
         for hint in mandatory_hints:
             if not (hint in hints or isinstance(hints[hint], numbers.Number)):
@@ -208,8 +214,11 @@ class Learner():
 
         # check for unlearnable parameters
         not_learnable =   ['eta_not_ch_hhv__W0',
-                           'g_not_ch_hhv__W',
-                           'occupancy__p',
+                           'eta_dhw_hhv__W0',
+                           'frac_remain_dhw__0',
+                           'g_use_cooking_hhv__W', 
+                           'eta_cooking_hhv__W0',
+                           'frac_remain_cooking__0',
                            'Q_gain_int__W_p_1'
                           ]
         
@@ -219,7 +228,6 @@ class Learner():
 
 
         # Use National averages, depending on hints provided
-        g_not_ch_hhv__W = hints['g_not_ch_hhv__W'] # average higher heating value of gas power for cooking and DHW, i.e. not for CH  
         
         Q_gain_int_occup__W = hints['Q_gain_int__W_p_1'] * hints['occupancy__p']    # average heat gain per occupant
       
@@ -231,7 +239,7 @@ class Learner():
             df_data = df_data.sort_index()  
         
         # add empty columns to store fitting and learning results for time-varying 
-        df_data['sim_temp_in__degC'] = np.nan
+        df_data.loc[:,'sim_temp_in__degC'] = np.nan
 
         ids = df_data.index.unique('id').dropna()
         logging.info(f'ids to analyze: {ids}')
@@ -270,9 +278,6 @@ class Learner():
                 actual_C__Wh_K_1 = np.nan
                 actual_eta_ch_hhv__W0 = np.nan
                 actual_wind_chill__K_s_m_1 = np.nan
-
-            #split total gas usage (property_sources['g_use_hhv__W']) in gas usage for central heating versus all other uses ('g_use_ch_hhv_W', 'g_use_not_ch_hhv__W')
-            df_data.loc[id, ['g_use_ch_hhv_W', 'g_use_not_ch_hhv__W']] = Learner.gas_split_simple(df_data.loc[id][property_sources['g_use_hhv__W']], g_not_ch_hhv__W).values
 
             learn_period_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
 
@@ -319,9 +324,6 @@ class Learner():
                 learned_A_sol__m2 = np.nan
                 mae_A_sol__m2 = np.nan
 
-                learned_eta_ch_hhv__W0 = np.nan
-                mae_eta_ch_hhv__W0 = np.nan
-
                 learned_wind_chill__K_s_m_1 = np.nan
                 mae_wind_chill__K_s_m_1 = np.nan
                 
@@ -335,34 +337,32 @@ class Learner():
                     m.time = np.arange(0, duration__s, step__s)
 
                     # Model parameter: H [W/K]: specific heat loss
-                    H__W_K_1 = m.FV(value=300.0, lb=0, ub=1000)
+                    H__W_K_1 = m.FV(value=hints['H__W_K_1'], lb=0, ub=1000)
                     H__W_K_1.STATUS = 1; H__W_K_1.FSTATUS = 0
                     
                     # Model parameter: tau [s]: effective thermal inertia
                     tau__s = m.FV(value=(100 * s_h_1), lb=(10 * s_h_1), ub=(1000 * s_h_1))
                     tau__s.STATUS = 1; tau__s.FSTATUS = 0
 
-                    # eta_ch_hhv__W0 [-]: upper heating efficiency of the central heating system
-                    if 'eta_ch_hhv__W0' in learn:
-                        eta_ch_hhv__W0 = m.FV(value = hints['eta_ch_hhv__W0'], lb = 0, ub = 1.0)
-                        eta_ch_hhv__W0.STATUS = 1; eta_ch_hhv__W0.FSTATUS = 0
-                        # eta_ch_hhv__W0.DMAX = 0.25
-                    else:
-                        # Set eta_ch_hhv__W0 to a fixed value when it should not be learned 
-                        eta_ch_hhv__W0 = m.Param(value = hints['eta_ch_hhv__W0'])
-                        learned_eta_ch_hhv__W0 = np.nan
-
-                    g_use_ch_hhv_W = m.MV(value = df_learn['g_use_ch_hhv_W'].astype('float32').values)
+                    # g_use_ch_hhv_W [-]: higher heating value of gas input to the boiler for central heating purposes
+                    g_use_ch_hhv_W = m.MV(value = df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values)
                     g_use_ch_hhv_W.STATUS = 0; g_use_ch_hhv_W.FSTATUS = 1
 
-                    # Q_gain_CH [W]: heat gain from natural gas used for central heating
-                    Q_gain_g_CH__W = m.Intermediate(g_use_ch_hhv_W * eta_ch_hhv__W0)
-                
-                    g_use_not_ch_hhv__W = m.MV(value = df_learn['g_use_not_ch_hhv__W'].astype('float32').values)
-                    g_use_not_ch_hhv__W.STATUS = 0; g_use_not_ch_hhv__W.FSTATUS = 1
+                    # eta_ch_hhv__W0 [-]: efficiency (relative to higher heating value) of the boiler for central heating
+                    eta_ch_hhv__W0 = m.MV(value = df_learn[property_sources['eta_ch_hhv__W0']].astype('float32').values)
+                    eta_ch_hhv__W0.STATUS = 0; eta_ch_hhv__W0.FSTATUS = 1
 
-                    # Q_gain_not_ch  [W]: heat gain from natural gas NOT used for central heating
-                    Q_gain_g_not_ch__W = m.Intermediate(g_use_not_ch_hhv__W * hints['eta_not_ch_hhv__W0'])
+                    # Q_gain_ch [W]: heat gain from natural gas used for central heating
+                    Q_gain_g_ch__W = m.Intermediate(g_use_ch_hhv_W * eta_ch_hhv__W0)
+                
+                    g_use_dhw_hhv__W = m.MV(value = df_learn[property_sources['g_use_dhw_hhv__W']].astype('float32').values)
+                    g_use_dhw_hhv__W.STATUS = 0; g_use_dhw_hhv__W.FSTATUS = 1
+
+                    # Q_gain_not_ch [W]: heat gain from natural gas NOT used for central heating c.q. dhw + cooking
+                    Q_gain_g_not_ch__W = m.Intermediate(
+                        g_use_dhw_hhv__W * hints['eta_dhw_hhv__W0'] * hints['frac_remain_dhw__0']
+                        + hints['g_use_cooking_hhv__W'] * hints['eta_cooking_hhv__W0'] + hints['frac_remain_cooking__0']
+                    )
 
                     # e_use [W] - e_ret [W] : internal heat gain from internally used electricity
                     e_use__W = m.MV(value = df_learn[property_sources['e_use__W']].astype('float32').values)
@@ -415,7 +415,7 @@ class Learner():
                     # temp_in__degC.MEAS_GAP= 0.25
 
                     # Main Equations 
-                    Q_gain__W = m.Intermediate(Q_gain_g_CH__W + Q_gain_sol__W + Q_gain_int__W)
+                    Q_gain__W = m.Intermediate(Q_gain_g_ch__W + Q_gain_sol__W + Q_gain_int__W)
                     Q_loss__W = m.Intermediate(H__W_K_1 * (temp_in__degC - temp_out_e__degC)) 
                     C__J_K_1  = m.Intermediate(H__W_K_1 * tau__s) 
                     m.Equation(temp_in__degC.dt() == ((Q_gain__W - Q_loss__W) / C__J_K_1))
@@ -446,10 +446,6 @@ class Learner():
                     if 'A_sol__m2' in learn:
                         learned_A_sol__m2 = A_sol__m2.value[0]
                         mae_A_sol__m2 = abs(learned_A_sol__m2 - actual_A_sol__m2) # evaluates to np.nan if no actual value
-
-                    if 'eta_ch_hhv__W0' in learn:
-                        learned_eta_ch_hhv__W0 = eta_ch_hhv__W0.value[0]
-                        mae_eta_ch_hhv__W0 = abs(learned_eta_ch_hhv__W0 - actual_eta_ch_hhv__W0) # evaluates to np.nan if no actual value
 
                     if 'wind_chill__K_s_m_1' in learn:
                         learned_wind_chill__K_s_m_1 = wind_chill__K_s_m_1.value[0]
@@ -491,9 +487,6 @@ class Learner():
                                     'learned_A_sol__m2': [learned_A_sol__m2],
                                     'actual_A_sol__m2': [actual_A_sol__m2],
                                     'mae_A_sol__m2': [mae_A_sol__m2],
-                                    'learned_eta_ch_hhv__W0': [learned_eta_ch_hhv__W0],
-                                    'actual_eta_ch_hhv__W0': [actual_eta_ch_hhv__W0],
-                                    'mae_eta_ch_hhv__W0': [mae_eta_ch_hhv__W0],
                                     'learned_wind_chill__K_s_m_1': [learned_wind_chill__K_s_m_1],
                                     'mae_wind_chill__K_s_m_1': [mae_wind_chill__K_s_m_1]
                                 }
