@@ -121,12 +121,6 @@ gas_g25_3_test_pressure__Pa = 25  * Pa_mbar_1                 # Test pressure (g
 
 # average Dutch boiler efficiency
 eta_ch_nl_avg_hhv__W0 = 0.963                                 # average superior efficiency of boilers in the Netherlands (source: WoON2008; ISSO 82.3)
-g_not_ch_nl_avg__m3_a_1 = 339                                 # average gas use in m^3 per year for other purposes than home heating 
-g_not_ch_nl_avg_hhv__W = (g_not_ch_nl_avg__m3_a_1 
-                           * gas_groningen_nl_avg_std_hhv__J_m_3
-                           * J_MJ_1
-                           / s_a_1
-                          )                                   # average gas power (heating value) for other purposes than home heating [W]
 
 # Dutch meter code related averages
 # Source: https://www.acm.nl/sites/default/files/old_publication/publicaties/12068_wijziging-informatiecode-elektriciteit-en-gas-en-begrippenlijst-gas-over-administratieve-volumeherleiding-voor-gasmeters.pdf
@@ -152,14 +146,30 @@ A_inf_nl_avg__m2 = (
 
 # Dutch household related averages
 g_use_cooking_nl_avg__m3_a_1 = 65                             # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
-eta_sup_cooking_nl_avg__0 = 0.444                             # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf 
-frac_remain_cooking_nl_avg__0= 0.460                          # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf 
+g_use_cooking_nl_avg_hhv__W = (g_use_cooking_nl_avg__m3_a_1 
+                           * gas_groningen_nl_avg_std_hhv__J_m_3
+                           / s_a_1
+                          )                                   # average gas power (heating value) for cooking [W]
+eta_cooking_nl_avg_hhv__W0 = 0.444                            # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf 
+frac_remain_cooking_nl_avg__0 = 0.460                         # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf 
 
 g_use_dhw_nl_avg__m3_a_1 = 193                                # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
-eta_sup_dhw_nl_avg__0 = 0.716                                 # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
+g_use_dhw_nl_avg_hhv__W = (g_use_dhw_nl_avg__m3_a_1 
+                           * gas_groningen_nl_avg_std_hhv__J_m_3
+                           / s_a_1
+                          )                                   # average gas power (heating value) for other purposes than home heating [W]
+
+eta_dhw_nl_avg_hhv__W0 = 0.716                                # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
 frac_remain_dhw_nl_avg__0 = 0.500                             # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
 
+g_not_ch_nl_avg__m3_a_1 = 339                                 # average gas use in m^3 per year for other purposes than home heating 
+g_not_ch_nl_avg_hhv__W = (g_not_ch_nl_avg__m3_a_1 
+                           * gas_groningen_nl_avg_std_hhv__J_m_3
+                           / s_a_1
+                          )                                   # average gas power (heating value) for other purposes than home heating [W]
+
+
 eta_not_ch_nl_avg_hhv__W0 = np.average(
-    np.array([eta_sup_cooking_nl_avg__0 * frac_remain_cooking_nl_avg__0, eta_sup_dhw_nl_avg__0 * frac_remain_dhw_nl_avg__0]),
+    np.array([eta_cooking_nl_avg_hhv__W0 * frac_remain_cooking_nl_avg__0, eta_dhw_nl_avg_hhv__W0 * frac_remain_dhw_nl_avg__0]),
     weights=np.array([g_use_cooking_nl_avg__m3_a_1, g_use_dhw_nl_avg__m3_a_1])
 )

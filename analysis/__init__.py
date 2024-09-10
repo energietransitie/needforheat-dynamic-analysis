@@ -29,7 +29,7 @@ from .nfh_utils import (
     temp_in_heating_season_nl_avg__degC, temp_out_heating_season_nl_avg__degC, delta_temp_heating_season_nl_avg__K,
     P_nl_avg__Pa,
     wind_chill_nl_avg__K_s_m_1, A_inf_nl_avg__m2,
-    g_use_cooking_nl_avg__m3_a_1, eta_sup_cooking_nl_avg__0, frac_remain_cooking_nl_avg__0, 
-    g_use_dhw_nl_avg__m3_a_1, eta_sup_dhw_nl_avg__0, frac_remain_dhw_nl_avg__0, 
+    g_use_cooking_nl_avg__m3_a_1, g_use_cooking_nl_avg_hhv__W, eta_cooking_nl_avg_hhv__W0, frac_remain_cooking_nl_avg__0, 
+    g_use_dhw_nl_avg__m3_a_1, g_use_dhw_nl_avg_hhv__W, eta_dhw_nl_avg_hhv__W0, frac_remain_dhw_nl_avg__0, 
     eta_not_ch_nl_avg_hhv__W0
 )
