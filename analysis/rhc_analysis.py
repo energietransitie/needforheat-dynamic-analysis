@@ -258,7 +258,7 @@ class Learner():
         if not req_col: # then the caller explicitly set the list to be empty
             df_data.loc[:,'sanity'] = True
         else:
-            df_data.loc[:,'sanity'] = ~np.isnan(df_data[req_col]).any(axis="columns")
+            df_data.loc[:,'sanity'] = ~df_data[req_col].isna().any(axis="columns")
 
         # iterate over ids
         for id in tqdm(ids):
