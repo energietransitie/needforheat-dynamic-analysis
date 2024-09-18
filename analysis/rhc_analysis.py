@@ -152,14 +152,14 @@ class Learner():
                 - but there may be gaps of multiple intervals with no measurements
                 - multiple sources for the same property are already dealth with in preprocessing
             - columns:
-              - property_sources['temp_in__degC']: 
-              - property_sources['temp_out__degC']: 
-              - property_sources['wind__m_s_1']:
-              - property_sources['ghi__W_m_2']:
-              - property_sources['g_use_ch_hhv__W']:
-              - property_sources['g_use_dhw_hhv__W']
-              - property_sources['e_use__W']:
-              - property_sources['e_ret__W']:
+              - property_sources['temp_in__degC']: indoor temperature
+              - property_sources['temp_out__degC']: outdoor temperature 
+              - property_sources['wind__m_s_1']: outdoor wind speed
+              - property_sources['ghi__W_m_2']: global horizontal irradiation
+              - property_sources['g_use_ch_hhv__W']: gas input power (using higher heating value) used for central heating
+              - property_sources['eta_dhw_hhv__W0']: efficiency (against higher heating value) of turning gas power into heat
+              - property_sources['g_use_dhw_hhv__W']: gas input power (using higher heating value) used for domestic hot water
+              - property_sources['e__W']: electricity power used indoors
         - 'property_sources', a dictionary that maps key listed above to actual column names in df_data
         - 'req_col' list: a list of column names: 
             - If any of the values in this column are NaN, the interval is not considered 'sane'.
@@ -295,18 +295,14 @@ class Learner():
                 learn_streak_period_start = df_learn.index.get_level_values('timestamp').min()
                 learn_streak_period_end = df_learn.index.get_level_values('timestamp').max()
                 learn_streak_period_len = len(df_learn)
-                logging.info(f'Start datetime longest sane streak: {learn_streak_period_start}')
-                logging.info(f'End datetime longest sane streak: {learn_streak_period_end}')
-                logging.info(f'#rows in longest sane streak: {learn_streak_period_len}')
                 
                 step__s = ((learn_streak_period_end - learn_streak_period_start).total_seconds()
                           /
                           (learn_streak_period_len-1)
                          )
-                logging.info(f'step__s:  {step__s}')
+                logging.info(f'longest sane streak: {learn_streak_period_start} - {learn_streak_period_end}: {learn_streak_period_len} steps of {step__s} s')
 
                 duration__s = step__s * learn_streak_period_len
-                logging.info(f'duration__s: {duration__s}')
 
                 # setup learned_ and mae_ variables
                 mae_temp_in__degC = np.nan
@@ -364,15 +360,12 @@ class Learner():
                         + hints['g_use_cooking_hhv__W'] * hints['eta_cooking_hhv__W0'] + hints['frac_remain_cooking__0']
                     )
 
-                    # e_use [W] - e_ret [W] : internal heat gain from internally used electricity
-                    e_use__W = m.MV(value = df_learn[property_sources['e_use__W']].astype('float32').values)
-                    e_use__W.STATUS = 0; e_use__W.FSTATUS = 1
-
-                    e_ret__W = m.MV(value = df_learn[property_sources['e_ret__W']].astype('float32').values)
-                    e_ret__W.STATUS = 0; e_ret__W.FSTATUS = 1
+                    # e [W] : internal heat gain from internally used electricity
+                    e__W = m.MV(value = df_learn[property_sources['e__W']].astype('float32').values)
+                    e__W.STATUS = 0; e__W.FSTATUS = 1
 
                     # Q_gain_int [W]: calculated heat gain from internal sources
-                    Q_gain_int__W = m.Intermediate(e_use__W - e_ret__W + Q_gain_int_occup__W + Q_gain_g_not_ch__W)
+                    Q_gain_int__W = m.Intermediate(e__W + Q_gain_int_occup__W + Q_gain_g_not_ch__W)
 
                     # A_sol__m2 [m^2]: calculated heat gain from internal sources
                     if 'A_sol__m2' in learn:
@@ -429,9 +422,9 @@ class Learner():
                     df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'sim_temp_in__degC'] = np.asarray(temp_in__degC)
 
                     # set learned variables and calculate error metrics: mean absolute error (mae) for all learned parameters; root mean squared error (rmse) only for predicted time series
-                    mae_temp_in__degC = Learner.mae(temp_in__degC, df_learn[property_sources['temp_in__degC']])
+                    mae_temp_in__degC = mae(temp_in__degC, df_learn[property_sources['temp_in__degC']])
                     logging.info(f'mae_temp_in__degC: {mae_temp_in__degC}')
-                    rmse_temp_in__degC = Learner.rmse(temp_in__degC, df_learn[property_sources['temp_in__degC']])
+                    rmse_temp_in__degC = rmse(temp_in__degC, df_learn[property_sources['temp_in__degC']])
                     logging.info(f'rmse_temp_in__degC: {rmse_temp_in__degC}')
 
                     learned_H__W_K_1 = H__W_K_1.value[0]
