@@ -1199,6 +1199,7 @@ class Preprocessor:
                 new_prop = prop.replace('_cum__kWh', '__W')
                 conversion_factor = s_h_1 * W_kW_1  # Joules (Ws) per kWh
             elif prop.endswith('_cum__m3'):
+                # TODO: change  heating_value__MJ_m_3 (float) parameter into heating_value_col__str: column name that should contain the (possibly varying) conversion number
                 new_prop = prop.replace('_cum__m3', f'_{heating_value_name__str}__W')
                 conversion_factor = heating_value__MJ_m_3 * J_MJ_1  # Joules per m^3
             else:

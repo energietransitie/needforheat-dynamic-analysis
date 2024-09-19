@@ -667,7 +667,8 @@ class WeatherMeasurements:
         pd.DataFrame: Processed weather data with multi-index of latitude, longitude, and timestamp. The timezone of time_interval.left.tzinfo (if any) is used as the target timezone for the timestamps.
         """
         df_weather = pd.DataFrame()
-
+        df_weather_chunk = pd.DataFrame()
+        
         # Ensure the start date is included in the first chunk
         target__tz = time_interval.left.tzinfo
         start_date = time_interval.left.tz_convert('UTC').normalize()
@@ -811,9 +812,11 @@ class WeatherMeasurements:
         weather_min_timestamp = filtered_df.index.get_level_values('timestamp').min()
         weather_max_timestamp = filtered_df.index.get_level_values('timestamp').max()
         
-        metrics={'T': ('temp_out__degC', 0.1), # H Temperature (in 0.1 degrees Celsius) at 1.50 m at the time of observation
-                'FH': ('wind__m_s_1', 0.1), # FH: Hourly mean wind speed (in 0.1 m/s)
-                'Q': ('ghi__W_m_2', (100 * 100) / (60 * 60)) # Q: Global radiation (in J/cm^2) during the hourly division, 1 m^2 = 100 cm/m^2 * 100 cm/m^2, 1 h = 60 min/h * 60 s/min
+        metrics={'T': ('temp_out__degC', 0.1),                  # H Temperature (in 0.1 degrees Celsius) at 1.50 m at the time of observation
+                'FH': ('wind__m_s_1', 0.1),                     # FH: Hourly mean wind speed (in 0.1 m/s)
+                'Q': ('ghi__W_m_2', (100 * 100) / (60 * 60)),   # Q: Global radiation (in J/cm^2) during the hourly division, 1 m^2 = 100 cm/m^2 * 100 cm/m^2, 1 h = 60 min/h * 60 s/min
+                'P': ('air__Pa', 0.1 * 100),                   # P: Air pressure (in 0.1 hPa) adjusted to sea level, during the observation * 100 Pa/hPa
+                'U': ('air_rel_humidity__0', (1/100))          # Relative humidity (in percent) at 1.50 meters height during the observation * (1/100) to convert % to a fraction 
                }
         
         weather_interval = pd.Interval(left=weather_min_timestamp, right=weather_max_timestamp, closed='both') 
