@@ -176,8 +176,8 @@ class Learner():
             - 'eta_not_ch_hhv__W0': superior efficiency [-] of heating the home indirectly using gas
               I the Netherlands, 0.34 is a reasonable hint
             - 'wind_chill__K_s_m_1': wind chill factor (in NL: 0.67 is a reasonable hint)
-            - 'A_inf__m2': effective infiltration area (in NL, 0,0108 is a reasonable hint)
-            - 'H_nl_avg__W_K_1': specific heat loss (in NL, 250 is a reasonable hint)
+            - 'A_inf__cm2': effective infiltration area (in NL, 108 is a reasonable hint)
+            - 'H_cond__W_K_1': specific heat loss (in NL, 250 is a reasonable hint)
             - 'eta_dhw_hhv__W0': domestic hot water efficiency (in NL, 0.716 is a reasonable hint)
             - 'frac_remain_dhw__0': fraction of domestic hot water heat contributing to heating the home (in NL, 0.500 is a reasonable hint)
             - 'g_use_cooking_hhv__W': average gas power (higher heating value) for cooking (in NL, 72 is a reasonable hint)
@@ -199,8 +199,8 @@ class Learner():
                            'occupancy__p',
                            'Q_gain_int__W_p_1',
                            'wind_chill__K_s_m_1',
-                           'A_inf__m2',
-                           'H__W_K_1', 
+                           'A_inf__cm2',
+                           'H_cond__W_K_1', 
                            'eta_ch_hhv__W0',
                            'eta_dhw_hhv__W0',
                            'frac_remain_dhw__0',
@@ -265,19 +265,19 @@ class Learner():
             
             if any(df_data.columns.str.startswith('model_')): 
                 # calculate values from synthetic home based on id 
-                actual_H__W_K_1 = id // 1e5
+                actual_H_cond__W_K_1 = id // 1e5
                 actual_tau__h = (id % 1e5) // 1e2
                 actual_A_sol__m2 = id % 1e2
-                actual_C__kWh_K_1 = actual_H__W_K_1 * actual_tau__h / 1e3
-                actual_eta_ch_hhv__W0 = eta_ch_nl_avg_hhv__J0 # efficiency used for calculating synthetic home values)
-                actual_wind_chill__K_s_m_1 = 0.67 # efficiency used for calculating synthetic home values)
+                actual_C__kWh_K_1 = actual_H_cond__W_K_1 * actual_tau__h / 1e3
+                actual_eta_ch_hhv__W0 = eta_ch_nl_avg_hhv__J0 
+                actual_A_inf__cm2 = A_inf_nl_avg__m2 * cm2_m_2
             else:
-                actual_H__W_K_1 = np.nan
+                actual_H_cond__W_K_1 = np.nan
                 actual_tau__h = np.nan
                 actual_A_sol__m2 = np.nan
                 actual_C__kWh_K_1 = np.nan
                 actual_eta_ch_hhv__W0 = np.nan
-                actual_wind_chill__K_s_m_1 = np.nan
+                actual_A_inf__cm2 = np.nan
 
             learn_period_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
 
@@ -310,8 +310,8 @@ class Learner():
 
                 # TODO loop over learn list
 
-                learned_H__W_K_1 = np.nan
-                mae_H__W_K_1 = np.nan
+                learned_H_cond__W_K_1 = np.nan
+                mae_H_cond__W_K_1 = np.nan
 
                 learned_tau__h = np.nan
                 mae_tau__h = np.nan
@@ -322,8 +322,8 @@ class Learner():
                 learned_A_sol__m2 = np.nan
                 mae_A_sol__m2 = np.nan
 
-                learned_wind_chill__K_s_m_1 = np.nan
-                mae_wind_chill__K_s_m_1 = np.nan
+                learned_A_inf__cm2 = np.nan
+                mae_A_inf__cm2 = np.nan
                 
                 ##################################################################################################################
                 # GEKKO code
@@ -335,20 +335,19 @@ class Learner():
                     m.time = np.arange(0, duration__s, step__s)
 
                     # Model parameter: H [W/K]: specific heat loss
-                    if 'H__W_K_1' in learn:
+                    if 'H_cond__W_K_1' in learn:
                         # set this parameter up so it can be learnt
-                        H__W_K_1 = m.FV(value=hints['H__W_K_1'], lb=0, ub=1000)
-                        H__W_K_1.STATUS = 1; H__W_K_1.FSTATUS = 0
+                        H_cond__W_K_1 = m.FV(value=hints['H_cond__W_K_1'], lb=0, ub=1000)
+                        H_cond__W_K_1.STATUS = 1; H_cond__W_K_1.FSTATUS = 0
                     else:
                         # do not learn this parameter, but use a fixed value based on hint
-                        H__W_K_1 = m.Param(value = hints['H__W_K_1'])
-                        learned_H__W_K_1 = np.nan
+                        H_cond__W_K_1 = m.Param(value = hints['H_cond__W_K_1'])
+                        learned_H_cond__W_K_1 = np.nan
                     
                     # Model parameter: tau [s]: effective thermal inertia
                     hint_tau__s = hints['tau__h'] * s_h_1
                     if 'tau__h' in learn:
                         # set this parameter up so it can be learnt
-                        
                         tau__s = m.FV(value = hint_tau__s, lb=(10 * s_h_1), ub=(1000 * s_h_1))
                         tau__s.STATUS = 1; tau__s.FSTATUS = 0
                     else:
@@ -399,35 +398,46 @@ class Learner():
                     # Q_gain_sol [W]: calculated heat gain from solar irradiation
                     Q_gain_sol__W = m.Intermediate(ghi__W_m_2 * A_sol__m2)
                     
-                    # temp_out [°C]: measured outdoor temperature
-                    temp_out__degC = m.MV(value = df_learn[property_sources['temp_out__degC']].astype('float32').values)
-                    temp_out__degC.STATUS = 0; temp_out__degC.FSTATUS = 1
-
-                    # wind [m/s]: measured wind speed
-                    wind__m_s_1 = m.MV(value = df_learn[property_sources['wind__m_s_1']].astype('float32').values)
-                    wind__m_s_1.STATUS = 0; wind__m_s_1.FSTATUS = 1
-                    
-                    # wind chill factor [°C/(m/s)]: cooling effect of wind on homes
-                    if 'wind_chill__K_s_m_1' in learn:
-                        # set this parameter up so it can be learnt
-                        wind_chill__K_s_m_1 = m.FV(value = hints['wind_chill__K_s_m_1'], lb=0, ub=5.0)
-                        wind_chill__K_s_m_1.STATUS = 1; wind_chill__K_s_m_1.FSTATUS = 0
-                    else:
-                        # do not learn this parameter, but use a fixed value based on hint
-                        wind_chill__K_s_m_1 = m.Param(value = hints['wind_chill__K_s_m_1'])
-                        learned_wind_chill__K_s_m_1 = np.nan
-
-                    # calculate effective outdoor temperature by compensating for wind chill factor
-                    temp_out_e__degC = m.Intermediate(temp_out__degC - wind_chill__K_s_m_1 * wind__m_s_1)
-
                     # temp_in [°C]: Indoor temperature; objective (Control Variable)
                     temp_in__degC = m.CV(value = df_learn[property_sources['temp_in__degC']].astype('float32').values)
                     temp_in__degC.STATUS = 1; temp_in__degC.FSTATUS = 1
                     # temp_in__degC.MEAS_GAP= 0.25
 
+                    # temp_out [°C]: measured outdoor temperature
+                    temp_out__degC = m.MV(value = df_learn[property_sources['temp_out__degC']].astype('float32').values)
+                    temp_out__degC.STATUS = 0; temp_out__degC.FSTATUS = 1
+
+                    # Indoor-outdoor temperature difference (K)
+                    indoor_outdoor_delta__K = m.Intermediate(temp_in__degC - temp_out__degC)
+                    
+                    # Heat loss due to conduction
+                    Q_loss_cond__W = m.Intermediate(H_cond__W_K_1 * indoor_outdoor_delta__K) 
+
+                    # wind [m/s]: measured wind speed
+                    wind__m_s_1 = m.MV(value = df_learn[property_sources['wind__m_s_1']].astype('float32').values)
+                    wind__m_s_1.STATUS = 0; wind__m_s_1.FSTATUS = 1
+                    
+                    # Infiltration area (m^2): set this parameter up so it can be learnt
+                    if 'A_inf__cm2' in learn:
+                        A_inf__cm2 = m.FV(value=hints['A_inf__cm2'], lb=0, ub=1.0)
+                        A_inf__cm2.STATUS = 1; A_inf__cm2.FSTATUS = 0
+                    else:
+                        A_inf__cm2 = m.Param(value=hints['A_inf__cm2'])
+                        learned_A_inf__cm2 = np.nan  
+                    
+                    # Heat loss due to infiltration
+                    air__J_m_3_K_1 = air_room__J_m_3_K_1 # if needed, the volumetric heat capacity can be made specific for pressure and temperature
+                    H_inf__W_K_1 = m.Intermediate((A_inf__cm2 / cm2_m_2) * wind__m_s_1 * air__J_m_3_K_1) 
+                    Q_loss_inf__W = m.Intermediate(H_inf__W_K_1 * indoor_outdoor_delta__K)
+                  
+                    # Heat loss due to ventilation
+                    H_vent__W_K_1 = 0    # initial simplification, could be improved based on insight into CO₂ levels and number of people present
+                    Q_loss_vent__W = 0   # initial simplification, could be improved based on insight into CO₂ levels and number of people present
+                    
                     # Main Equations 
                     Q_gain__W = m.Intermediate(Q_gain_g_ch__W + Q_gain_sol__W + Q_gain_int__W)
-                    Q_loss__W = m.Intermediate(H__W_K_1 * (temp_in__degC - temp_out_e__degC)) 
+                    Q_loss__W = m.Intermediate(Q_loss_cond__W + Q_loss_inf__W + Q_loss_vent__W)
+                    H__W_K_1 = m.Intermediate(H_cond__W_K_1 + H_inf__W_K_1 + H_vent__W_K_1)
                     C__J_K_1  = m.Intermediate(H__W_K_1 * tau__s) 
                     m.Equation(temp_in__degC.dt() == ((Q_gain__W - Q_loss__W) / C__J_K_1))
                     
@@ -449,21 +459,21 @@ class Learner():
                     logging.info(f'rmse_temp_in__degC: {rmse_temp_in__degC}')
 
                     # TODO loop over learn list
-                    if 'H__W_K_1' in learn:
-                        learned_H__W_K_1 = H__W_K_1.value[0]
-                        mae_H__W_K_1 = abs(learned_H__W_K_1  - actual_H__W_K_1)                                 # evaluates to np.nan if no actual value
+                    if 'H_cond__W_K_1' in learn:
+                        learned_H_cond__W_K_1 = H_cond__W_K_1.value[0]
+                        mae_H_cond__W_K_1 = abs(learned_H_cond__W_K_1  - actual_H_cond__W_K_1)                  # evaluates to np.nan if no actual value
                     if 'tau__h' in learn:
                         learned_tau__h = tau__s.value[0] / s_h_1
                         mae_tau__h = abs(learned_tau__h - actual_tau__h)                                        # evaluates to np.nan if no actual value
-                    if 'H__W_K_1' in learn or 'tau__h' in learn :
-                        learned_C__kWh_K_1 = learned_H__W_K_1 * learned_tau__h / 1e3
+                    if 'H_cond__W_K_1' in learn or 'tau__h' in learn :
+                        learned_C__kWh_K_1 = learned_H_cond__W_K_1 * learned_tau__h / 1e3
                         mae_C__kWh_K_1 = abs(learned_C__kWh_K_1 - actual_C__kWh_K_1)                            # evaluates to np.nan if no actual value
                     if 'A_sol__m2' in learn:
                         learned_A_sol__m2 = A_sol__m2.value[0]
                         mae_A_sol__m2 = abs(learned_A_sol__m2 - actual_A_sol__m2)                               # evaluates to np.nan if no actual value
-                    if 'wind_chill__K_s_m_1' in learn:
-                        learned_wind_chill__K_s_m_1 = wind_chill__K_s_m_1.value[0]
-                        mae_wind_chill__K_s_m_1 = abs(learned_wind_chill__K_s_m_1 - actual_wind_chill__K_s_m_1) # evaluates to np.nan if no actual value
+                    if 'A_inf__cm2' in learn:
+                        learned_A_inf__cm2 = A_inf__cm2.value[0]
+                        mae_A_inf__cm2 = abs(learned_A_inf__cm2 - actual_A_inf__cm2)                               # evaluates to np.nan if no actual value
 
 
                 except KeyboardInterrupt:    
@@ -491,9 +501,9 @@ class Learner():
                                     'EV_TYPE': [m.options.EV_TYPE],
                                     'mae_temp_in__degC': [mae_temp_in__degC],
                                     'rmse_temp_in__degC': [rmse_temp_in__degC],
-                                    'learned_H__W_K_1': [learned_H__W_K_1],
-                                    'actual_H__W_K_1': [actual_H__W_K_1],
-                                    'mae_H__W_K_1': [mae_H__W_K_1],
+                                    'learned_H_cond__W_K_1': [learned_H_cond__W_K_1],
+                                    'actual_H_cond__W_K_1': [actual_H_cond__W_K_1],
+                                    'mae_H_cond__W_K_1': [mae_H_cond__W_K_1],
                                     'learned_tau__h': [learned_tau__h],
                                     'actual_tau__h': [actual_tau__h], 
                                     'mae_tau__h': [mae_tau__h], 
@@ -503,8 +513,8 @@ class Learner():
                                     'learned_A_sol__m2': [learned_A_sol__m2],
                                     'actual_A_sol__m2': [actual_A_sol__m2],
                                     'mae_A_sol__m2': [mae_A_sol__m2],
-                                    'learned_wind_chill__K_s_m_1': [learned_wind_chill__K_s_m_1],
-                                    'mae_wind_chill__K_s_m_1': [mae_wind_chill__K_s_m_1]
+                                    'learned_A_inf__cm2': [learned_A_inf__cm2],
+                                    'mae_A_inf__cm2': [mae_A_inf__cm2]
                                 }
                             )
                         ]
