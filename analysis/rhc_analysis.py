@@ -268,14 +268,14 @@ class Learner():
                 actual_H__W_K_1 = id // 1e5
                 actual_tau__h = (id % 1e5) // 1e2
                 actual_A_sol__m2 = id % 1e2
-                actual_C__Wh_K_1 = actual_H__W_K_1 * actual_tau__h
+                actual_C__kWh_K_1 = actual_H__W_K_1 * actual_tau__h / 1e3
                 actual_eta_ch_hhv__W0 = eta_ch_nl_avg_hhv__J0 # efficiency used for calculating synthetic home values)
                 actual_wind_chill__K_s_m_1 = 0.67 # efficiency used for calculating synthetic home values)
             else:
                 actual_H__W_K_1 = np.nan
                 actual_tau__h = np.nan
                 actual_A_sol__m2 = np.nan
-                actual_C__Wh_K_1 = np.nan
+                actual_C__kWh_K_1 = np.nan
                 actual_eta_ch_hhv__W0 = np.nan
                 actual_wind_chill__K_s_m_1 = np.nan
 
@@ -316,8 +316,8 @@ class Learner():
                 learned_tau__h = np.nan
                 mae_tau__h = np.nan
 
-                learned_C__Wh_K_1 = np.nan
-                mae_C__Wh_K_1 = np.nan
+                learned_C__kWh_K_1 = np.nan
+                mae_C__kWh_K_1 = np.nan
 
                 learned_A_sol__m2 = np.nan
                 mae_A_sol__m2 = np.nan
@@ -345,14 +345,16 @@ class Learner():
                         learned_H__W_K_1 = np.nan
                     
                     # Model parameter: tau [s]: effective thermal inertia
-                    if 'tau__s' in learn:
+                    hint_tau__s = hints['tau__h'] * s_h_1
+                    if 'tau__h' in learn:
                         # set this parameter up so it can be learnt
-                        tau__s = m.FV(value=(value = (hints['tau__h'] * s_h_1)), lb=(10 * s_h_1), ub=(1000 * s_h_1))
+                        
+                        tau__s = m.FV(value = hint_tau__s, lb=(10 * s_h_1), ub=(1000 * s_h_1))
                         tau__s.STATUS = 1; tau__s.FSTATUS = 0
                     else:
                         # do not learn this parameter, but use a fixed value based on hint
-                        H__W_K_1 = m.Param(value = hints['H__W_K_1'])
-                        learned_H__W_K_1 = np.nan
+                        tau__s = m.Param(value = hint_tau__s)
+                        learned_tau__h = np.nan
 
                     # g_use_ch_hhv_W [-]: higher heating value of gas input to the boiler for central heating purposes
                     g_use_ch_hhv_W = m.MV(value = df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values)
@@ -454,8 +456,8 @@ class Learner():
                         learned_tau__h = tau__s.value[0] / s_h_1
                         mae_tau__h = abs(learned_tau__h - actual_tau__h)                                        # evaluates to np.nan if no actual value
                     if 'H__W_K_1' in learn or 'tau__h' in learn :
-                        learned_C__Wh_K_1 = learned_H__W_K_1 * learned_tau__h
-                        mae_C__Wh_K_1 = abs(learned_C__Wh_K_1 - actual_C__Wh_K_1)                               # evaluates to np.nan if no actual value
+                        learned_C__kWh_K_1 = learned_H__W_K_1 * learned_tau__h / 1e3
+                        mae_C__kWh_K_1 = abs(learned_C__kWh_K_1 - actual_C__kWh_K_1)                            # evaluates to np.nan if no actual value
                     if 'A_sol__m2' in learn:
                         learned_A_sol__m2 = A_sol__m2.value[0]
                         mae_A_sol__m2 = abs(learned_A_sol__m2 - actual_A_sol__m2)                               # evaluates to np.nan if no actual value
@@ -495,9 +497,9 @@ class Learner():
                                     'learned_tau__h': [learned_tau__h],
                                     'actual_tau__h': [actual_tau__h], 
                                     'mae_tau__h': [mae_tau__h], 
-                                    'learned_C__Wh_K_1':[learned_C__Wh_K_1],
-                                    'actual_C__Wh_K_1':[actual_C__Wh_K_1],
-                                    'mae_C__Wh_K_1': [mae_C__Wh_K_1],
+                                    'learned_C__kWh_K_1':[learned_C__kWh_K_1],
+                                    'actual_C__kWh_K_1':[actual_C__kWh_K_1],
+                                    'mae_C__kWh_K_1': [mae_C__kWh_K_1],
                                     'learned_A_sol__m2': [learned_A_sol__m2],
                                     'actual_A_sol__m2': [actual_A_sol__m2],
                                     'mae_A_sol__m2': [mae_A_sol__m2],
