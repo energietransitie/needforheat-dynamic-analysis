@@ -335,14 +335,24 @@ class Learner():
                     m.time = np.arange(0, duration__s, step__s)
 
                     # Model parameter: H [W/K]: specific heat loss
-                    # TODO: make learning conditional on learn list
-                    H__W_K_1 = m.FV(value=hints['H__W_K_1'], lb=0, ub=1000)
-                    H__W_K_1.STATUS = 1; H__W_K_1.FSTATUS = 0
+                    if 'H__W_K_1' in learn:
+                        # set this parameter up so it can be learnt
+                        H__W_K_1 = m.FV(value=hints['H__W_K_1'], lb=0, ub=1000)
+                        H__W_K_1.STATUS = 1; H__W_K_1.FSTATUS = 0
+                    else:
+                        # do not learn this parameter, but use a fixed value based on hint
+                        H__W_K_1 = m.Param(value = hints['H__W_K_1'])
+                        learned_H__W_K_1 = np.nan
                     
                     # Model parameter: tau [s]: effective thermal inertia
-                    # TODO: make learning conditional on learn list
-                    tau__s = m.FV(value=(100 * s_h_1), lb=(10 * s_h_1), ub=(1000 * s_h_1))
-                    tau__s.STATUS = 1; tau__s.FSTATUS = 0
+                    if 'tau__s' in learn:
+                        # set this parameter up so it can be learnt
+                        tau__s = m.FV(value=(value = (hints['tau__h'] * s_h_1)), lb=(10 * s_h_1), ub=(1000 * s_h_1))
+                        tau__s.STATUS = 1; tau__s.FSTATUS = 0
+                    else:
+                        # do not learn this parameter, but use a fixed value based on hint
+                        H__W_K_1 = m.Param(value = hints['H__W_K_1'])
+                        learned_H__W_K_1 = np.nan
 
                     # g_use_ch_hhv_W [-]: higher heating value of gas input to the boiler for central heating purposes
                     g_use_ch_hhv_W = m.MV(value = df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values)
@@ -427,27 +437,28 @@ class Learner():
                     # Write best fitting temperatures into df_data
                     df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'sim_temp_in__degC'] = np.asarray(temp_in__degC)
 
-                    # set learned variables and calculate error metrics: mean absolute error (mae) for all learned parameters; root mean squared error (rmse) only for predicted time series
+                    # set learned variables and calculate error metrics: 
+                    # mean absolute error (mae) for all learned parameters; 
+                    # root mean squared error (rmse) only for predicted time series
+                    
                     mae_temp_in__degC = mae(temp_in__degC, df_learn[property_sources['temp_in__degC']])
                     logging.info(f'mae_temp_in__degC: {mae_temp_in__degC}')
                     rmse_temp_in__degC = rmse(temp_in__degC, df_learn[property_sources['temp_in__degC']])
                     logging.info(f'rmse_temp_in__degC: {rmse_temp_in__degC}')
 
                     # TODO loop over learn list
-
-                    learned_H__W_K_1 = H__W_K_1.value[0]
-                    mae_H__W_K_1 = abs(learned_H__W_K_1  - actual_H__W_K_1)
-
-                    learned_tau__h = tau__s.value[0] / s_h_1
-                    mae_tau__h = abs(learned_tau__h - actual_tau__h)
-
-                    learned_C__Wh_K_1 = learned_H__W_K_1 * learned_tau__h
-                    mae_C__Wh_K_1 = abs(learned_C__Wh_K_1 - actual_C__Wh_K_1)
-
+                    if 'H__W_K_1' in learn:
+                        learned_H__W_K_1 = H__W_K_1.value[0]
+                        mae_H__W_K_1 = abs(learned_H__W_K_1  - actual_H__W_K_1)                                 # evaluates to np.nan if no actual value
+                    if 'tau__h' in learn:
+                        learned_tau__h = tau__s.value[0] / s_h_1
+                        mae_tau__h = abs(learned_tau__h - actual_tau__h)                                        # evaluates to np.nan if no actual value
+                    if 'H__W_K_1' in learn or 'tau__h' in learn :
+                        learned_C__Wh_K_1 = learned_H__W_K_1 * learned_tau__h
+                        mae_C__Wh_K_1 = abs(learned_C__Wh_K_1 - actual_C__Wh_K_1)                               # evaluates to np.nan if no actual value
                     if 'A_sol__m2' in learn:
                         learned_A_sol__m2 = A_sol__m2.value[0]
-                        mae_A_sol__m2 = abs(learned_A_sol__m2 - actual_A_sol__m2) # evaluates to np.nan if no actual value
-
+                        mae_A_sol__m2 = abs(learned_A_sol__m2 - actual_A_sol__m2)                               # evaluates to np.nan if no actual value
                     if 'wind_chill__K_s_m_1' in learn:
                         learned_wind_chill__K_s_m_1 = wind_chill__K_s_m_1.value[0]
                         mae_wind_chill__K_s_m_1 = abs(learned_wind_chill__K_s_m_1 - actual_wind_chill__K_s_m_1) # evaluates to np.nan if no actual value
