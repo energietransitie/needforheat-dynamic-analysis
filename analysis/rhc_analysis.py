@@ -308,6 +308,8 @@ class Learner():
                 mae_temp_in__degC = np.nan
                 rmse_temp_in__degC = np.nan
 
+                # TODO loop over learn list
+
                 learned_H__W_K_1 = np.nan
                 mae_H__W_K_1 = np.nan
 
@@ -333,10 +335,12 @@ class Learner():
                     m.time = np.arange(0, duration__s, step__s)
 
                     # Model parameter: H [W/K]: specific heat loss
+                    # TODO: make learning conditional on learn list
                     H__W_K_1 = m.FV(value=hints['H__W_K_1'], lb=0, ub=1000)
                     H__W_K_1.STATUS = 1; H__W_K_1.FSTATUS = 0
                     
                     # Model parameter: tau [s]: effective thermal inertia
+                    # TODO: make learning conditional on learn list
                     tau__s = m.FV(value=(100 * s_h_1), lb=(10 * s_h_1), ub=(1000 * s_h_1))
                     tau__s.STATUS = 1; tau__s.FSTATUS = 0
 
@@ -369,8 +373,10 @@ class Learner():
 
                     # A_sol__m2 [m^2]: calculated heat gain from internal sources
                     if 'A_sol__m2' in learn:
+                        # set this parameter up so it can be learnt
                         A_sol__m2 = m.FV(value = hints['A_sol__m2'], lb=1, ub=100); A_sol__m2.STATUS = 1; A_sol__m2.FSTATUS = 0
                     else:
+                        # do not learn this parameter, but use a fixed value based on hint
                         A_sol__m2 = m.Param(value = hints['A_sol__m2'])
                         learned_A_sol__m2 = np.nan
 
@@ -391,11 +397,11 @@ class Learner():
                     
                     # wind chill factor [°C/(m/s)]: cooling effect of wind on homes
                     if 'wind_chill__K_s_m_1' in learn:
-                        # learn wind_chill__K_s_m_1 
+                        # set this parameter up so it can be learnt
                         wind_chill__K_s_m_1 = m.FV(value = hints['wind_chill__K_s_m_1'], lb=0, ub=5.0)
                         wind_chill__K_s_m_1.STATUS = 1; wind_chill__K_s_m_1.FSTATUS = 0
                     else:
-                        # set fixed wind chill factor based on hint
+                        # do not learn this parameter, but use a fixed value based on hint
                         wind_chill__K_s_m_1 = m.Param(value = hints['wind_chill__K_s_m_1'])
                         learned_wind_chill__K_s_m_1 = np.nan
 
@@ -427,6 +433,8 @@ class Learner():
                     rmse_temp_in__degC = rmse(temp_in__degC, df_learn[property_sources['temp_in__degC']])
                     logging.info(f'rmse_temp_in__degC: {rmse_temp_in__degC}')
 
+                    # TODO loop over learn list
+
                     learned_H__W_K_1 = H__W_K_1.value[0]
                     mae_H__W_K_1 = abs(learned_H__W_K_1  - actual_H__W_K_1)
 
@@ -455,6 +463,8 @@ class Learner():
                 
                 finally:
                     # create a results row and add to results per period dataframe
+                    # TODO use learn array more
+                    # TODO log more metadata such that we can compare results from different runs / learning strategy more easily
                     df_results_per_period = pd.concat(
                         [
                             df_results_per_period,
@@ -491,6 +501,8 @@ class Learner():
                 ##################################################################################################################
 
             # after all learn periods of a single id
+
+            # TODO write results to excel file (incrementally update) after each id, to make sure partial results are not lost
             
         # after all ids
 
