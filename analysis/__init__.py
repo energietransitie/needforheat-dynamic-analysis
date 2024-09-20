@@ -25,7 +25,7 @@ from .nfh_utils import (
     Q_gain_awake_int_nl_avg__W_p_1, Q_gain_asleep_int_nl_avg__W_p_1, 
     Q_gain_int_present_nl_avg__W_p_1, Q_gain_int_nl_avg__W_p_1,
     eta_ch_nl_avg_hhv__W0, g_not_ch_nl_avg__m3_a_1, g_not_ch_nl_avg_hhv__W,
-    H_nl_avg__W_K_1, tau_nl_avg__h, C_avg_nl__Wh_K_1,
+    H_nl_avg__W_K_1, tau_nl_avg__h, C_avg_nl__kWh_K_1,
     A_sol_nl_avg__m2,
     floor_single_home_dwelling_nl_avg__m2,
     temp_in_heating_season_nl_avg__degC, temp_out_heating_season_nl_avg__degC, delta_temp_heating_season_nl_avg__K,

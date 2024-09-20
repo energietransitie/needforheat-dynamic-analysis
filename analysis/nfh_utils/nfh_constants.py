@@ -137,7 +137,7 @@ delta_temp_heating_season_nl_avg__K = temp_in_heating_season_nl_avg__degC - temp
 # Dutch home related averages
 H_nl_avg__W_K_1 = 250                                         # derived from NTA8800; TODO: move calculation from Excel EnergyFingerPrintCalculation.xlsx to here
 tau_nl_avg__h = 50                                            # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
-C_avg_nl__Wh_K_1 = (H_nl_avg__W_K_1 * tau_nl_avg__h)          # (effective) thermal mass
+C_avg_nl__kWh_K_1 = (H_nl_avg__W_K_1 * tau_nl_avg__h) /1e3   # (effective) thermal mass
 floor_single_home_dwelling_nl_avg__m2 = 143                   # derived from https://opendata.cbs.nl/statline/#/CBS/nl/dataset/82550NED/table?dl=ACE80
 A_sol_nl_avg__m2 = 3.7                                        # derived from NTA8800; TODO: move calculation from Excel EnergyFingerPrintCalculation.xlsx to here  
 wind_chill_nl_avg__K_s_m_1 =  0.67                            # derived from KNMI report https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub219.pdf 
