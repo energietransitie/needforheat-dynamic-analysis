@@ -334,26 +334,10 @@ class Learner():
                     m = GEKKO(remote=False)
                     m.time = np.arange(0, duration__s, step__s)
 
-                    # Model parameter: H [W/K]: specific heat loss
-                    if 'H_cond__W_K_1' in learn:
-                        # set this parameter up so it can be learnt
-                        H_cond__W_K_1 = m.FV(value=hints['H_cond__W_K_1'], lb=0, ub=1000)
-                        H_cond__W_K_1.STATUS = 1; H_cond__W_K_1.FSTATUS = 0
-                    else:
-                        # do not learn this parameter, but use a fixed value based on hint
-                        H_cond__W_K_1 = m.Param(value = hints['H_cond__W_K_1'])
-                        learned_H_cond__W_K_1 = np.nan
+
+                    ### Heat gains ###
                     
-                    # Model parameter: tau [s]: effective thermal inertia
-                    hint_tau__s = hints['tau__h'] * s_h_1
-                    if 'tau__h' in learn:
-                        # set this parameter up so it can be learnt
-                        tau__s = m.FV(value = hint_tau__s, lb=(10 * s_h_1), ub=(1000 * s_h_1))
-                        tau__s.STATUS = 1; tau__s.FSTATUS = 0
-                    else:
-                        # do not learn this parameter, but use a fixed value based on hint
-                        tau__s = m.Param(value = hint_tau__s)
-                        learned_tau__h = np.nan
+                    ## Heat gains from central heating ##
 
                     # g_use_ch_hhv_W [-]: higher heating value of gas input to the boiler for central heating purposes
                     g_use_ch_hhv_W = m.MV(value = df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values)
@@ -366,6 +350,8 @@ class Learner():
                     # Q_gain_ch [W]: heat gain from natural gas used for central heating
                     Q_gain_g_ch__W = m.Intermediate(g_use_ch_hhv_W * eta_ch_hhv__W0)
                 
+                    ## Heat gains from domestic hot water ##
+
                     g_use_dhw_hhv__W = m.MV(value = df_learn[property_sources['g_use_dhw_hhv__W']].astype('float32').values)
                     g_use_dhw_hhv__W.STATUS = 0; g_use_dhw_hhv__W.FSTATUS = 1
 
@@ -375,12 +361,16 @@ class Learner():
                         + hints['g_use_cooking_hhv__W'] * hints['eta_cooking_hhv__W0'] + hints['frac_remain_cooking__0']
                     )
 
+                    ## Heat gains from electricity ##
+
                     # e [W] : internal heat gain from internally used electricity
                     e__W = m.MV(value = df_learn[property_sources['e__W']].astype('float32').values)
                     e__W.STATUS = 0; e__W.FSTATUS = 1
 
                     # Q_gain_int [W]: calculated heat gain from internal sources
                     Q_gain_int__W = m.Intermediate(e__W + Q_gain_int_occup__W + Q_gain_g_not_ch__W)
+
+                    ## Heat gains from the sun ##
 
                     # A_sol__m2 [m^2]: calculated heat gain from internal sources
                     if 'A_sol__m2' in learn:
@@ -398,6 +388,21 @@ class Learner():
                     # Q_gain_sol [W]: calculated heat gain from solar irradiation
                     Q_gain_sol__W = m.Intermediate(ghi__W_m_2 * A_sol__m2)
                     
+
+                    ### Heat losses ###
+
+                    ## Conductive heat loss ##
+                    
+                    # H [W/K]: specific heat loss
+                    if 'H_cond__W_K_1' in learn:
+                        # set this parameter up so it can be learnt
+                        H_cond__W_K_1 = m.FV(value=hints['H_cond__W_K_1'], lb=0, ub=1000)
+                        H_cond__W_K_1.STATUS = 1; H_cond__W_K_1.FSTATUS = 0
+                    else:
+                        # do not learn this parameter, but use a fixed value based on hint
+                        H_cond__W_K_1 = m.Param(value = hints['H_cond__W_K_1'])
+                        learned_H_cond__W_K_1 = np.nan
+                    
                     # temp_in [°C]: Indoor temperature; objective (Control Variable)
                     temp_in__degC = m.CV(value = df_learn[property_sources['temp_in__degC']].astype('float32').values)
                     temp_in__degC.STATUS = 1; temp_in__degC.FSTATUS = 1
@@ -413,6 +418,8 @@ class Learner():
                     # Heat loss due to conduction
                     Q_loss_cond__W = m.Intermediate(H_cond__W_K_1 * indoor_outdoor_delta__K) 
 
+                    ## Infiltration heat loss ##
+                    
                     # wind [m/s]: measured wind speed
                     wind__m_s_1 = m.MV(value = df_learn[property_sources['wind__m_s_1']].astype('float32').values)
                     wind__m_s_1.STATUS = 0; wind__m_s_1.FSTATUS = 1
@@ -430,11 +437,27 @@ class Learner():
                     H_inf__W_K_1 = m.Intermediate((A_inf__cm2 / cm2_m_2) * wind__m_s_1 * air__J_m_3_K_1) 
                     Q_loss_inf__W = m.Intermediate(H_inf__W_K_1 * indoor_outdoor_delta__K)
                   
+                    ## Ventilation heat loss ##
+                    
                     # Heat loss due to ventilation
                     H_vent__W_K_1 = 0    # initial simplification, could be improved based on insight into CO₂ levels and number of people present
                     Q_loss_vent__W = 0   # initial simplification, could be improved based on insight into CO₂ levels and number of people present
+
+                    ## Thermal inertia ##
                     
-                    # Main Equations 
+                    # tau [s]: effective thermal inertia
+                    hint_tau__s = hints['tau__h'] * s_h_1
+                    if 'tau__h' in learn:
+                        # set this parameter up so it can be learnt
+                        tau__s = m.FV(value = hint_tau__s, lb=(10 * s_h_1), ub=(1000 * s_h_1))
+                        tau__s.STATUS = 1; tau__s.FSTATUS = 0
+                    else:
+                        # do not learn this parameter, but use a fixed value based on hint
+                        tau__s = m.Param(value = hint_tau__s)
+                        learned_tau__h = np.nan
+                    
+                    ### Heat balance ###
+
                     Q_gain__W = m.Intermediate(Q_gain_g_ch__W + Q_gain_sol__W + Q_gain_int__W)
                     Q_loss__W = m.Intermediate(Q_loss_cond__W + Q_loss_inf__W + Q_loss_vent__W)
                     H__W_K_1 = m.Intermediate(H_cond__W_K_1 + H_inf__W_K_1 + H_vent__W_K_1)
@@ -473,7 +496,7 @@ class Learner():
                         mae_A_sol__m2 = abs(learned_A_sol__m2 - actual_A_sol__m2)                               # evaluates to np.nan if no actual value
                     if 'A_inf__cm2' in learn:
                         learned_A_inf__cm2 = A_inf__cm2.value[0]
-                        mae_A_inf__cm2 = abs(learned_A_inf__cm2 - actual_A_inf__cm2)                               # evaluates to np.nan if no actual value
+                        mae_A_inf__cm2 = abs(learned_A_inf__cm2 - actual_A_inf__cm2)                            # evaluates to np.nan if no actual value
 
 
                 except KeyboardInterrupt:    
