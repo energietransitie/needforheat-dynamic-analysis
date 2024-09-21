@@ -426,7 +426,7 @@ class Learner():
                     
                     # Infiltration area (m^2): set this parameter up so it can be learnt
                     if 'A_inf__cm2' in learn:
-                        A_inf__cm2 = m.FV(value=hints['A_inf__cm2'], lb=0, ub=1.0)
+                        A_inf__cm2 = m.FV(value=hints['A_inf__cm2'], lb=0, ub=100000.0)
                         A_inf__cm2.STATUS = 1; A_inf__cm2.FSTATUS = 0
                     else:
                         A_inf__cm2 = m.Param(value=hints['A_inf__cm2'])
