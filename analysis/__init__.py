@@ -9,7 +9,7 @@ from .nfh_utils import (
     temp_gas_std__degC, temp_gas_std__K,
     temp_room_std__K, room_std__mol_m_3,
     temp_gas_ref__degC, temp_gas_ref__K, 
-    gas_std__mol_m_3, co2_ext_2022__ppm,
+    gas_std__mol_m_3, co2_ext_eu_avg_2022__ppm,
     air_std__J_mol_K, air_room__J_mol_K,
     air_std__J_m_3_K_1, air_room__J_m_3_K_1,
     O2ml_min_1_kg_1_p_1_MET_1, desk_work__MET,

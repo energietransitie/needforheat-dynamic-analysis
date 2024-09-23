@@ -65,7 +65,7 @@ air_room__J_m_3_K_1 = (air_room__J_mol_K
                      )                                         # volumetric specific heat of air at standard conditions
 
 # CO₂ concentration averages
-co2_ext_2022__ppm = 415                                       # Yearly average CO₂ concentration in Europe in 2022
+co2_ext_eu_avg_2022__ppm = 415                                # Yearly average CO₂ concentration in Europe in 2022
 
 # Metabolic conversion factors
 O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
