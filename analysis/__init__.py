@@ -3,11 +3,11 @@
 from .nfh_utils import (
     mae, rmse, rmae,
     s_min_1, min_h_1, h_d_1, d_a_1, s_h_1, s_d_1, s_a_1,
-    J_kWh_1, J_MJ_1, ml_m_3, umol_mol_1,
+    J_kWh_1, J_MJ_1, ml_m_3, dm3_m_3, umol_mol_1,
     cm2_m_2, temp_0__degC__K, P_std__Pa,
     R__m3_Pa_K_1_mol_1, temp_room_std__degC,
     temp_gas_std__degC, temp_gas_std__K,
-    temp_room_std__K, room_std__mol_m_3,
+    temp_room_std__K, gas_room__mol_m_3,
     temp_gas_ref__degC, temp_gas_ref__K, 
     gas_std__mol_m_3, co2_ext_eu_avg_2022__ppm,
     air_std__J_mol_K, air_room__J_mol_K,

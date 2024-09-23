@@ -15,6 +15,7 @@ J_MJ_1 = 1e6                                                  # [J] per [MJ]
 
 # Volumetric conversion factors
 ml_m_3 = 1e3 * 1e3                                            # [ml] per [m^3]
+dm3_m_3 = 1e3                                                 # [m^3] per [m^3]
 
 # Pressure conversion factors
 Pa_mbar_1 = 1e2                                               # [Pa] per [mbar]
@@ -37,7 +38,7 @@ temp_gas_ref__degC = 15.0                                     # gas temperature 
 temp_gas_std__K = temp_gas_std__degC + temp_0__degC__K        # standard gas temperature [K]
 temp_room_std__K = temp_room_std__degC + temp_0__degC__K      # standard room temperature [K]
 temp_gas_ref__K = temp_gas_ref__degC + temp_0__degC__K        # gas temperature for reference conditions, according to EN 437:2021 (E) [K]
-room_std__mol_m_3 = (P_std__Pa
+gas_room__mol_m_3 = (P_std__Pa
                 / (R__m3_Pa_K_1_mol_1 * temp_room_std__K)
                )                                              # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
 gas_std__mol_m_3 = (P_std__Pa 
@@ -75,7 +76,7 @@ adult_weight_nl_avg__kg = 77.5                                # average weight o
 O2umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
                    * adult_weight_nl_avg__kg
                    / s_min_1 
-                   * (umol_mol_1 * room_std__mol_m_3 / ml_m_3)
+                   * (umol_mol_1 * gas_room__mol_m_3 / ml_m_3)
                    )                                          # molar quantity of O₂ inhaled by an average Dutch adult at 1 MET [µmol/(p⋅s)]
 co2_exhale_desk_work__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
                             * desk_work__MET
