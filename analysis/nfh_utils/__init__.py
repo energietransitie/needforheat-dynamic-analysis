@@ -29,6 +29,7 @@ from .nfh_constants import (
     H_nl_avg__W_K_1, tau_nl_avg__h, C_avg_nl__kWh_K_1,
     A_sol_nl_avg__m2,
     floor_single_home_dwelling_nl_avg__m2,
+    H_dist_nl_avg__W_K_1, C_dist_nl_avg__J_K_1, 
     temp_in_heating_season_nl_avg__degC, temp_out_heating_season_nl_avg__degC, delta_temp_heating_season_nl_avg__K,
     P_nl_avg__Pa,
     wind_chill_nl_avg__K_s_m_1, A_inf_nl_avg__cm2,
