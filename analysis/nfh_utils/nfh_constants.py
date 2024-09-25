@@ -7,7 +7,7 @@ h_d_1 = 24                                                    # [h] per [d]
 d_a_1 = 365.25                                                # [d] per [a]]
 s_h_1 = s_min_1 * min_h_1                                     # [s] per [h]
 s_d_1 = (h_d_1 * s_h_1)                                       # [s] per [d]
-s_a_1 = (d_a_1 * s_d_1)                                      # [s] per [a] 
+s_a_1 = (d_a_1 * s_d_1)                                       # [s] per [a] 
 
 # Energy conversion factors
 J_kWh_1 = 1000 * s_h_1                                        # [J] per [kWh]
@@ -44,8 +44,8 @@ gas_room__mol_m_3 = (P_std__Pa
 gas_std__mol_m_3 = (P_std__Pa 
                 / (R__m3_Pa_K_1_mol_1 * temp_gas_std__K)
                )                                              # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
-air_std__J_mol_K = 29.07                                      # Molar specific heat of air at constant pressure [J/mol⋅K] at typical room conditions
-air_room__J_mol_K = 29.19                                     # Molar specific heat of air at constant pressure [J/mol⋅K] at typical room conditions
+air_std__J_mol_K = 29.07                                      # molar specific heat of air at constant pressure [J/mol⋅K] at typical room conditions
+air_room__J_mol_K = 29.19                                     # molar specific heat of air at constant pressure [J/mol⋅K] at typical room conditions
 
 air_std__J_m_3_K_1 = (air_std__J_mol_K 
                       * (P_std__Pa 
@@ -100,50 +100,53 @@ occupancy_nl_avg__p = (household_nl_avg__p
                       at_home_nl_avg__h_d_1
                       / h_d_1
                      )
-Q_gain_awake_int_nl_avg__W_p_1 = 105
-Q_gain_asleep_int_nl_avg__W_p_1 = 77
+heat_awake_int_nl_avg__W_p_1 = 105
+heat_asleep_int_nl_avg__W_p_1 = 77
 
-Q_gain_int_present_nl_avg__W_p_1 = np.average(
-    np.array([Q_gain_asleep_int_nl_avg__W_p_1, Q_gain_awake_int_nl_avg__W_p_1]),
+heat_int_present_nl_avg__W_p_1 = np.average(
+    np.array([heat_asleep_int_nl_avg__W_p_1, heat_awake_int_nl_avg__W_p_1]),
     weights=np.array([asleep_at_home_nl_avg__h_d_1, awake_at_home_nl_avg__h_d_1])
 )
 
-Q_gain_int_nl_avg__W_p_1 = (
-    Q_gain_int_present_nl_avg__W_p_1
+heat_int_nl_avg__W_p_1 = (
+    heat_int_present_nl_avg__W_p_1
     * at_home_nl_avg__h_d_1
     / h_d_1
 )                                                             # daily average internal heat gain from an average Dutch person with average presence
                      
 # Groningen natural gas averages (81,30%vol CH4, 14,35%vol N2), presumably at P_std__Pa and temp_gas_std__degC
-gas_groningen_nl_avg_std_hhv__J_m_3 = 35.17e6                # average higher heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
-gas_groningen_nl_avg_std_lhv__J_m_3 = 31.65e6                # average lower heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
+gas_groningen_nl_avg_std_hhv__J_m_3 = 35.17e6                 # average higher heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
+gas_groningen_nl_avg_std_lhv__J_m_3 = 31.65e6                 # average lower heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
 
 # Characteristics of reference gas G25.3 (88%vol CH4, 12%vol N2) according to EN 437:2021 (E), Table B.5 (reference gas prescribed by Kiwa BRL 2021 for tests)
-gas_g25_3_ref_lhv__J_m_3 = 29.92e6                            # Lower heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC 
-gas_g25_3_ref_hhv__J_m_3 = 33.20e6                            # Higher heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC
-gas_g25_3_test_pressure__Pa = 25  * Pa_mbar_1                 # Test pressure (gauge pressure) to be used in tests
+gas_g25_3_ref_lhv__J_m_3 = 29.92e6                            # lower heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC 
+gas_g25_3_ref_hhv__J_m_3 = 33.20e6                            # higher heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC
+gas_g25_3_test_pressure__Pa = 25  * Pa_mbar_1                 # test pressure (gauge pressure) to be used in tests
 
 # Dutch meter code related averages
 # Source: https://www.acm.nl/sites/default/files/old_publication/publicaties/12068_wijziging-informatiecode-elektriciteit-en-gas-en-begrippenlijst-gas-over-administratieve-volumeherleiding-voor-gasmeters.pdf
 P_nl_avg__Pa = 101550                                         # average air pressure to be used for conversion of measured gas volumes 
-overpressure_gas_nl_avg__Pa = 28 * Pa_mbar_1                  # Presumed overpressure of the gas arriving at a home, relative to air pressure
-temp_gas_avg_nl__degC = 15                                    # Presumed average temperature of the gas arriving at a home
-temp_gas_avg_nl__K = temp_gas_avg_nl__degC + temp_0__degC__K  
+overpressure_gas_nl_avg__Pa = 28 * Pa_mbar_1                  # presumed overpressure of the gas arriving at a home, relative to air pressure
+temp_gas_nl_avg__degC = 15                                    # presumed average temperature of the gas arriving at a home
+temp_gas_nl_avg__K = temp_gas_nl_avg__degC + temp_0__degC__K  
 
 # Dutch weather related averages
-temp_in_heating_season_nl_avg__degC = 18.33                   # derived from reference climate used in NTA8800
-temp_out_heating_season_nl_avg__degC = 6.44                   # derived from reference climate used in NTA8800
-delta_temp_heating_season_nl_avg__K = temp_in_heating_season_nl_avg__degC - temp_out_heating_season_nl_avg__degC
+temp_indoor_heating_season_nl_avg__degC = 18.33               # derived from reference climate used in NTA8800
+temp_outdoor_heating_season_nl_avg__degC = 6.44               # derived from reference climate used in NTA8800
+delta_temp_heating_season_nl_avg__K = temp_indoor_heating_season_nl_avg__degC - temp_outdoor_heating_season_nl_avg__degC
 
 # Dutch home related averages
-H_nl_avg__W_K_1 = 250                                         # derived from NTA8800; TODO: move calculation from Excel EnergyFingerPrintCalculation.xlsx to here
-tau_nl_avg__h = 50                                            # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
-C_avg_nl__kWh_K_1 = ((H_nl_avg__W_K_1 * tau_nl_avg__h) /1e3)  # (effective) thermal mass
+heat_tr_building_nl_avg__W_K_1 = 250                          # derived from NTA8800; TODO: move calculation from Excel EnergyFingerPrintCalculation.xlsx to here
+th_inertia_building_nl_avg__h = 50                            # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
+th_mass_building_nl_avg__Wh_K_1 = (
+    heat_tr_building_nl_avg__W_K_1 
+    * th_inertia_building_nl_avg__h
+    )                                                         # (effective) thermal mass
 floor_single_home_dwelling_nl_avg__m2 = 143                   # derived from https://opendata.cbs.nl/statline/#/CBS/nl/dataset/82550NED/table?dl=ACE80
-A_sol_nl_avg__m2 = 3.7                                        # derived from NTA8800; TODO: move calculation from Excel EnergyFingerPrintCalculation.xlsx to here  
+aperture_sol_nl_avg__m2 = 3.7                                 # derived from NTA8800; TODO: move calculation from Excel EnergyFingerPrintCalculation.xlsx to here  
 wind_chill_nl_avg__K_s_m_1 =  0.67                            # derived from KNMI report https://cdn.knmi.nl/knmi/pdf/bibliotheek/knmipubmetnummer/knmipub219.pdf 
-A_inf_nl_avg__cm2 = (
-    (H_nl_avg__W_K_1 * wind_chill_nl_avg__K_s_m_1)
+aperture_inf_nl_avg__cm2 = (
+    (heat_tr_building_nl_avg__W_K_1 * wind_chill_nl_avg__K_s_m_1)
     /
     (delta_temp_heating_season_nl_avg__K * air_std__J_m_3_K_1)
     *
@@ -154,22 +157,22 @@ A_inf_nl_avg__cm2 = (
 eta_ch_nl_avg_hhv__W0 = 0.963                                 # average superior efficiency of boilers in the Netherlands (source: WoON2008; ISSO 82.3)
 
 # average Dutch heat distribution system characteristics
-radiator_capacity_design__W_m_2 = 100                          # recommended radiator heatig capacity per square meter floor area 
-design_temp_out__degC = -10.0                                  # outdoor design temperature
-design_temp_dist_hi__degC = 70.0                               # design temperature for high temperature radiators
-heated_fraction_nl_avg__0 = 0.4                                # estimate of typical fraction of an average Dutch home that is heated
+radiator_capacity_design__W_m_2 = 100                         # recommended radiator heatig capacity per square meter floor area 
+design_temp_outdoor__degC = -10.0                             # outdoor design temperature
+design_temp_dist_hi__degC = 70.0                              # design temperature for high temperature radiators
+heated_fraction_nl_avg__0 = 0.4                               # estimate of typical fraction of an average Dutch home that is heated
 
-H_dist_nl_avg__W_K_1 = (
+heat_tr_dist_nl_avg__W_K_1 = (
     radiator_capacity_design__W_m_2
     * floor_single_home_dwelling_nl_avg__m2
     * heated_fraction_nl_avg__0
     /
     (design_temp_dist_hi__degC - temp_room_std__degC)
-)                                                              # heat dissipation capacity of the heat distribution system
+)                                                             # heat dissipation capacity of the heat distribution system
 
 heat_dist_water_nl_avg__kg = 100
 heat_dist_steel_nl_avg__kg = 100
-C_dist_nl_avg__J_K_1 = (
+th_mass_dist_nl_avg__W_K_1 = (
     (
         (heat_dist_water_nl_avg__kg * water_J_kg_1_K_1)
         +

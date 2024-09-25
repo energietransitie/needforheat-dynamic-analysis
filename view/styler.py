@@ -2,10 +2,10 @@ import pandas as pd
 
 def formatted_error_dataframe(df, per_id=False, thresholds=None, formats=None):
     default_thresholds = {
-        'mae_co2__ppm': (25, 75),
+        'mae_co2_outdoor__ppm': (25, 75),
         'rmae_valve_frac__0': (10/100, 20/100),
         'mae_occupancy__p': (1.0, 2.0),
-        'rmse_co2__ppm': None,
+        'rmse_co2_outdoor__ppm': None,
         'rmse_valve_frac__0': None,
         'rmse_occupancy__p': None
     }
