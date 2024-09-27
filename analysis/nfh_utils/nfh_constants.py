@@ -69,7 +69,7 @@ water_J_kg_1_K_1 = 4181                                       # NB at 25 degC; s
 steel_J_kg_1_K_1 = 466                                        # source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
 
 # CO₂ concentration averages
-co2_ext_eu_avg_2022__ppm = 415                                # Yearly average CO₂ concentration in Europe in 2022
+co2_outdoor_eu_avg_2022__ppm = 415                                # Yearly average CO₂ concentration in Europe in 2022
 
 # Metabolic conversion factors
 O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
