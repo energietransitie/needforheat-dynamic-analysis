@@ -137,6 +137,7 @@ class Plot:
                 axes = df_plot[props_with_data].plot(
                     subplots = unit_tuples,
                     style='.--',
+                    alpha=0.5,  # Set alpha for transparency
                     title=f'id: {id}'
                 )
                 for unit in enumerate(units_with_data):
@@ -174,6 +175,7 @@ class Plot:
                 axes = df_plot[props_with_data].plot(
                     subplots = unit_tuples,
                     style='.--',
+                    alpha=0.5,  # Set alpha for transparency
                     title=f'id: {id}'
                 )
                 for unit in enumerate(units_with_data):
