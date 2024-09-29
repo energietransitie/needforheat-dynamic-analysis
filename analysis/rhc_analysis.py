@@ -392,20 +392,20 @@ class Learner():
                     else:
                         th_mass_dist__Wh_K_1 = hints['th_mass_dist__Wh_K_1']
                         
-                    # Temperture of hot water supplied by the heat generation system to the heat distributon system [°C]
-                    temp_sup__degC = m.MV(value = df_learn[property_sources['temp_sup__degC']].astype('float32').values)
-                    temp_sup__degC.STATUS = 0; temp_sup__degC.FSTATUS = 1
-
-                    # Temperture of water returned to the heat generation system from the heat distributon system [°C]
-                    temp_ret__degC = m.MV(value = df_learn[property_sources['temp_ret__degC']].astype('float32').values)
-                    temp_ret__degC.STATUS = 0; temp_ret__degC.FSTATUS = 1
-
                     if ('heat_tr_dist__W_K_1' in learn) or ('th_mass_dist__J_K_1' in learn): 
+                        # Temperture of hot water supplied by the heat generation system to the heat distributon system [°C]
+                        temp_sup__degC = m.MV(value = df_learn[property_sources['temp_sup__degC']].astype('float32').values)
+                        temp_sup__degC.STATUS = 0; temp_sup__degC.FSTATUS = 1
+    
+                        # Temperture of water returned to the heat generation system from the heat distributon system [°C]
+                        temp_ret__degC = m.MV(value = df_learn[property_sources['temp_ret__degC']].astype('float32').values)
+                        temp_ret__degC.STATUS = 0; temp_ret__degC.FSTATUS = 1
+
                         temp_dist__degC = m.Intermediate((temp_sup__degC + temp_ret__degC)/2) # TODO: check whether this should be an MV
                         heat_dist__W = m.Intermediate(heat_tr_dist__W_K_1 * (temp_dist__degC - temp_indoor__degC))
                         m.Equation(temp_dist__degC.dt() == (heat_ch__W - heat_dist__W ) / (th_mass_dist__Wh_K_1 * s_h_1 ))
                     else:
-                        temp_dist__degC = m.Intermediate((temp_sup__degC + temp_ret__degC)/2)
+                        # temp_dist__degC = m.Intermediate((temp_sup__degC + temp_ret__degC)/2)
                         heat_dist__W = heat_ch__W
                     
                     ## Heat gains from domestic hot water ##
