@@ -135,12 +135,13 @@ class Learner():
     
     @staticmethod
     def learn_energy_profile(df_data:pd.DataFrame,
-                             df_home_bag_data:pd.DataFrame=None,
+                             df_building_data:pd.DataFrame=None,
                              property_sources = None,
                              df_metadata:pd.DataFrame=None,
                              hints:dict = None,
                              learn:List[str] = None,
                              learn_period__d=7, 
+                             learn_change_interval__min = None,
                              req_col:list = None,
                              sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                              ev_type=2) -> pd.DataFrame:
@@ -169,27 +170,30 @@ class Learner():
         - a df_metadata with index 'id' and columns:
             - none (this feature is not used in the current implementation yet, but added here for consistentcy with the learn_room_parameters() function)
         - hints: a dictionary that maps keys to fixed values to be used for analysis (set value for None to learn it):
-            - 'aperture_sol__m2': apparent solar aperture [m^2]
-            - 'eta_ch_hhv__W0': higher heating value efficiency [-] of the heating system 
-              In the Netherlands, eta_ch_nl_avg_hhv__W0 = 0.963 from nfh_utils is a reasonable hint
-            - 'g_not_ch_hhv__W': average yearly gas power (higher heating value)  for other purposes than heating 
-              In the Netherlands, g_not_ch_nl_avg_hhv__W = 377 from nfh_utils is a reasonable hint
-            - 'eta_not_ch_hhv__W0': superior efficiency [-] of heating the home indirectly using gas
-              I the Netherlands, 0.34 is a reasonable hint
-            - 'wind_chill__K_s_m_1': wind chill factor (in NL: 0.67 is a reasonable hint)
-            - 'aperture_inf__cm2': effective infiltration area (in NL, 108 is a reasonable hint)
-            - 'heat_tr_building_cond__W_K_1': specific heat loss (in NL, 250 is a reasonable hint)
-            - 'eta_dhw_hhv__W0': domestic hot water efficiency (in NL, 0.716 is a reasonable hint)
-            - 'frac_remain_dhw__0': fraction of domestic hot water heat contributing to heating the home (in NL, 0.500 is a reasonable hint)
-            - 'g_use_cooking_hhv__W': average gas power (higher heating value) for cooking (in NL, 72 is a reasonable hint)
-            - 'eta_cooking_hhv__W0': cooking efficiency (in NL, 0.444 is a reasonable hint)
-            - 'frac_remain_cooking__0': fraction of cooking heat contributing to heating the home (in NL, 0.460 is a reasonable hint)
-        - df_home_bag_data: a DataFrame with index id and columns
+            - 'aperture_sol__m2':             apparent solar aperture
+            - 'eta_ch_hhv__W0':               higher heating value efficiency of the heating system 
+            - 'g_not_ch_hhv__W':              average yearly gas power (higher heating value)  for other purposes than heating 
+            - 'eta_not_ch_hhv__W0':           superior efficiency of heating the home indirectly using gas
+            - 'wind_chill__K_s_m_1':          wind chill factor
+            - 'aperture_inf__cm2':            effective infiltration area
+            - 'heat_tr_building_cond__W_K_1': specific heat loss
+            - 'eta_dhw_hhv__W0':              domestic hot water efficiency
+            - 'frac_remain_dhw__0':           fraction of domestic hot water heat contributing to heating the home
+            - 'g_use_cooking_hhv__W':         average gas power (higher heating value) for cooking
+            - 'eta_cooking_hhv__W0':          cooking efficiency
+            - 'frac_remain_cooking__0':       fraction of cooking heat contributing to heating the home
+            - 'heat_tr_dist__W_K_1':          heat dissipation capacity of the heat distribution system
+            - 'th_mass_dist__Wh_K_1':         thermal mass of the heat distribution system
+            - 'ventilation_default__dm3_s_1': default ventilation rate for for the learning process for the entire home
+            - 'ventilation_max__dm3_s_1_m_2': maximum ventilation rate relative to the total floor area of the home
+            - 'co2_outdoor__ppm':             average CO₂ outdoor concentration
+        - df_home_building_data: a DataFrame with index id and columns
             - 'building_floor_area__m2': usable floor area of a dwelling in whole square meters according to NEN 2580:2007.
             - 'building_volume__m3': (an estimate of) the building volume, e.g. 3D-BAG attribute b3_volume_lod22 (https://docs.3dbag.nl/en/schema/attributes/#b3_volume_lod22) 
             - (optionally) 'building_floors__0': the number of floors, e.g. 3D-BAG attribute b3_bouwlagen (https://docs.3dbag.nl/en/schema/attributes/#b3_bouwlagen)
         and optionally,
-        - the number of days to use as learn period in the analysis
+        - 'learn_period__d': the number of days to use as learn period in the analysis
+        - 'learn_change_interval__min': the minimum interval (in minutes) that any time-varying-parameter may change
         - 'ev_type': type 2 is usually recommended, since this is typically more than 50 times faster
         
         Output:
@@ -235,10 +239,7 @@ class Learner():
                 raise LearnError(f'No support for learning {param} (yet).')
 
 
-        # Use National averages, depending on hints provided
-        
-        heat_int_occup__W = hints['heat_int__W_p_1'] * hints['occupancy__p']    # average heat gain per occupant
-      
+     
         # create empty dataframe for results of all homes
         df_results_per_period = pd.DataFrame()
 
@@ -292,8 +293,8 @@ class Learner():
                 actual_th_mass_dist__Wh_K_1 = np.nan
                 
             # Get building_volume__m3 and building_floor_area__m2 from building-specific table
-            building_volume__m3 = df_home_bag_data.loc[id]['building_volume__m3']
-            building_floor_area__m2 = df_home_bag_data.loc[id]['building_floor_area__m2']
+            building_volume__m3 = df_building_data.loc[id]['building_volume__m3']
+            building_floor_area__m2 = df_building_data.loc[id]['building_floor_area__m2']
 
             learn_period_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
 
@@ -317,6 +318,15 @@ class Learner():
                           (learn_streak_period_len-1)
                          )
                 logging.info(f'longest sane streak: {learn_streak_period_start} - {learn_streak_period_end}: {learn_streak_period_len} steps of {step__s} s')
+
+                if learn_change_interval__min is None:
+                    learn_change_interval__min = np.nan
+                    MV_STEP_HOR =  1
+                else:
+                    # implement ceiling integer division by 'upside down' floor integer division
+                    MV_STEP_HOR =  -((learn_change_interval__min * 60) // -step__s)
+
+                logging.info(f'MV_STEP_HOR: {MV_STEP_HOR}')
 
                 duration__s = step__s * learn_streak_period_len
 
@@ -374,7 +384,7 @@ class Learner():
                     heat_g_ch__W = m.Intermediate(g_use_ch_hhv_W * eta_ch_hhv__W0)
 
                     # heat_e_ch [W]: heat gain from natural electricity used for central heating (e.g. a heat pump)
-                    heat_e_ch__W = 0 # in this version model, we do not (yet) include potential 
+                    heat_e_ch__W = 0 # in this version model, we do not (yet) include heat generated via a heat pump 
                     
                     # heat_ch [W]: heat gain for heat distribution system coming from the central heating system
                     heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W)
@@ -412,21 +422,28 @@ class Learner():
 
                     g_use_dhw_hhv__W = m.MV(value = df_learn[property_sources['g_use_dhw_hhv__W']].astype('float32').values)
                     g_use_dhw_hhv__W.STATUS = 0; g_use_dhw_hhv__W.FSTATUS = 1
+                    heat_g_dhw__W = m.Intermediate(g_use_dhw_hhv__W * hints['eta_dhw_hhv__W0'] * hints['frac_remain_dhw__0'])
 
-                    # heat_not_ch [W]: heat gain from natural gas NOT used for central heating c.q. dhw + cooking
-                    heat_g_not_ch__W = m.Intermediate(
-                        g_use_dhw_hhv__W * hints['eta_dhw_hhv__W0'] * hints['frac_remain_dhw__0']
-                        + hints['g_use_cooking_hhv__W'] * hints['eta_cooking_hhv__W0'] + hints['frac_remain_cooking__0']
-                    )
+                    ## Heat gains from cooking ##
+                    heat_g_cooking__W = m.Param(hints['g_use_cooking_hhv__W'] * hints['eta_cooking_hhv__W0'] * hints['frac_remain_cooking__0'])
 
                     ## Heat gains from electricity ##
+                    # we assume all electricity is used indoors and turned into heat
+                    heat_e__W = m.MV(value = df_learn[property_sources['e__W']].astype('float32').values)
+                    heat_e__W.STATUS = 0; heat_e__W.FSTATUS = 1
 
-                    # e [W] : internal heat gain from internally used electricity
-                    e__W = m.MV(value = df_learn[property_sources['e__W']].astype('float32').values)
-                    e__W.STATUS = 0; e__W.FSTATUS = 1
+                    ## Heat gains from occupants ##
+                    if 'ventilation__dm3_s_1' in learn:
+                        # calculate using actual occupancy and average heat gain per occupant
+                        occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values)
+                        occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
+                        heat_int_occupancy__W = m.Intermediate(occupancy__p * hints['heat_int__W_p_1'])
+                    else:
+                        # calculate using average occupancy and average heat gain per occupant
+                        heat_int_occupancy__W = m.Param(hints['occupancy__p'] * hints['heat_int__W_p_1'])
 
-                    # heat_int [W]: calculated heat gain from internal sources
-                    heat_int__W = m.Intermediate(e__W + heat_int_occup__W + heat_g_not_ch__W)
+                    ## heat_int [W]: calculated heat gain from internal sources
+                    heat_int__W = m.Intermediate(heat_g_dhw__W + heat_g_cooking__W + heat_e__W + heat_int_occupancy__W)
 
                     ## Heat gains from the sun ##
 
@@ -510,9 +527,6 @@ class Learner():
                         co2_indoor__ppm.STATUS = 1; co2_indoor__ppm.FSTATUS = 1
                         
                         # CO₂ concentration gain [ppm/s]
-                        occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values)
-                        occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
-                        
                         co2_indoor_gain__ppm_s_1 = m.Intermediate(occupancy__p 
                                                            * co2_exhale_desk_work__umol_p_1_s_1 
                                                            / (building_volume__m3 * air_indoor__mol_m_3)
@@ -524,6 +538,8 @@ class Learner():
                                                     ub=(hints['ventilation_max__dm3_s_1_m_2'] * building_floor_area__m2)
                                                    ) 
                         ventilation__dm3_s_1.STATUS = 1; ventilation__dm3_s_1.FSTATUS = 1
+                        if learn_change_interval__min is not None:
+                            ventilation__dm3_s_1.MV_STEP_HOR = MV_STEP_HOR
                         
                         air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (building_volume__m3 * dm3_m_3))
                         air_changes_inf__s_1 = m.Intermediate(air_inf__m3_s_1 / building_volume__m3)
@@ -574,6 +590,9 @@ class Learner():
 
                     if ('heat_tr_dist__W_K_1' in learn) or ('th_mass_dist__J_K_1' in learn): 
                         df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'sim_temp_dist__degC'] = np.asarray(temp_dist__degC)
+
+                    if 'ventilation__dm3_s_1' in learn:
+                        df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'learned_ventilation__dm3_s_1'] = np.asarray(ventilation__dm3_s_1)
 
                     # set learned variables and calculate error metrics: 
                     # mean absolute error (mae) for all learned parameters; 
