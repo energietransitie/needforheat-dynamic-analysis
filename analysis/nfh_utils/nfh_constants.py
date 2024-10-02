@@ -65,8 +65,8 @@ air_room__J_m_3_K_1 = (air_room__J_mol_K
                         )
                      )                                        # volumetric specific heat of air at standard conditions
 # Heat capacities
-water_J_kg_1_K_1 = 4181                                       # NB at 25 degC; source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
-steel_J_kg_1_K_1 = 466                                        # source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
+water__J_kg_1_K_1 = 4181                                       # NB at 25 degC; source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
+steel__J_kg_1_K_1 = 466                                        # source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
 
 # CO₂ concentration averages
 co2_outdoor_eu_avg_2022__ppm = 415                                # Yearly average CO₂ concentration in Europe in 2022
@@ -174,9 +174,9 @@ heat_dist_water_nl_avg__kg = 100
 heat_dist_steel_nl_avg__kg = 100
 th_mass_dist_nl_avg__W_K_1 = (
     (
-        (heat_dist_water_nl_avg__kg * water_J_kg_1_K_1)
+        (heat_dist_water_nl_avg__kg * water__J_kg_1_K_1)
         +
-        (heat_dist_steel_nl_avg__kg * steel_J_kg_1_K_1)
+        (heat_dist_steel_nl_avg__kg * steel__J_kg_1_K_1)
     ) * heated_fraction_nl_avg__0
 )                                                             # thermal mass of the heat distribution system
 

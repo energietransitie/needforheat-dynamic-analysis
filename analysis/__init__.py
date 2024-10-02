@@ -12,6 +12,7 @@ from .nfh_utils import (
     gas_std__mol_m_3, co2_outdoor_eu_avg_2022__ppm,
     air_std__J_mol_K, air_room__J_mol_K,
     air_std__J_m_3_K_1, air_room__J_m_3_K_1,
+    water__J_kg_1_K_1, steel__J_kg_1_K_1,
     O2ml_min_1_kg_1_p_1_MET_1, desk_work__MET,
     metabolism__molCO2_molO2_1, adult_weight_nl_avg__kg,
     O2umol_s_1_p_1_MET_1, co2_exhale_desk_work__umol_p_1_s_1,
