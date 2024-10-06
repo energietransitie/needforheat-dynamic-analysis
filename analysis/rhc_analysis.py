@@ -92,59 +92,18 @@ class Learner():
         return df_learn
     
 
-    def gas_split_simple(df_data_id_g_use__W:pd.DataFrame,
-                         g_not_ch_hhv__W:float) -> pd.DataFrame:
-        """
-        Input:  
-        - df_data_id_g_use__W: DataFrae of a single id with only g_use__W values; e.g. df_data.loc[id][property_sources['g_use__W']]
-        - 'g_not_ch_hhv__W': average gas power based on higher heating value for other purposes than heating
-          (be sure to use upper heating value of on the conversion of [m^3/a] to [J/s])
-        
-        Output:
-        - a dataframe with the same length os df_data_id with two column(s):
-            - 'g_use_not_ch_hhv_W' estimate of gas power NOT used as input for other purposes than central heatig (e.g. DHW, cooking)
-            - 'g_use_ch_hhv_W' estimate of gas power used as input for central heating
-        """
-        # create empty dataframe for the results
-        df_result = pd.DataFrame()
-
-        #substract fixed amount of noCH use from gas use
-        df_result['g_use_ch_hhv_W'] =  df_data_id_g_use__W
-        df_result['g_use_ch_hhv_W'] = df_result['g_use_ch_hhv_W'] - g_not_ch_hhv__W
-        #prevent negative gas use
-        df_result[df_result < 0] = 0
-
-        # Compensate for missed gas use by scaling down the remaining g_use_ch_hhv_W 
-        avg_g_use__W = df_data_id_g_use__W.mean()
-
-        uncorrected_g_use_ch_hhv_W = df_result['g_use_ch_hhv_W'].mean()
-        scaling_factor =  (avg_g_use__W - g_not_ch_hhv__W) / uncorrected_g_use_ch_hhv_W  
-        
-        df_result['g_use_ch_hhv_W'] = df_result['g_use_ch_hhv_W'] * scaling_factor
-
-        df_result['g_use_not_ch_hhv_W'] = g_not_ch_hhv__W
-
-        # check whether split was done connectly in the sense that no gas use is lost
-        if not math.isclose(df_data_id_g_use__W.mean(), (df_result['g_use_not_ch_hhv_W'].mean() + df_result['g_use_ch_hhv_W'].mean())):
-            logging.error(f'ERROR splitting gas: before {avg_g_use__W:.2f} W, split: {df_result.g_use_not_ch_hhv_W.mean():.2f} + {df_result.g_use_ch_hhv_W.mean():2f} = {df_result.g_use_not_ch_hhv_W.mean() + df_result.g_use_ch_hhv_W.mean():.2f}')
-        else:
-            logging.info(f'correct gas split: before {avg_g_use__W:.2f} W, split: {df_result.g_use_not_ch_hhv_W.mean():.2f} + {df_result.g_use_ch_hhv_W.mean():2f} = {df_result.g_use_not_ch_hhv_W.mean() + df_result.g_use_ch_hhv_W.mean():.2f}')
-
-        return df_result
-
-    
     @staticmethod
-    def learn_energy_profile(df_data:pd.DataFrame,
-                             df_building_data:pd.DataFrame=None,
-                             property_sources = None,
-                             df_metadata:pd.DataFrame=None,
-                             hints:dict = None,
-                             learn:List[str] = None,
-                             learn_period__d=7, 
-                             learn_change_interval__min = None,
-                             req_col:list = None,
-                             sanity_threshold_timedelta:timedelta=timedelta(hours=24),
-                             ev_type=2) -> pd.DataFrame:
+    def learn_heat_performance_signature(df_data:pd.DataFrame,
+                                         df_building_data:pd.DataFrame=None,
+                                         property_sources = None,
+                                         df_metadata:pd.DataFrame=None,
+                                         hints:dict = None,
+                                         learn:List[str] = None,
+                                         learn_period__d=7, 
+                                         learn_change_interval__min = None,
+                                         req_col:list = None,
+                                         sanity_threshold_timedelta:timedelta=timedelta(hours=24),
+                                         ev_type=2) -> pd.DataFrame:
         """
         Input:  
         - a preprocessed pandas DataFrame with
