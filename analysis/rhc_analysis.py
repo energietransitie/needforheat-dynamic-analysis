@@ -148,8 +148,8 @@ class Learner():
                                         property_sources,
                                         hints, learn,
                                         learn_change_interval__min,
-                                        building_volume__m3,
-                                        building_floor_area__m2) -> Tuple[np.ndarray, float]:
+                                        bldng__m3,
+                                        floors__m2) -> Tuple[np.ndarray, float]:
 
         m = GEKKO(remote=False)
         m.time = np.arange(0, len(df_learn), 1)
@@ -167,21 +167,21 @@ class Learner():
         occupancy__p.FSTATUS = 1
 
         co2_indoor_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale_desk_work__umol_p_1_s_1 / 
-                                                  (building_volume__m3 * gas_room__mol_m_3))
+                                                  (bldng__m3 * gas_room__mol_m_3))
         
         ## CO₂ concentration loss indoors
 
         # Ventilation-induced CO₂ concentration loss indoors
         ventilation__dm3_s_1 = m.MV(value=hints['ventilation_default__dm3_s_1'],
                                     lb=0.0, 
-                                    ub=hints['ventilation_max__dm3_s_1_m_2'] * building_floor_area__m2)
+                                    ub=hints['ventilation_max__dm3_s_1_m_2'] * floors__m2)
         ventilation__dm3_s_1.STATUS = 1
         ventilation__dm3_s_1.FSTATUS = 1
         
         if learn_change_interval__min is not None:
             ventilation__dm3_s_1.MV_STEP_HOR = learn_change_interval__min
         
-        air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (building_volume__m3 * 1000))  # dm3 to m3
+        air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3))
 
         # Wind-induced (infiltration) CO₂ concentration loss indoors
         wind__m_s_1 = m.MV(value=df_learn[property_sources['wind__m_s_1']].astype('float32').values)
@@ -196,7 +196,7 @@ class Learner():
             aperture_inf__cm2 = m.Param(value=hints['aperture_inf__cm2'])
 
         air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2)        
-        air_changes_inf__s_1 = m.Intermediate(air_inf__m3_s_1 / building_volume__m3)
+        air_changes_inf__s_1 = m.Intermediate(air_inf__m3_s_1 / bldng__m3)
 
         # Total losses of CO₂ concentration indoors
         air_changes_total__s_1 = m.Intermediate(air_changes_vent__s_1 + air_changes_inf__s_1)
@@ -224,7 +224,7 @@ class Learner():
                                  property_sources,
                                  hints,
                                  learn,
-                                 building_volume__m3,
+                                 bldng__m3,
                                  actual_parameter_values) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Learn thermal parameters for a building's heating system using GEKKO.
@@ -234,7 +234,7 @@ class Learner():
         property_sources (dict): Dictionary mapping property names to their corresponding columns in df_learn.
         hints (dict): Dictionary containing default values for the various parameters.
         learn (list): List of parameters to be learned.
-        building_volume__m3 (float): Volume of the building in m3.
+        bldng__m3 (float): Volume of the building in m3.
         """
         
         ##################################################################################################################
@@ -309,6 +309,37 @@ class Learner():
         heat_sol__W = m.Intermediate(ghi__W_m_2 * aperture_sol__m2)
     
         ##################################################################################################################
+        ## Internal heat gains ##
+        ##################################################################################################################
+
+        # Heat gains from domestic hot water
+
+        g_use_dhw_hhv__W = m.MV(value = df_learn[property_sources['g_use_dhw_hhv__W']].astype('float32').values)
+        g_use_dhw_hhv__W.STATUS = 0; g_use_dhw_hhv__W.FSTATUS = 1
+        heat_g_dhw__W = m.Intermediate(g_use_dhw_hhv__W * hints['eta_dhw_hhv__W0'] * hints['frac_remain_dhw__0'])
+
+        # Heat gains from cooking
+        heat_g_cooking__W = m.Param(hints['g_use_cooking_hhv__W'] * hints['eta_cooking_hhv__W0'] * hints['frac_remain_cooking__0'])
+
+        # Heat gains from electricity
+        # we assume all electricity is used indoors and turned into heat
+        heat_e__W = m.MV(value = df_learn[property_sources['e__W']].astype('float32').values)
+        heat_e__W.STATUS = 0; heat_e__W.FSTATUS = 1
+
+        # Heat gains from occupants
+        if 'ventilation__dm3_s_1' in learn:
+            # calculate using actual occupancy and average heat gain per occupant
+            occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values)
+            occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
+            heat_int_occupancy__W = m.Intermediate(occupancy__p * hints['heat_int__W_p_1'])
+        else:
+            # calculate using average occupancy and average heat gain per occupant
+            heat_int_occupancy__W = m.Param(hints['occupancy__p'] * hints['heat_int__W_p_1'])
+
+        # Sum of all 'internal' heat gains 
+        heat_int__W = m.Intermediate(heat_g_dhw__W + heat_g_cooking__W + heat_e__W + heat_int_occupancy__W)
+        
+        ##################################################################################################################
         # Conductive heat losses
         ##################################################################################################################
     
@@ -352,12 +383,36 @@ class Learner():
     
         if 'ventilation__dm3_s_1' in learn:
             ventilation__dm3_s_1 = m.MV(value=df_learn['learned_ventilation__dm3_s_1'].astype('float32').values)
-            air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (building_volume__m3 * dm3_m_3))
-            heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * building_volume__m3 * air_room__J_m_3_K_1)
+            air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3))
+            heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1)
             heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * indoor_outdoor_delta__K)
         else:
             heat_tr_bldng_vent__W_K_1 = 0
             heat_loss_bldng_vent__W = 0
+
+        ##################################################################################################################
+        ## Thermal inertia ##
+        ##################################################################################################################
+                    
+        # Thermal inertia of the building
+        if 'th_inert_bldng__h' in learn:
+            # Learn thermal inertia
+            th_inert_bldng__h = m.FV(value = hints['th_inert_bldng__h'], lb=(10), ub=(1000))
+            th_inert_bldng__h.STATUS = 1; th_inert_bldng__h.FSTATUS = 0
+        else:
+            # Do not learn thermal inertia of the building, but use a fixed value based on hint
+            th_inert_bldng__h = m.Param(value = hints['th_inert_bldng__h'])
+            learned_th_inert_bldng__h = np.nan
+        
+        ##################################################################################################################
+        ### Heat balance ###
+        ##################################################################################################################
+
+        heat_gain_bldng__W = m.Intermediate(heat_dist__W + heat_sol__W + heat_int__W)
+        heat_loss_bldng__W = m.Intermediate(heat_loss_bldng_cond__W + heat_loss_bldng_inf__W + heat_loss_bldng_vent__W)
+        heat_tr_bldng__W_K_1 = m.Intermediate(heat_tr_bldng_cond__W_K_1 + heat_tr_bldng_inf__W_K_1 + heat_tr_bldng_vent__W_K_1)
+        th_mass_bldng__Wh_K_1  = m.Intermediate(heat_tr_bldng__W_K_1 * th_inert_bldng__h) 
+        m.Equation(temp_indoor__degC.dt() == ((heat_gain_bldng__W - heat_loss_bldng__W) / (th_mass_bldng__Wh_K_1) * s_h_1))
     
         ##################################################################################################################
         # Solve the model to start the learning process
@@ -466,8 +521,8 @@ class Learner():
             - 'ventilation_max__dm3_s_1_m_2': maximum ventilation rate relative to the total floor area of the home
             - 'co2_outdoor__ppm':             average CO₂ outdoor concentration
         - df_home_bldng_data: a DataFrame with index id and columns
-            - 'building_floor_area__m2': usable floor area of a dwelling in whole square meters according to NEN 2580:2007.
-            - 'building_volume__m3': (an estimate of) the building volume, e.g. 3D-BAG attribute b3_volume_lod22 (https://docs.3dbag.nl/en/schema/attributes/#b3_volume_lod22) 
+            - 'floors__m2': usable floor area of a dwelling in whole square meters according to NEN 2580:2007.
+            - 'bldng__m3': (an estimate of) the building volume, e.g. 3D-BAG attribute b3_volume_lod22 (https://docs.3dbag.nl/en/schema/attributes/#b3_volume_lod22) 
             - (optionally) 'building_floors__0': the number of floors, e.g. 3D-BAG attribute b3_bouwlagen (https://docs.3dbag.nl/en/schema/attributes/#b3_bouwlagen)
         and optionally,
         - 'learn_period__d': the number of days to use as learn period in the analysis
@@ -538,15 +593,16 @@ class Learner():
         logging.info(f'learn period: {daterange_frequency}')
 
         # Check for the most recent results directory if complete_most_recent_analysis is True
+        base_dir = 'results'
         if complete_most_recent_analysis:
-            results_dirs = [d for d in os.listdir(results_dir) if d.startswith('results-')]
+            results_dirs = [d for d in os.listdir(base_dir) if d.startswith('results-')]
             if results_dirs:
                 most_recent_dir = sorted(results_dirs)[-1]  # Assuming sorted alphabetically gives the most recent
                 logging.info(f'Using most recent results directory: {most_recent_dir}')
                 # Load existing results into a DataFrame
-                existing_results = pd.read_parquet(os.path.join(results_dir, most_recent_dir))
+                existing_results = pd.read_parquet(os.path.join(base_dir, most_recent_dir))
                 logging.info(f'Loaded existing results from {most_recent_dir}')
-                results_dir = d
+                results_dir = most_recent_dir
         else:
             results_dir = Learner.create_results_directory()
             
@@ -570,9 +626,9 @@ class Learner():
             # Get actual values of parameters of this id (if available)
             actual_parameter_values = Learner.get_actual_parameter_values(id, aperture_inf_nl_avg__cm2, heat_tr_dist_nl_avg__W_K_1, th_mass_dist_nl_avg__Wh_K_1)
 
-            # Get building_volume__m3 and building_floor_area__m2 from building-specific table
-            building_volume__m3 = df_bldng_data.loc[id]['building_volume__m3']
-            building_floor_area__m2 = df_bldng_data.loc[id]['building_floor_area__m2']
+            # Get bldng__m3 and floors__m2 from building-specific table
+            bldng__m3 = df_bldng_data.loc[id]['bldng__m3']
+            floors__m2 = df_bldng_data.loc[id]['floors__m2']
 
             learn_period_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
 
@@ -623,8 +679,8 @@ class Learner():
                             hints,
                             learn,
                             learn_change_interval__min,
-                            building_volume__m3,
-                            building_floor_area__m2
+                            bldng__m3,
+                            floors__m2
                         )
                         logging.info(f"Learned ventilation rates for {id} from {learn_streak_period_start} to {learn_streak_period_end}")
                         # Update df_learn with the learned ventilation rates using .loc
@@ -637,7 +693,7 @@ class Learner():
                         property_sources, 
                         hints, 
                         learn, 
-                        building_volume__m3,
+                        bldng__m3,
                         actual_parameter_values = actual_parameter_values
                     )
     
@@ -682,7 +738,7 @@ class Learner():
         df_data.to_parquet(os.path.join(results_dir, 'results_final.parquet'), index=False)
         logging.info(f'Final results saved to {results_dir}/results_per_period_final.parquet')
 
-        return df_results_per_period.set_index('id'), df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
+        return df_results_per_period, df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
         # return df_results_per_period.set_index('id'), df_data.drop(columns=['interval__s', 'sanity'])
  
     
