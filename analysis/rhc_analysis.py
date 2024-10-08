@@ -143,19 +143,19 @@ class Learner():
     
         return actual_parameter_values
 
-    def save_to_parquet(id, df_learned_parameters_per_period, df_learned_properties, df_data, results_dir):
+    def save_to_parquet(id, df_learned_parameters, df_learned_properties_1id_1period, df_data, results_dir):
         """Save the learned parameters and properties for a specific id to Parquet."""
-        df_learned_parameters_per_period.to_parquet(os.path.join(results_dir, f'learned-parameters-per-period-{id}.parquet'), index=False)
-        if df_learned_properties is not None:
-            df_learned_properties.to_parquet(os.path.join(results_dir, f'learned-properties-{id}.parquet'), index=False)
+        df_learned_parameters.to_parquet(os.path.join(results_dir, f'learned-parameters-per-period-{id}.parquet'), index=False)
+        if df_learned_properties_1id_1period is not None:
+            df_learned_properties_1id_1period.to_parquet(os.path.join(results_dir, f'learned-properties-{id}.parquet'), index=False)
         logging.info(f'Saved results for ID {id} to {results_dir}')
         
         # Save df_data if needed (incremental saving)
         df_data.to_parquet(os.path.join(results_dir, f'df_data_{id}.parquet'), index=False)
     
-    def final_save_to_parquet(df_learned_parameters_per_period, df_data, results_dir):
+    def final_save_to_parquet(df_learned_parameters, df_data, results_dir):
         """Final save of all aggregated results after processing all ids."""
-        df_learned_parameters_per_period.to_parquet(os.path.join(results_dir, 'results_per_period_final.parquet'), index=False)
+        df_learned_parameters.to_parquet(os.path.join(results_dir, 'results_per_period_final.parquet'), index=False)
         logging.info(f'Final results per period saved to {results_dir}/results_per_period_final.parquet')
         
         df_data.to_parquet(os.path.join(results_dir, 'results_final.parquet'), index=False)
@@ -171,6 +171,8 @@ class Learner():
                                         floors__m2,
                                         actual_parameter_values
                                        ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+        logging.info(f"learn_property_ventilation_rate for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
 
         ##################################################################################################################
         # GEKKO Model - Initialize
@@ -250,13 +252,13 @@ class Learner():
         ##################################################################################################################
         
         # Initialize a DataFrame for learned time-varying properties
-        df_learned_properties = pd.DataFrame(index=df_learn.index)
+        df_learned_properties_1id_1period = pd.DataFrame(index=df_learn.index)
 
         # Store learned time-varying data in DataFrame
-        df_learned_properties.loc[:,'learned_ventilation__dm3_s_1'] = np.asarray(ventilation__dm3_s_1)
+        df_learned_properties_1id_1period.loc[:,'learned_ventilation__dm3_s_1'] = np.asarray(ventilation__dm3_s_1)
 
         # Initialize a DataFrame, even for a single learned parameter (one row with id, start, end), for consistency
-        df_learned_parameters = pd.DataFrame({
+        df_learned_parameters_1id_1period = pd.DataFrame({
             # TO DO: check whether the id index leval is actually retained in df_learn (needed for parallelization)
             'id': [df_learn.index.get_level_values('id')[0]], 
             'start': [df_learn.index.get_level_values('timestamp').min()],
@@ -264,19 +266,19 @@ class Learner():
         })
 
         # Set MultiIndex on the DataFrame (id, start, end)
-        df_learned_parameters.set_index(['id', 'start', 'end'], inplace=True)
+        df_learned_parameters_1id_1period.set_index(['id', 'start', 'end'], inplace=True)
 
         param = 'aperture_inf__cm2'
     
-        df_learned_parameters.loc[:,f'learned_co2_{param}'] = aperture_inf__cm2.value[0]
+        df_learned_parameters_1id_1period.loc[:,f'learned_co2_{param}'] = aperture_inf__cm2.value[0]
     
         # If actual value exists, compute MAE
         if actual_parameter_values is not None and param in actual_parameter_values:
-            df_learned_parameters[f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
+            df_learned_parameters_1id_1period[f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
 
         m.cleanup()
 
-        return df_learned_properties, df_learned_parameters
+        return df_learned_properties_1id_1period, df_learned_parameters_1id_1period
 
     
     def learn_thermal_parameters(df_learn,
@@ -298,6 +300,8 @@ class Learner():
         bldng__m3 (float): Volume of the building in m3.
         """
         
+        logging.info(f"learn_thermal_parameters for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
+
         ##################################################################################################################
         # GEKKO Model - Initialize
         ##################################################################################################################
@@ -492,17 +496,17 @@ class Learner():
         ##################################################################################################################
 
         # Initialize a DataFrame for learned time-varying properties
-        df_learned_properties = pd.DataFrame(index=df_learn.index)
+        df_learned_properties_1id_1period = pd.DataFrame(index=df_learn.index)
     
         # Store learned time-varying data in DataFrame
-        df_learned_properties.loc[:,'learned_temp_indoor__degC'] = np.asarray(temp_indoor__degC)
+        df_learned_properties_1id_1period.loc[:,'learned_temp_indoor__degC'] = np.asarray(temp_indoor__degC)
     
         # If 'learned_temp_dist__degC' is computed, include it as well
         if 'heat_tr_dist__W_K_1' in learn or 'th_mass_dist__J_K_1' in learn:
-            df_learned_properties.loc[:,'learned_temp_dist__degC'] = np.asarray(temp_dist__degC)
+            df_learned_properties_1id_1period.loc[:,'learned_temp_dist__degC'] = np.asarray(temp_dist__degC)
     
         # Initialize a DataFrame for learned thermal parameters (one row with id, start, end)
-        df_learned_parameters = pd.DataFrame({
+        df_learned_parameters_1id_1period = pd.DataFrame({
             # TO DO: check whether the id index leval is actually retained in df_learn (needed for parallelization)
             'id': [df_learn.index.get_level_values('id')[0]], 
             'start': [df_learn.index.get_level_values('timestamp').min()],
@@ -510,22 +514,23 @@ class Learner():
         })
     
         # Loop over the learn list and store learned values and calculate MAE if actual value is available
-        for param in learn:
-            if param in locals():  # Check if the variable is defined
+        for param in learn 
+            if param != 'ventilation__dm3_s_1':
+                if param in locals()
                 learned_value = locals()[param].value[0]
-                df_learned_parameters[f'learned_{param}'] = learned_value
-    
+                df_learned_parameters_1id_1period[f'learned_{param}'] = learned_value
+
                 # If actual value exists, compute MAE
                 if actual_parameter_values is not None and param in actual_parameter_values:
-                    df_learned_parameters[f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
+                    df_learned_parameters_1id_1period[f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
                     
         # Set MultiIndex on the DataFrame (id, start, end)
-        df_learned_parameters.set_index(['id', 'start', 'end'], inplace=True)    
+        df_learned_parameters_1id_1period.set_index(['id', 'start', 'end'], inplace=True)    
 
         m.cleanup()
     
         # Return both DataFrames: learned time-varying properties and learned fixed parameters
-        return df_learned_properties, df_learned_parameters
+        return df_learned_properties_1id_1period, df_learned_parameters_1id_1period
         
     
     @staticmethod
@@ -638,7 +643,7 @@ class Learner():
                 raise LearnError(f'No support for learning {param} (yet).')
      
         # create empty dataframe for results of all homes
-        df_learned_parameters_per_period = pd.DataFrame()
+        df_learned_parameters = pd.DataFrame()
 
         # ensure that dataframe is sorted
         if not df_data.index.is_monotonic_increasing:
@@ -655,6 +660,8 @@ class Learner():
 
         daterange_frequency = str(learn_period__d) + 'D'
         logging.info(f'learn period: {daterange_frequency}')
+
+        df_learned_parameters = pd.DataFrame()
 
         # Check for the most recent results directory if complete_most_recent_analysis is True
         base_dir = 'results'
@@ -686,8 +693,6 @@ class Learner():
             if complete_most_recent_analysis and id in existing_results['id'].values:
                 logging.info(f'Results for ID {id} already exist. Skipping analysis.')
                 continue  # Skip to the next ID
-
-            df_learned_parameters_per_period = pd.DataFrame()
 
             if any(df_data.columns.str.startswith('model_')): 
                 # Get actual values of parameters of this id (if available)
@@ -735,8 +740,8 @@ class Learner():
                     duration__s = step__s * learn_streak_period_len
     
                     # setup learned_ dataframes with proper index
-                    df_learned_properties = pd.DataFrame()
-                    df_learned_parameters = pd.DataFrame()
+                    df_learned_properties_1id_1period = pd.DataFrame()
+                    df_learned_parameters_1id_1period = pd.DataFrame()
     
     
                     # Learn varying ventilation rates if applicable
@@ -759,10 +764,10 @@ class Learner():
                 
                             # Merging the results of ventilation learning
                             
-                            if df_learned_parameters.empty:
-                                df_learned_parameters = df_learned_aperture_inf_co2__cm2
+                            if df_learned_parameters_1id_1period.empty:
+                                df_learned_parameters_1id_1period = df_learned_aperture_inf_co2__cm2
                             else:
-                                df_learned_parameters = df_learned_parameters.merge(df_learned_aperture_inf_co2__cm2, left_index=True, right_index=True, how='outer')
+                                df_learned_parameters_1id_1period = df_learned_parameters_1id_1period.merge(df_learned_aperture_inf_co2__cm2, left_index=True, right_index=True, how='outer')
 
                             logging.info(f"Stored learned ventilation properties for {id} from {learn_streak_period_start} to {learn_streak_period_end}")
                                
@@ -785,16 +790,16 @@ class Learner():
                             actual_parameter_values = actual_parameter_values
                         )
     
-                        # Merging thermal properties (learned time series data) into df_learned_properties
-                        if df_learned_properties.empty:
-                            df_learned_properties = df_learned_thermal_properties
+                        # Merging thermal properties (learned time series data) into df_learned_properties_1id_1period
+                        if df_learned_properties_1id_1period.empty:
+                            df_learned_properties_1id_1period = df_learned_thermal_properties
                         else:
-                            df_learned_properties = df_learned_properties.merge(df_learned_thermal_properties, left_index=True, right_index=True, how='outer')
+                            df_learned_properties_1id_1period = df_learned_properties_1id_1period.merge(df_learned_thermal_properties, left_index=True, right_index=True, how='outer')
 
                         logging.info(f"Stored learned thermal properties for {id} from {learn_streak_period_start} to {learn_streak_period_end}")
     
                         # Merging all learned time series data into df_data
-                        df_data = df_data.merge(df_learned_properties, left_index=True, right_index=True, how='left')
+                        df_data = df_data.merge(df_learned_properties_1id_1period, left_index=True, right_index=True, how='left')
                         # Combine and give preference to values from later periods
                         if 'learned_temp_indoor__degC_x' in df_data.columns and 'learned_temp_indoor__degC_y' in df_data.columns:
                             # Combine the columns and give preference to values from the later period
@@ -802,47 +807,47 @@ class Learner():
                         
                             # Safely drop the _x and _y columns
                             df_data = df_data.drop(columns=['learned_temp_indoor__degC_x', 'learned_temp_indoor__degC_y'], errors='ignore')
-
-                        # Merging thermal parameters into df_learned_properties
-                        if df_learned_parameters.empty:
-                            df_learned_parameters = df_learned_thermal_parameters
-                        else:
-                            df_learned_parameters = df_learned_parameters.merge(df_learned_thermal_parameters, left_index=True, right_index=True, how='outer')
                         
-                        # Calculate MAE and RMSE for indoor temperature and add to df_learned_parameters
-                        df_learned_parameters['mae_temp_indoor__degC'] = mae(
+                        # Merging thermal parameters into df_learned_properties_1id_1period
+                        if df_learned_parameters_1id_1period.empty:
+                            df_learned_parameters_1id_1period = df_learned_thermal_parameters
+                        else:
+                            df_learned_parameters_1id_1period = df_learned_parameters_1id_1period.merge(df_learned_thermal_parameters, left_index=True, right_index=True, how='outer')
+                        
+                        # Calculate MAE and RMSE for indoor temperature and add to df_learned_parameters_1id_1period
+                        df_learned_parameters_1id_1period['mae_temp_indoor__degC'] = mae(
                             df_learn[property_sources['temp_indoor__degC']], # the measured indoor temperatures 
-                            df_learned_properties['learned_temp_indoor__degC']   # the predicted indoor temperatures simulation run with the best fit
+                            df_learned_properties_1id_1period['learned_temp_indoor__degC']   # the predicted indoor temperatures simulation run with the best fit
                         )
         
-                        df_learned_parameters['rmse_temp_indoor__degC'] = rmse(
+                        df_learned_parameters_1id_1period['rmse_temp_indoor__degC'] = rmse(
                             df_learn[property_sources['temp_indoor__degC']], # the measured indoor temperatures
-                            df_learned_properties['learned_temp_indoor__degC']   # the predicted indoor temperatures simulation run with the best fit
+                            df_learned_properties_1id_1period['learned_temp_indoor__degC']   # the predicted indoor temperatures simulation run with the best fit
                         )
                     
                          # Append learned parameters for this period to the cumulative DataFrame
-                        df_learned_parameters_per_period = pd.concat([df_learned_parameters_per_period, df_learned_parameters])
+                        df_learned_parameters = pd.concat([df_learned_parameters, df_learned_parameters_1id_1period])
 
                     except KeyboardInterrupt:    
                         logging.error(f'KeyboardInterrupt; home analysis {id} not complete; saving results so far then will exit...')
                         # Save progress and exit
-                        Learner.save_to_parquet(id, df_learned_parameters_per_period, df_learned_properties, df_data, results_dir)
-                        return df_learned_parameters_per_period, df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
+                        Learner.save_to_parquet(id, df_learned_parameters, df_learned_properties_1id_1period, df_data, results_dir)
+                        return df_learned_parameters, df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
     
                     except Exception as e:
                         logging.error(f'Exception {e} for home {id} in period from {learn_streak_period_start} to {learn_streak_period_end}; skipping...')
     
                 # After learning all periods for this ID, save results for the ID
-                Learner.save_to_parquet(id, df_learned_parameters_per_period, df_learned_properties, df_data, results_dir)
+                Learner.save_to_parquet(id, df_learned_parameters, df_learned_properties_1id_1period, df_data, results_dir)
            
             except KeyboardInterrupt:
                 logging.error(f'KeyboardInterrupt; exiting without completing all ids...')
-                return df_learned_parameters_per_period, df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
+                return df_learned_parameters, df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
 
         # After all IDs, save final results
-        Learner.final_save_to_parquet(df_learned_parameters_per_period, df_data, results_dir)
+        Learner.final_save_to_parquet(df_learned_parameters, df_data, results_dir)
         
-        return df_learned_parameters_per_period, df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
+        return df_learned_parameters, df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
  
     
 
