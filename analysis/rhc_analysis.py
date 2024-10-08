@@ -514,15 +514,15 @@ class Learner():
         })
     
         # Loop over the learn list and store learned values and calculate MAE if actual value is available
-        for param in learn 
+        for param in learn: 
             if param != 'ventilation__dm3_s_1':
-                if param in locals()
-                learned_value = locals()[param].value[0]
-                df_learned_parameters_1id_1period[f'learned_{param}'] = learned_value
-
-                # If actual value exists, compute MAE
-                if actual_parameter_values is not None and param in actual_parameter_values:
-                    df_learned_parameters_1id_1period[f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
+                if param in locals():
+                    learned_value = locals()[param].value[0]
+                    df_learned_parameters_1id_1period[f'learned_{param}'] = learned_value
+    
+                    # If actual value exists, compute MAE
+                    if actual_parameter_values is not None and param in actual_parameter_values:
+                        df_learned_parameters_1id_1period[f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
                     
         # Set MultiIndex on the DataFrame (id, start, end)
         df_learned_parameters_1id_1period.set_index(['id', 'start', 'end'], inplace=True)    
