@@ -898,8 +898,8 @@ class Extractor(Database):
         rendered as a dataframe with a timezone-aware datetime index
         [
             'id', 'timestamp',
-            'temp_out__degC','wind__m_s_1', 'ghi__W_m_2',   
-            'temp_in__degC', 'temp_set__degC',
+            'temp_outdoor__degC','wind__m_s_1', 'ghi__W_m_2',   
+            'temp_indoor__degC', 'temp_set__degC',
             'gas_use__W', 'gas_use_noCH__W', 'gas_use_CH__W', 
             'e_use__W',, 'e_ret__W'
         ]
@@ -929,7 +929,7 @@ class Extractor(Database):
             # temporary fix: request more data
             extractor = Extractor(id, Period(extractor_starttime, extractor_endtime))
 
-            df_indoortemp = extractor.get_property_preprocessed('roomTemp', 'temp_in__degC', 
+            df_indoortemp = extractor.get_property_preprocessed('roomTemp', 'temp_indoor__degC', 
                                                                 metertimestamp=None, tz_source=tz_source, tz_home=tz_home,
                                                                 process_meter_reading=False,
                                                                 min_interval_value=0.0, max_interval_value=40.0, n_std=3,
@@ -1059,7 +1059,7 @@ class WeatherExtractor:
         with NO outlier removal (assuming that KNMI already did this)
         interpolated with the int_intv
         rendered as a dataframe with a timezone-aware datetime index
-        columns ['temp_out__degC', 'wind__m_s_1', 'ghi__W_m_2', 'T_out_e_C']
+        columns ['temp_outdoor__degC', 'wind__m_s_1', 'ghi__W_m_2', 'T_out_e_C']
         """
         
         up = '15min'
@@ -1076,7 +1076,7 @@ class WeatherExtractor:
 
         logging.info('Resampling weather data...' )
 
-        outdoor_T_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'T', 'temp_out__degC', 
+        outdoor_T_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'T', 'temp_outdoor__degC', 
                                                                                            up, int_intv, 
                                                                                            tz_source, tz_home)
         windspeed_interpolated = WeatherExtractor.get_weather_parameter_timeseries_mean(df, 'FH', 'wind__m_s_1', 

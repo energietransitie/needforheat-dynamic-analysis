@@ -650,7 +650,7 @@ class WeatherMeasurements:
     @staticmethod
     def fetch_weather_data(time_interval, 
                            chunk_freq="4W", 
-                           metrics={'T': ('temp_in__degC', 0.1), # H Temperature (in 0.1 degrees Celsius) at 1.50 m at the time of observation
+                           metrics={'T': ('temp_outdoor__degC', 0.1), # H Temperature (in 0.1 degrees Celsius) at 1.50 m at the time of observation
                                     'FH': ('wind__m_s_1', 0.1), # FH: Hourly mean wind speed (in 0.1 m/s)
                                     'Q': ('ghi__W_m_2', (100 * 100) / (60 * 60)) # Q: Global radiation (in J/cm^2) during the hourly division, 1 m^2 = 100 cm/m^2 * 100 cm/m^2, 1 h = 60 min/h * 60 s/min 
                                    }
@@ -812,11 +812,11 @@ class WeatherMeasurements:
         weather_min_timestamp = filtered_df.index.get_level_values('timestamp').min()
         weather_max_timestamp = filtered_df.index.get_level_values('timestamp').max()
         
-        metrics={'T': ('temp_out__degC', 0.1),                  # H Temperature (in 0.1 degrees Celsius) at 1.50 m at the time of observation
+        metrics={'T': ('temp_outdoor__degC', 0.1),              # H Temperature (in 0.1 degrees Celsius) at 1.50 m at the time of observation
                 'FH': ('wind__m_s_1', 0.1),                     # FH: Hourly mean wind speed (in 0.1 m/s)
                 'Q': ('ghi__W_m_2', (100 * 100) / (60 * 60)),   # Q: Global radiation (in J/cm^2) during the hourly division, 1 m^2 = 100 cm/m^2 * 100 cm/m^2, 1 h = 60 min/h * 60 s/min
-                'P': ('air__Pa', 0.1 * 100),                   # P: Air pressure (in 0.1 hPa) adjusted to sea level, during the observation * 100 Pa/hPa
-                'U': ('air_rel_humidity__0', (1/100))          # Relative humidity (in percent) at 1.50 meters height during the observation * (1/100) to convert % to a fraction 
+                'P': ('air_outdoor__Pa', 0.1 * 100),            # P: Air pressure (in 0.1 hPa) adjusted to sea level, during the observation * 100 Pa/hPa
+                'U': ('air_outdoor_rel_humidity__0', (1/100))   # Relative humidity (in percent) at 1.50 meters height during the observation * (1/100) to convert % to a fraction 
                }
         
         weather_interval = pd.Interval(left=weather_min_timestamp, right=weather_max_timestamp, closed='both') 
@@ -843,7 +843,7 @@ class WeatherMeasurements:
         Returns:
         pd.DataFrame: Cumulative DataFrame with weather measurements.
         """
-        new_column_names = {'T': 'temp_in__degC', 'FH': 'wind__m_s_1', 'Q': 'ghi__J_h_1_cm_2'}
+        new_column_names = {'T': 'temp_indoor__degC', 'FH': 'wind__m_s_1', 'Q': 'ghi__J_h_1_cm_2'}
         
         # Initialize an empty DataFrame to store cumulative weather measurements
         df_meas_weather = pd.DataFrame()

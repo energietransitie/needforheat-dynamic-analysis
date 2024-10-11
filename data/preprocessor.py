@@ -277,7 +277,7 @@ class Preprocessor:
         """
         This function adjusts the baseline of all CO₂ measurements, on a per id and per source id basis.
         As a result, the minimum of CO₂ measurements in the col column will be co2_ext__ppm + co2_min_margin__ppm.
-        The co2_min_margin__ppm helps to to avoid co2_elevations (typically calculated as co2__ppm - co2_ext__ppm) to be zero during analysis.
+        The co2_min_margin__ppm helps to to avoid co2_elevations (typically calculated as co2_outdoor__ppm - co2_ext__ppm) to be zero during analysis.
         Use case:
         CO₂ sensors are subject to long term drift. Some CO₂ sensors provide automatic occasional recalibration to a pre-determined CO₂ level.
         Not all CO₂ sensors used in a study may have this feature, some may have this turned off (sometimes deliberately, to avoid sudden jumps).
@@ -566,7 +566,7 @@ class Preprocessor:
             Maximum interval in seconds to be considered for covered time, default is 90 minutes (5400 seconds).
         mandatory_props : list of str, optional
             List of mandatory properties (columns) that must have non-null values for an additional time covered calculation.
-            Each property should be prefixed with its respective source_type, e.g., ['living_room_temp_in__degC', 'remeha_temp_in__degC'].
+            Each property should be prefixed with its respective source_type, e.g., ['living_room_temp_indoor__degC', 'remeha_temp_indoor__degC'].
         
         Returns:
         --------
@@ -1106,17 +1106,17 @@ class Preprocessor:
         -- id: id of the room studied 
         -- source: device_type from the database
         -- timestamp: timezone-aware timestamp
-        - columns = properties with measurement values, including at least co2__ppm
+        - columns = properties with measurement values, including at least co2_outdoor__ppm
        
         out: pd.DataFrame  
         - unstacked: i.e. with the source names prefixed to column names
         - interpolated_min: interpolation interval with 15 minute as default
-        - KNMI weather data for lat, lon merged 'temp_out__degC', 'wind__m_s_1', 'ghi__W_m_2'
+        - KNMI weather data for lat, lon merged 'temp_outdoor__degC', 'wind__m_s_1', 'ghi__W_m_2'
                
         """
         
-        # first, preprocess co2__ppm data
-        prop = 'co2__ppm'
+        # first, preprocess co2_outdoor__ppm data
+        prop = 'co2_outdoor__ppm'
         
         # filter out clearly wrong measurements (< 5 ppm)
         df_prop = Preprocessor.filter_min_max(df_prop, prop, min=5)
@@ -1136,8 +1136,8 @@ class Preprocessor:
 
 
         property_types = {
-            'temp_in__degC' : 'float32',
-            'co2__ppm' : 'float32',
+            'temp_indoor__degC' : 'float32',
+            'co2_outdoor__ppm' : 'float32',
             'rel_humidity__0' : 'float32',
             'valve_frac__0' : 'float32',
             'door_open__bool': 'Int8',

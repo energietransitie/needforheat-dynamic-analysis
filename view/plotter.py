@@ -137,6 +137,7 @@ class Plot:
                 axes = df_plot[props_with_data].plot(
                     subplots = unit_tuples,
                     style='.--',
+                    alpha=0.5,  # Set alpha for transparency
                     title=f'id: {id}'
                 )
                 for unit in enumerate(units_with_data):
@@ -174,6 +175,7 @@ class Plot:
                 axes = df_plot[props_with_data].plot(
                     subplots = unit_tuples,
                     style='.--',
+                    alpha=0.5,  # Set alpha for transparency
                     title=f'id: {id}'
                 )
                 for unit in enumerate(units_with_data):
@@ -564,7 +566,7 @@ class Plot:
         ax2.legend(loc=1)
 
         ax.plot(df.index, df['H_W_p_K'], '.', label='H (specific heat loss)', color='b', linestyle = 'solid')
-        ax.plot(df.index, df['tau_h'], '.', label='tau (thermal inertia)', color='g', linestyle = 'dashed') 
+        ax.plot(df.index, df['th_inertia_building_h'], '.', label='tau (thermal inertia)', color='g', linestyle = 'dashed') 
 
 
         # for property in propertycolors:
@@ -590,7 +592,7 @@ class Plot:
             
     
     @staticmethod
-    def learned_parameters_boxplot(title:str, df_results_model_parameters: pd.DataFrame, parameters = ['H_W_p_K', 'tau_h', 'C_Wh_p_K']):
+    def learned_parameters_boxplot(title:str, df_results_model_parameters: pd.DataFrame, parameters = ['H_W_p_K', 'th_inertia_building_h', 'C_Wh_p_K']):
         """
         Visualize results of all learned model parameters of all homes in one box plot
         """

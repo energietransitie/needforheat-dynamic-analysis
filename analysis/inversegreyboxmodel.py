@@ -550,7 +550,7 @@ class Learner():
         - a preprocessed dataframe with
             - a MultiIndex ['id', 'timestamp'], where the column 'timestamp' is timezone-aware
             - columns:
-              - property_sources['co2__ppm']: name of the column to use for measurements of average CO₂-concentration in the room,
+              - property_sources['co2_outdoor__ppm']: name of the column to use for measurements of average CO₂-concentration in the room,
               - property_sources['occupancy__p']: name of the column to use for measurements of average number of people present in the room,
               - property_sources['valve_frac__0']: name of the column to use for measurements of opening fraction of the ventilation valve 
         - 'property_sources', a 'req_col' list: a list of column names: 
@@ -570,7 +570,7 @@ class Learner():
         Output:
         - a dataframe with per id the learned parameters and error metrics
         - a dataframe with additional column(s):
-            - 'sim_co2__ppm': best fiting CO₂ concentrations in the room
+            - 'sim_co2_outdoor__ppm': best fiting CO₂ concentrations in the room
             - 'learned_valve_frac__0': learned time-varying valve fraction
             - 'learned_occupancy__p': learned time-varying valve fraction
 
@@ -723,8 +723,8 @@ class Learner():
                 mae_occupancy__p = np.nan
                 rmse_occupancy__p = np.nan
                 
-                mae_co2__ppm = np.nan
-                rmse_co2__ppm = np.nan
+                mae_co2_outdoor__ppm = np.nan
+                rmse_co2_outdoor__ppm = np.nan
 
                 ##################################################################################################################
                 # GEKKO code
@@ -766,18 +766,18 @@ class Learner():
                         A_inf__m2 = hints['A_inf__m2']  
 
                     # GEKKO Control Varibale (predicted variable for which fit is optimized)
-                    co2__ppm = m.CV(value = df_learn[property_sources['co2__ppm']].values) #[ppm]
-                    co2__ppm.STATUS = 1; co2__ppm.FSTATUS = 1
+                    co2_outdoor__ppm = m.CV(value = df_learn[property_sources['co2_outdoor__ppm']].values) #[ppm]
+                    co2_outdoor__ppm.STATUS = 1; co2_outdoor__ppm.FSTATUS = 1
 
                     # GEKKO - Equations
-                    co2_elevation__ppm = m.Intermediate(co2__ppm - co2_ext__ppm)
+                    co2_elevation__ppm = m.Intermediate(co2_outdoor__ppm - co2_ext__ppm)
                     air_changes_vent__h_1 = m.Intermediate(valve_frac__0 * air_changes_max_vent__h_1)
                     air_changes_inf__h_1 = m.Intermediate(A_inf__m2 * wind__m_s_1 * s_h_1  / room__m3)
                     co2_loss_vent__ppm_s_1 =  m.Intermediate(co2_elevation__ppm * air_changes_vent__h_1 / s_h_1)
                     co2_loss_inf__ppm_s_1 =  m.Intermediate(co2_elevation__ppm * air_changes_inf__h_1 / s_h_1)
                     co2_loss__ppm_s_1 = m.Intermediate(co2_loss_vent__ppm_s_1 + co2_loss_inf__ppm_s_1)
                     co2_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale__umol_p_1_s_1 / (room__m3 * air__mol_m_3))
-                    m.Equation(co2__ppm.dt() == co2_gain__ppm_s_1 - co2_loss__ppm_s_1)
+                    m.Equation(co2_outdoor__ppm.dt() == co2_gain__ppm_s_1 - co2_loss__ppm_s_1)
 
                     # GEKKO - Solver setting
                     m.options.IMODE = 5
@@ -787,9 +787,9 @@ class Learner():
                     m.solve(disp = False)
 
                     # setting learned values and calculating error metrics
-                    df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'sim_co2__ppm'] = np.asarray(co2__ppm)
-                    mae_co2__ppm = Learner.mae(co2__ppm, df_learn[property_sources['co2__ppm']])
-                    rmse_co2__ppm = Learner.rmse(co2__ppm, df_learn[property_sources['co2__ppm']])
+                    df_data.loc[(id,learn_streak_period_start):(id,learn_streak_period_end), 'sim_co2_outdoor__ppm'] = np.asarray(co2_outdoor__ppm)
+                    mae_co2_outdoor__ppm = Learner.mae(co2_outdoor__ppm, df_learn[property_sources['co2_outdoor__ppm']])
+                    rmse_co2_outdoor__ppm = Learner.rmse(co2_outdoor__ppm, df_learn[property_sources['co2_outdoor__ppm']])
 
                     if 'A_inf__m2' in learn:
                         learned_A_inf__m2 = A_inf__m2.value[0]
@@ -832,8 +832,8 @@ class Learner():
                                     'learned_A_inf__cm2': [learned_A_inf__m2 * cm2_m_2],
                                     'actual_A_inf__cm2': [actual_A_inf__m2 * cm2_m_2],
                                     'mae_A_inf__cm2': [mae_A_inf__m2 * cm2_m_2],
-                                    'mae_co2__ppm': [mae_co2__ppm],
-                                    'rmse_co2__ppm': [rmse_co2__ppm],
+                                    'mae_co2_outdoor__ppm': [mae_co2_outdoor__ppm],
+                                    'rmse_co2_outdoor__ppm': [rmse_co2_outdoor__ppm],
                                     'rmae_valve_frac__0': [rmae_valve_frac__0],
                                     'rmse_valve_frac__0': [rmse_valve_frac__0],
                                     'mae_occupancy__p': [mae_occupancy__p],
