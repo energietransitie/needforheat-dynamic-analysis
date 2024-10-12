@@ -557,6 +557,7 @@ class Learner():
             - columns:
               - property_sources['temp_indoor__degC']: indoor temperature
               - property_sources['temp_outdoor__degC']: outdoor temperature 
+              - property_sources['temp_set__degC']: indoor temperature
               - property_sources['wind__m_s_1']: outdoor wind speed
               - property_sources['ghi__W_m_2']: global horizontal irradiation
               - property_sources['g_use_ch_hhv__W']: gas input power (using higher heating value) used for central heating
@@ -824,8 +825,16 @@ class Learner():
                             df_learn[property_sources['temp_indoor__degC']], # the measured indoor temperatures
                             df_learned_properties_1id_1period['learned_temp_indoor__degC']   # the predicted indoor temperatures simulation run with the best fit
                         )
-                    
-                         # Append learned parameters for this period to the cumulative DataFrame
+
+                        # Calculate eta_ch_avg_hhv__W0  and add to df_learned_parameters_1id_1period
+                        if 'eta_ch_avg_hhv__W0' in learn:
+                            df_learned_parameters_1id_1period['learned_eta_ch_avg_hhv__W0'] = df_learn[property_sources['eta_ch_hhv__W0']].mean()
+
+                        # Calculate comf_dmnd__degC_wk0 and add to df_learned_parameters_1id_1period
+                        if 'comf_dmnd__degC_wk0' in learn:
+                            df_learned_parameters_1id_1period['learned_comf_dmnd__degC_wk0'] = df_learn[property_sources['temp_set__degC']].mean()
+
+                        # Append learned parameters for this period to the cumulative DataFrame
                         df_learned_parameters = pd.concat([df_learned_parameters, df_learned_parameters_1id_1period])
 
                     except KeyboardInterrupt:    
@@ -848,6 +857,3 @@ class Learner():
         Learner.final_save_to_parquet(df_learned_parameters, df_data, results_dir)
         
         return df_learned_parameters, df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
- 
-    
-
