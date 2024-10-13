@@ -834,6 +834,11 @@ class Learner():
                         if 'comf_dmnd__degC_wk0' in learn:
                             df_learned_parameters_1id_1period['learned_comf_dmnd__degC_wk0'] = df_learn[property_sources['temp_set__degC']].mean()
 
+                        # Calculate energy_ch__W_wk0 and add to df_learned_parameters_1id_1period
+                        if 'energy_ch__W_wk0' in learn:
+                            df_learned_parameters_1id_1period['learned_energy_ch__W_wk0'] = df_learn['calculated_g_use_ch_hhv__W'].mean()
+                            
+
                         # Append learned parameters for this period to the cumulative DataFrame
                         df_learned_parameters = pd.concat([df_learned_parameters, df_learned_parameters_1id_1period])
 
