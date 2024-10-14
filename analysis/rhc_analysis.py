@@ -570,6 +570,47 @@ class Learner():
                     if actual_parameter_values is not None and param in actual_parameter_values:
                         df_learned_parameters_1id_1period[f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
 
+        # calculate periodical averages
+        properties_mean = [
+            'eta_ch_hhv__W0',
+            'temp_set__degC',
+            'temp_sup_ch__degC',
+            'calculated_g_use_ch_hhv__W',
+            'temp_ret_ch__degC',
+        ]
+    
+        for prop in properties_mean:
+            # Create variable names dynamically
+            result_col = f"learned_avg_{prop}"
+    
+            # Use prop directly if it starts with 'calculated_'
+            source_col = prop if prop.startswith('calculated_') else property_sources[prop]        
+            mean_value = df_learn[source_col].mean()
+            df_learned_parameters_1id_1period[result_col] = mean_value
+            
+            # Check if the mean value is NaN
+            if pd.isna(mean_value):
+                print(f"NaN value found for home_id: {home_id}, start: {start}, end: {end}, variable: {result_col}")
+
+        sim_arrays_mean = [
+            'heat_sol__W',
+            'heat_int__W',
+            'heat_tr_bldng_inf__W_K_1',
+            'heat_loss_bldng_vent__W',
+            'heat_dist__W'
+        ]
+
+        for var in sim_arrays_mean:
+            # Create variable names dynamically
+            result_col = f"learned_avg_{var}"
+            mean_value = np.asarray(locals()[var]).mean()
+            df_learned_parameters_1id_1period[result_col] = mean_value
+            
+            # Check if the mean value is NaN
+            if pd.isna(mean_value):
+                print(f"NaN value found for home_id: {home_id}, start: {start}, end: {end}, variable: {var}")
+
+        
         # Set MultiIndex on the DataFrame (id, start, end)
         df_learned_parameters_1id_1period.set_index(['id', 'start', 'end'], inplace=True)    
 
