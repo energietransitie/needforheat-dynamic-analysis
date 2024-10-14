@@ -100,7 +100,53 @@ class Learner():
             return None
 
         return df_longest_streak
+
+    def create_job_list(df_data: pd.DataFrame,
+                        learn_period__d: int,
+                        req_col: list,
+                        property_sources: dict,
+                        sanity_threshold_timedelta:timedelta=timedelta(hours=24)) -> pd.DataFrame:
+        """
+        Create a list of jobs (id, learn_period_start, learn_period_end) to be processed.
+        """
+        jobs = []
+        ids = df_data.index.unique('id').dropna()
+        start_analysis_period = df_data.index.unique('timestamp').min().to_pydatetime()
+        end_analysis_period = df_data.index.unique('timestamp').max().to_pydatetime()
+        daterange_frequency = str(learn_period__d) + 'D'
+        learn_period_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
+    
+        # Perform sanity check
+        if req_col is None:  # If req_col not set, use all property sources
+            req_col = list(property_sources.values())
+        if not req_col:
+            df_data['sanity'] = True  # No required columns, mark all as sane
+        else:
+            df_data['sanity'] = ~df_data[req_col].isna().any(axis="columns")
         
+        for id in ids:
+            for learn_period_start in learn_period_starts:
+                learn_period_end = min(learn_period_start + timedelta(days=learn_period__d), end_analysis_period)
+    
+                # Learn only for the longest streak of sane data
+                #TODO: remove df_learn slicing, directly deliver start & end time per period
+                df_learn = Learner.get_longest_sane_streak(df_data, id, learn_period_start, learn_period_end, sanity_threshold_timedelta)
+                if df_learn is None:
+                    continue
+                
+                jobs.append((
+                    id,
+                    df_learn.index.unique('timestamp').min().to_pydatetime(),
+                    df_learn.index.unique('timestamp').max().to_pydatetime()
+                ))
+    
+        # Drop the columns created during the process
+        df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'], inplace=True)
+    
+        # Return jobs as a DataFrame
+        return pd.DataFrame(jobs, columns=['id', 'start', 'end']).set_index(['id', 'start', 'end'])
+
+    
     # Function to create a new results directory
     def create_results_directory(base_dir='results'):
         timestamp = datetime.now().isoformat()
@@ -523,7 +569,7 @@ class Learner():
                     # If actual value exists, compute MAE
                     if actual_parameter_values is not None and param in actual_parameter_values:
                         df_learned_parameters_1id_1period[f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
-                    
+
         # Set MultiIndex on the DataFrame (id, start, end)
         df_learned_parameters_1id_1period.set_index(['id', 'start', 'end'], inplace=True)    
 
@@ -790,7 +836,7 @@ class Learner():
                             bldng__m3,
                             actual_parameter_values = actual_parameter_values
                         )
-    
+
                         # Merging thermal properties (learned time series data) into df_learned_properties_1id_1period
                         if df_learned_properties_1id_1period.empty:
                             df_learned_properties_1id_1period = df_learned_thermal_properties
