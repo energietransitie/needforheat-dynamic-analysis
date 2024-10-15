@@ -242,7 +242,7 @@ class Learner():
         occupancy__p.STATUS = 0
         occupancy__p.FSTATUS = 1
 
-        co2_indoor_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale_desk_work__umol_p_1_s_1 / 
+        co2_indoor_gain__ppm_s_1 = m.Intermediate(occupancy__p * co2_exhale_sedentary__umol_p_1_s_1 / 
                                                   (bldng__m3 * gas_room__mol_m_3))
         
         ##################################################################################################################
