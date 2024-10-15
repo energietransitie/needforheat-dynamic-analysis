@@ -10,6 +10,8 @@ import os
 import numbers
 import logging
 
+from pythermalcomfort.models import pmv_ppd
+
 from nfh_utils import *
 
 class LearnError(Exception):
@@ -953,3 +955,149 @@ class Learner():
         Learner.final_save_to_parquet(df_learned_parameters, df_data, results_dir)
         
         return df_learned_parameters, df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'])
+
+
+class Comfort():
+
+    
+    # Function to find the comfort zone
+    def comfort_zone(
+        rel_humidity__pct: float = 50,                     # Relative humidity [%]
+        airflow__m_s_1: float = 0.1,                       # Airflow [m/s]
+        metabolic_rate__MET: float = sedentary__MET,       # Metabolic rate [MET]
+        clothing_insulation__clo: float = 1.0,             # Clothing insulation [clo]
+        target_ppd__pct: float = 10                        # Target PPD [%]
+    ) -> tuple[float, float, float]:
+        """
+        Calculate the comfort zone based on the PMV (Predicted Mean Vote) and PPD (Predicted Percentage Dissatisfied) indices.
+    
+        This function finds the range of indoor temperatures that maintain a PPD below or equal to the specified target
+        percentage, while also determining the neutral temperature where the PMV is closest to zero.
+    
+        Parameters:
+        -----------
+        rel_humidity__pct : float
+            Relative humidity in percentage (default is 50%).
+        airflow__m_s_1 : float
+            Airflow in meters per second (default is 0.1 m/s).
+        metabolic_rate__MET : float
+            Metabolic rate in met (default is sedentary__MET, which corresponds to 1.2 MET).
+        clothing_insulation__clo : float
+            Clothing insulation in clo (default is 1.0 clo).
+        target_ppd__pct : float
+            Target PPD percentage (default is 10%).
+    
+        Returns:
+        --------
+        tuple[float, float, float]
+            A tuple containing:
+            - lower_bound__degC: The lower temperature bound where PPD is acceptable.
+            - upper_bound__degC: The upper temperature bound where PPD is acceptable.
+            - neutral__degC: The temperature where PMV is closest to zero.
+        """
+        
+        lower_bound__degC = None
+        upper_bound__degC = None
+        neutral__degC = None
+    
+        # Assume dry-bulb temperature = mean radiant temperature and loop over 15°C to 30°C range with 0.1°C precision
+        for temp_indoor__degC in np.arange(15.0, 30.0, 0.1):
+            result = pmv_ppd(
+                tdb=temp_indoor__degC,
+                tr=temp_indoor__degC,
+                vr=airflow__m_s_1,
+                rh=rel_humidity__pct,
+                met=metabolic_rate__MET,
+                clo=clothing_insulation__clo,
+                wme=0  # External work, typically 0
+            )
+    
+            pmv__0 = result['pmv']
+            ppd__pct = result['ppd']
+    
+            # Track the neutral temperature where PMV is closest to 0
+            if neutral__degC is None and -0.05 <= pmv__0 <= 0.05:  # PMV ~ 0, small tolerance
+                neutral__degC = temp_indoor__degC
+    
+            # Find the bounds where PPD is within the target (i.e., less than or equal to 10%)
+            if ppd__pct <= target_ppd__pct:
+                if lower_bound__degC is None:
+                    lower_bound__degC = temp_indoor__degC  # First temp where PPD is acceptable
+                upper_bound__degC = temp_indoor__degC  # Last temp where PPD is still acceptable
+    
+        return lower_bound__degC, upper_bound__degC, neutral__degC    
+
+    
+    def comfort_margins(target_ppd__pct: float = 10) -> tuple[float, float]:
+        """
+        Calculate the overheating and underheating margins based on the comfort zone.
+        
+        Parameters:
+        -----------
+        target_ppd__pct : float
+            Target PPD percentage (default is 10%).
+        
+        Returns:
+        --------
+        tuple[float, float]
+            A tuple containing:
+            - underheating_margin__K: The underheating margin in degrees Celsius.
+            - overheating_margin__K: The overheating margin in degrees Celsius.
+        """
+        comfortable_temp_indoor_min__degC, comfortable_temp_indoor_max__degC, comfortable_temp_indoor_ideal__degC = Comfort.comfort_zone(target_ppd__pct)
+    
+        # Calculate margins
+        if comfortable_temp_indoor_ideal__degC is not None and comfortable_temp_indoor_min__degC is not None and comfortable_temp_indoor_max__degC is not None:
+            overheating_margin__K = comfortable_temp_indoor_max__degC - comfortable_temp_indoor_ideal__degC
+            underheating_margin__K = comfortable_temp_indoor_ideal__degC - comfortable_temp_indoor_min__degC
+            return underheating_margin__K, overheating_margin__K
+        else:
+            return None, None
+   
+
+    def is_comfortable(
+        temp_indoor__degC,  # This can be a float or pd.Series
+        temp_set__degC: float = None,  # This can also be a float or pd.Series
+        target_ppd__pct: float = 10,
+        occupancy__bool: bool = True  # This can be a bool or pd.Series
+    ) -> pd.Series | bool:
+        """
+        Check if the indoor temperature is comfortable based on setpoint and comfort margins,
+        and whether occupancy is True or False. Works with both single values and Series.
+        """
+        
+        # Convert single values to Series for uniform processing
+        if isinstance(temp_indoor__degC, (float, int)):
+            temp_indoor__degC = pd.Series([temp_indoor__degC])
+        if isinstance(temp_set__degC, (float, int)):
+            temp_set__degC = pd.Series([temp_set__degC])
+        if isinstance(occupancy__bool, bool):
+            occupancy__bool = pd.Series([occupancy__bool])
+        
+        # Ensure all Series have the same index
+        temp_indoor__degC = temp_indoor__degC.reindex(temp_set__degC.index)
+        occupancy__bool = occupancy__bool.reindex(temp_set__degC.index)
+    
+        # Handle the case where no setpoint is provided
+        if temp_set__degC is not None:
+            # Calculate margins based on the provided setpoint
+            underheating_margin__K, overheating_margin__K = Comfort.comfort_margins(target_ppd__pct)
+        
+            if underheating_margin__K is not None and overheating_margin__K is not None:
+                lower_bound__degC = temp_set__degC - underheating_margin__K
+                upper_bound__degC = temp_set__degC + overheating_margin__K
+        
+                # Apply the conditions: unoccupied homes are always comfortable
+                result = (temp_indoor__degC >= lower_bound__degC) & (temp_indoor__degC <= upper_bound__degC)
+                result = result.where(occupancy__bool == True, True)  # If not occupied, return True
+                return result.where(~(temp_indoor__degC.isna() | temp_set__degC.isna()), pd.NA)  # Handle NaNs
+    
+        # If no setpoint is provided, use comfort_zone to check comfort
+        comfortable_temp_indoor_min__degC, comfortable_temp_indoor_max__degC, _ = Comfort.comfort_zone(target_ppd__pct)
+    
+        if comfortable_temp_indoor_min__degC is not None and comfortable_temp_indoor_max__degC is not None:
+            result = (temp_indoor__degC >= comfortable_temp_indoor_min__degC) & (temp_indoor__degC <= comfortable_temp_indoor_max__degC)
+            result = result.where(occupancy__bool == True, True)  # If not occupied, return True
+            return result.where(~temp_indoor__degC.isna(), pd.NA)  # Handle NaNs
+        
+        return pd.Series(pd.NA, index=temp_indoor__degC.index)  # Return <NA> Series if comfort cannot be determined
