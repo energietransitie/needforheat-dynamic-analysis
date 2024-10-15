@@ -575,21 +575,26 @@ class Learner():
                     if actual_parameter_values is not None and param in actual_parameter_values:
                         df_learned_parameters_1id_1period[f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
 
-        # calculate periodical averages
+        # Calculate periodical averages, which include Energy Case metrics
         properties_mean = [
             'calculated_g_use_ch_hhv__W',
             'eta_ch_hhv__W0',
             'temp_set__degC',
             'temp_sup_ch__degC',
             'temp_ret_ch__degC',
+            'comfortable__bool'
         ]
     
         for prop in properties_mean:
             # Create variable names dynamically
-            result_col = f"learned_avg_{prop}"
+            # Determine the result column name based on whether the property ends with '__bool'
+            if prop.endswith('__bool'):
+                result_col = f"learned_avg_{prop[:-6]}__0"  # Remove '__bool' and add '__0'
+            else:
+                result_col = f"learned_avg_{prop}"
     
             # Use prop directly if it starts with 'calculated_'
-            source_col = prop if prop.startswith('calculated_') else property_sources[prop]        
+            source_col = prop if prop.startswith('calculated_') else property_sources[prop]
             mean_value = df_learn[source_col].mean()
             df_learned_parameters_1id_1period[result_col] = mean_value
 
@@ -609,7 +614,7 @@ class Learner():
             mean_value = np.asarray(locals()[var]).mean()
             df_learned_parameters_1id_1period[result_col] = mean_value
 
-        # Calculate carbon case metrics
+        # Calculate Carbon Case metrics
         df_learned_parameters_1id_1period['learned_avg_co2_ch__g_s_1'] = (
             df_learned_parameters_1id_1period['learned_avg_calculated_g_use_ch_hhv__W'] 
             * 
