@@ -65,11 +65,11 @@ air_room__J_m_3_K_1 = (air_room__J_mol_K
                         )
                      )                                        # volumetric specific heat of air at standard conditions
 # Heat capacities
-water__J_kg_1_K_1 = 4181                                       # NB at 25 degC; source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
-steel__J_kg_1_K_1 = 466                                        # source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
+water__J_kg_1_K_1 = 4181                                      # NB at 25 degC; source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
+steel__J_kg_1_K_1 = 466                                       # source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
 
 # CO₂ concentration averages
-co2_outdoor_eu_avg_2022__ppm = 415                                # Yearly average CO₂ concentration in Europe in 2022
+co2_outdoor_eu_avg_2022__ppm = 415                            # Yearly average CO₂ concentration in Europe in 2022
 
 # Metabolic conversion factors
 O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
@@ -117,6 +117,10 @@ heat_int_nl_avg__W_p_1 = (
 # Groningen natural gas averages (81,30%vol CH4, 14,35%vol N2), presumably at P_std__Pa and temp_gas_std__degC
 gas_groningen_nl_avg_std_hhv__J_m_3 = 35.17e6                 # average higher heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
 gas_groningen_nl_avg_std_lhv__J_m_3 = 31.65e6                 # average lower heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
+
+# CO₂ emission factors (NL, 2024)
+co2_wtw_groningen_gas_std_nl_avg_2024__g__m_3 = 2134          # https://www.co2emissiefactoren.nl/lijst-emissiefactoren/, January 2024
+co2_wtw_e_onbekend_nl_avg_2024__g__kWh_1 = 328                # https://www.co2emissiefactoren.nl/lijst-emissiefactoren/, January 2024
 
 # Characteristics of reference gas G25.3 (88%vol CH4, 12%vol N2) according to EN 437:2021 (E), Table B.5 (reference gas prescribed by Kiwa BRL 2021 for tests)
 gas_g25_3_ref_lhv__J_m_3 = 29.92e6                            # lower heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC 
