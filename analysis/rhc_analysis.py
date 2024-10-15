@@ -1061,8 +1061,8 @@ class Comfort():
    
 
     def is_comfortable(
-        temp_indoor__degC,  # This can be a float or pd.Series
-        temp_set__degC: float = None,  # This can also be a float or pd.Series
+        temp_indoor__degC,  
+        temp_set__degC: float = None,  
         target_ppd__pct: float = 10,
         occupancy__bool: bool = True  # This can be a bool or pd.Series
     ) -> pd.Series | bool:
@@ -1078,7 +1078,7 @@ class Comfort():
             temp_set__degC = pd.Series([temp_set__degC])
         if isinstance(occupancy__bool, bool):
             occupancy__bool = pd.Series([occupancy__bool])
-        
+    
         # Ensure all Series have the same index
         temp_indoor__degC = temp_indoor__degC.reindex(temp_set__degC.index)
         occupancy__bool = occupancy__bool.reindex(temp_set__degC.index)
@@ -1087,22 +1087,27 @@ class Comfort():
         if temp_set__degC is not None:
             # Calculate margins based on the provided setpoint
             underheating_margin__K, overheating_margin__K = Comfort.comfort_margins(target_ppd__pct)
-        
+    
             if underheating_margin__K is not None and overheating_margin__K is not None:
                 lower_bound__degC = temp_set__degC - underheating_margin__K
                 upper_bound__degC = temp_set__degC + overheating_margin__K
-        
-                # Apply the conditions: unoccupied homes are always comfortable
-                result = (temp_indoor__degC >= lower_bound__degC) & (temp_indoor__degC <= upper_bound__degC)
-                result = result.where(occupancy__bool == True, True)  # If not occupied, return True
+                
+                # Initialize the result to True for all rows (assuming comfort)
+                result = pd.Series(True, index=temp_indoor__degC.index)
+                
+                # Apply the comfort logic only where occupancy__bool is True (someone is home)
+                result = result.where(occupancy__bool == False,  # If unoccupied (False), keep True
+                                      (temp_indoor__degC >= lower_bound__degC) & (temp_indoor__degC <= upper_bound__degC))  # If occupied (True), check temperature
                 return result.where(~(temp_indoor__degC.isna() | temp_set__degC.isna()), pd.NA)  # Handle NaNs
     
         # If no setpoint is provided, use comfort_zone to check comfort
         comfortable_temp_indoor_min__degC, comfortable_temp_indoor_max__degC, _ = Comfort.comfort_zone(target_ppd__pct)
-    
+        
         if comfortable_temp_indoor_min__degC is not None and comfortable_temp_indoor_max__degC is not None:
-            result = (temp_indoor__degC >= comfortable_temp_indoor_min__degC) & (temp_indoor__degC <= comfortable_temp_indoor_max__degC)
-            result = result.where(occupancy__bool == True, True)  # If not occupied, return True
+            result = pd.Series(True, index=temp_indoor__degC.index)  # Start with all True for unoccupied
+            result = result.where(occupancy__bool == False,  # If unoccupied (False), keep True
+                                  (temp_indoor__degC >= comfortable_temp_indoor_min__degC) & 
+                                  (temp_indoor__degC <= comfortable_temp_indoor_max__degC))  # If occupied (True), check temperature
             return result.where(~temp_indoor__degC.isna(), pd.NA)  # Handle NaNs
         
         return pd.Series(pd.NA, index=temp_indoor__degC.index)  # Return <NA> Series if comfort cannot be determined
