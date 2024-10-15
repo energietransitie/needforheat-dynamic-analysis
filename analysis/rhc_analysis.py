@@ -369,6 +369,7 @@ class Learner():
         eta_ch_hhv__W0.FSTATUS = 1
     
         heat_g_ch__W = m.Intermediate(g_use_ch_hhv_W * eta_ch_hhv__W0)
+        # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
     
         # Optionally learn heat distribution system parameters
         if 'heat_tr_dist__W_K_1' in learn:
@@ -397,9 +398,11 @@ class Learner():
     
             temp_dist__degC = m.Intermediate((temp_sup_ch__degC + temp_ret_ch__degC) / 2)
             heat_dist__W = m.Intermediate(heat_tr_dist__W_K_1 * (temp_dist__degC - temp_indoor__degC))
-    
+
+            # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
             m.Equation(temp_dist__degC.dt() == (heat_g_ch__W - heat_dist__W) / (th_mass_dist__Wh_K_1 * s_h_1))
         else:
+            # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
             heat_dist__W = heat_g_ch__W
     
         ##################################################################################################################
@@ -572,10 +575,10 @@ class Learner():
 
         # calculate periodical averages
         properties_mean = [
+            'calculated_g_use_ch_hhv__W',
             'eta_ch_hhv__W0',
             'temp_set__degC',
             'temp_sup_ch__degC',
-            'calculated_g_use_ch_hhv__W',
             'temp_ret_ch__degC',
         ]
     
@@ -587,17 +590,15 @@ class Learner():
             source_col = prop if prop.startswith('calculated_') else property_sources[prop]        
             mean_value = df_learn[source_col].mean()
             df_learned_parameters_1id_1period[result_col] = mean_value
-            
-            # Check if the mean value is NaN
-            if pd.isna(mean_value):
-                print(f"NaN value found for home_id: {home_id}, start: {start}, end: {end}, variable: {result_col}")
 
         sim_arrays_mean = [
             'heat_sol__W',
             'heat_int__W',
-            'heat_tr_bldng_inf__W_K_1',
+            'heat_dist__W',
+            'heat_loss_bldng_cond__W', 
+            'heat_loss_bldng_inf__W', 
             'heat_loss_bldng_vent__W',
-            'heat_dist__W'
+            'indoor_outdoor_delta__K'
         ]
 
         for var in sim_arrays_mean:
@@ -605,11 +606,14 @@ class Learner():
             result_col = f"learned_avg_{var}"
             mean_value = np.asarray(locals()[var]).mean()
             df_learned_parameters_1id_1period[result_col] = mean_value
-            
-            # Check if the mean value is NaN
-            if pd.isna(mean_value):
-                print(f"NaN value found for home_id: {home_id}, start: {start}, end: {end}, variable: {var}")
 
+        # Calculate carbon case metrics
+        df_learned_parameters_1id_1period['learned_avg_co2_ch__g_s_1'] = (
+            df_learned_parameters_1id_1period['learned_avg_calculated_g_use_ch_hhv__W'] 
+            * 
+            (co2_wtw_groningen_gas_std_nl_avg_2024__g__m_3 / gas_groningen_nl_avg_std_hhv__J_m_3)
+        )
+        # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
         
         # Set MultiIndex on the DataFrame (id, start, end)
         df_learned_parameters_1id_1period.set_index(['id', 'start', 'end'], inplace=True)    
