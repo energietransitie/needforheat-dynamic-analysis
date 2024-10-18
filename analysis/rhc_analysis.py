@@ -418,16 +418,24 @@ class Learner():
         ##################################################################################################################
     
         # Central heating gains
-        g_use_ch_hhv_W = m.MV(value=df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values)
-        g_use_ch_hhv_W.STATUS = 0
-        g_use_ch_hhv_W.FSTATUS = 1
+        g_use_ch_hhv__W = m.MV(value=df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values)
+        g_use_ch_hhv__W.STATUS = 0
+        g_use_ch_hhv__W.FSTATUS = 1
+
+        e_use_ch__W = 0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
+        energy_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W)
     
         eta_ch_hhv__W0 = m.MV(value=df_learn[property_sources['eta_ch_hhv__W0']].astype('float32').values)
         eta_ch_hhv__W0.STATUS = 0
         eta_ch_hhv__W0.FSTATUS = 1
     
-        heat_g_ch__W = m.Intermediate(g_use_ch_hhv_W * eta_ch_hhv__W0)
+        heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0)
+
         # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
+        cop_ch__W0 = 1.0
+        heat_e_ch__W = e_use_ch__W * cop_ch__W0
+        
+        heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W)
     
         # Optionally learn heat distribution system parameters
         if 'heat_tr_dist__W_K_1' in learn:
@@ -458,10 +466,9 @@ class Learner():
             heat_dist__W = m.Intermediate(heat_tr_dist__W_K_1 * (temp_dist__degC - temp_indoor__degC))
 
             # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
-            m.Equation(temp_dist__degC.dt() == (heat_g_ch__W - heat_dist__W) / (th_mass_dist__Wh_K_1 * s_h_1))
+            m.Equation(temp_dist__degC.dt() == (heat_ch__W - heat_dist__W) / (th_mass_dist__Wh_K_1 * s_h_1))
         else:
-            # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
-            heat_dist__W = heat_g_ch__W
+            heat_dist__W = heat_ch__W
     
         ##################################################################################################################
         # Solar heat gains
@@ -644,8 +651,6 @@ class Learner():
     
         # Calculate periodical averages, which include Energy Case metrics
         properties_mean = [
-            'calculated_g_use_ch_hhv__W',
-            'eta_ch_hhv__W0',
             'temp_set__degC',
             'temp_sup_ch__degC',
             'temp_ret_ch__degC',
@@ -666,6 +671,11 @@ class Learner():
             df_learned_job_parameters.loc[0, result_col] = mean_value
 
         sim_arrays_mean = [
+            'g_use_ch_hhv__W',
+            'eta_ch_hhv__W0',
+            'e_use_ch__W',
+            'cop_ch__W0',
+            'energy_ch__W',
             'heat_sol__W',
             'heat_int__W',
             'heat_dist__W',
@@ -683,11 +693,16 @@ class Learner():
 
         # Calculate Carbon Case metrics
         df_learned_job_parameters.loc[0, 'learned_avg_co2_ch__g_s_1'] = (
-            df_learned_job_parameters.loc[0, 'learned_avg_calculated_g_use_ch_hhv__W'] 
-            * 
-            (co2_wtw_groningen_gas_std_nl_avg_2024__g__m_3 / gas_groningen_nl_avg_std_hhv__J_m_3)
+            (df_learned_job_parameters.loc[0, 'learned_avg_g_use_ch_hhv__W'] 
+             * 
+             (co2_wtw_groningen_gas_std_nl_avg_2024__g__m_3 / gas_groningen_nl_avg_std_hhv__J_m_3)
+            )
+            +
+            (df_learned_job_parameters.loc[0, 'learned_avg_e_use_ch__W'] 
+             * 
+             co2_wtw_e_onbekend_nl_avg_2024__g__kWh_1
+            )
         )
-        # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
         
         # Set MultiIndex on the DataFrame (id, start, end)
         df_learned_job_parameters.set_index(['id', 'start', 'end'], inplace=True)    
@@ -1042,23 +1057,34 @@ class Learner():
                         futures.append(future)
                         learned_jobs[(id, start, end)] = future
         
-            # Collect results as they complete
-            for future in as_completed(futures):
-                df_learned_job_parameters, df_learned_job_properties = future.result()
-                all_learned_job_properties.append(df_learned_job_properties)
-                all_learned_job_parameters.append(df_learned_job_parameters)
-                pbar.update(1)  # Update progress bar for each completed job
+                    # Collect results as they complete
+                    for future in as_completed(futures):
+                        try:
+                            df_learned_job_parameters, df_learned_job_properties = future.result()
+                            all_learned_job_properties.append(df_learned_job_properties)
+                            all_learned_job_parameters.append(df_learned_job_parameters)
+                        except Exception as e:
+                            # Handle only the specific "Solution Not Found" error
+                            if "Solution Not Found" in str(e):
+                                # Find which job caused the error
+                                for (id, start, end), job_future in learned_jobs.items():
+                                    if job_future == future:
+                                        logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
+                                        break
+                                continue  # Skip this job and move on to the next one
+                            else:
+                                # Reraise other exceptions to stop execution
+                                raise
+                        finally:
+                            pbar.update(1)  # Ensure progress bar updates even if there's an exception
     
             # Now merge all learned job properties and parameters into cumulative DataFrames
             df_learned_properties = pd.concat(all_learned_job_properties, axis=0).drop_duplicates()
             df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates()
-    
-            # # Handle overlapping properties to give precedence to the most recent values
-            # if 'learned_temp_indoor__degC' in df_learned_properties.columns:
-            #     df_learned_properties['learned_temp_indoor__degC'] = df_learned_properties['learned_temp_indoor__degC'].combine_first(
-            #         df_learned_properties['learned_temp_indoor__degC_x'].combine_first(df_learned_properties['learned_temp_indoor__degC_y'])
-            #     )
-            #     df_learned_properties.drop(columns=['learned_temp_indoor__degC_x', 'learned_temp_indoor__degC_y'], errors='ignore', inplace=True)
+
+            # Merging all learned time series data into df_data
+            df_data = df_data.merge(df_learned_properties, left_index=True, right_index=True, how='left')
+
     
         else: 
             # (old) non-parallel processing logic here
@@ -1236,7 +1262,7 @@ class Learner():
         # After all IDs, save final results
         Learner.final_save_to_parquet(df_learned_parameters, df_data, results_dir)
         
-        return df_learned_parameters, df_data
+        return df_learned_parameters.sort_index(), df_data.sort_index()
 
 
 class Comfort():
