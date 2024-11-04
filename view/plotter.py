@@ -12,6 +12,9 @@ import folium
 import h3
 from geopy.distance import distance
 
+import matplotlib.dates as mdates
+# import mplcursors  # Import mplcursors for interactive hovering
+
 class Plot:
 
     @staticmethod
@@ -548,7 +551,151 @@ class Plot:
             
             
         
+    @staticmethod
+    def plot_thermostat_programs(df):
+        # Iterate through each unique 'id' (home)
+    
+        # Mapping each day to an offset in days to plot sequentially
+        weekday_offsets = {
+            'Monday': 0,
+            'Tuesday': 1,
+            'Wednesday': 2,
+            'Thursday': 3,
+            'Friday': 4,
+            'Saturday': 5,
+            'Sunday': 6
+        }
+    
+        for home_id in df.index.get_level_values('id').unique():
+            # Filter the dataframe for the current home_id
+            home_df = df.loc[home_id]
             
+            # Set up the plot for each home
+            plt.figure(figsize=(12, 6))
+            plt.title(f'Thermostat Programs for Home ID: {home_id}')
+            plt.xlabel('Day of Week and Time of Day')
+            plt.ylabel('Setpoint Temperature (°C)')
+            
+            # For distinct colors in plotting
+            color_map = plt.cm.get_cmap('tab10', len(home_df))
+            
+            # Loop through each valid interval for this home and plot the program
+            for idx, (interval, row) in enumerate(home_df.iterrows()):
+                program = row['program']
+    
+                if program is not None:
+                        
+                    # Prepare data for plotting with step logic
+                    times, temps = [], []
+                    marker_times, marker_temps = [], []  # For plotting markers on actual setpoints
+                    last_temp = None
+                    
+                    for entry in program:
+                        # Parse weekday and start time
+                        weekday = entry['weekday']
+                        start_time = entry['start_time']
+                        temp = entry['temp_set__degC']
+                        
+                        # Calculate the full datetime for plotting (start of week + offset days)
+                        base_time = datetime.strptime("Monday 00:00", "%A %H:%M")
+                        day_time = base_time + timedelta(days=weekday_offsets[weekday]) + timedelta(
+                            hours=int(start_time.split(":")[0]),
+                            minutes=int(start_time.split(":")[1])
+                        )
+                        
+                        # Insert the previous temperature value 1 minute before the new one (for stair-step effect)
+                        if last_temp is not None:
+                            times.append(day_time - timedelta(minutes=1))
+                            temps.append(last_temp)
+                        
+                        # Add the actual setpoint time and temperature
+                        times.append(day_time)
+                        temps.append(temp)
+                        
+                        # Track real setpoints separately for marker plotting
+                        marker_times.append(day_time)
+                        marker_temps.append(temp)
+                        
+                        # Update the last temperature
+                        last_temp = temp
+         
+                    # Handle the weekly wrap-around
+                    if last_temp is not None:
+                        # Add the last Sunday setpoint to Sunday 23:59
+                        sunday_end = base_time + timedelta(days=6, hours=23, minutes=59)
+                        times.append(sunday_end)
+                        temps.append(last_temp)
+                    
+                        # Prepare for Monday 0:00
+                        next_monday_start = base_time  # This will represent Monday 0:00
+                    
+                        # Check if there is already a setpoint defined for Monday 0:00
+                        monday_setpoint_defined = any(
+                            entry['weekday'] == 'Monday' and entry['start_time'] == '00:00'
+                            for entry in program
+                        )
+                    
+                        if not monday_setpoint_defined:
+                            # If no explicit setpoint for Monday 0:00, add the last temperature from Sunday
+                            times.append(next_monday_start)
+                            temps.append(last_temp)
+                    
+                            # Insert the same setpoint one minute before the first setpoint of the week
+                            if times:  # Ensure there are existing times to reference
+                                first_setpoint_time = times[1]  # The first actual setpoint is at index 1
+                                times.append(first_setpoint_time - timedelta(minutes=1))
+                                temps.append(last_temp)
+        
+                    # Sort times and corresponding temperatures
+                    sorted_times_temps = sorted(zip(times, temps))  # Combine and sort by time
+                    sorted_times, sorted_temps = zip(*sorted_times_temps)  # Unzip back into two lists
+        
+        
+                    
+                    # Plot the main step line with increased thickness
+                    plt.step(sorted_times, sorted_temps, where='post', label=f"{interval}", color=color_map(idx), alpha=0.6, linewidth=3.5)
+                    
+                    # Overlay markers at real programmed setpoints only
+                    # markers = plt.plot(marker_times, marker_temps, 'o', color=color_map(idx), markersize=6, label=f"{interval} markers")
+                    markers = plt.plot(marker_times, marker_temps, 'o', color=color_map(idx), markersize=6)
+        
+                    # # Enable hover functionality using mplcursors
+                    # mplcursors.cursor(markers, hover=True).connect(
+                    #     "add", 
+                    #     lambda sel: sel.annotation.set_text(
+                    #         f"Date: {sel.target[0]:%A %H:%M}\nSetpoint: {sel.target[1]:.1f} °C"
+                    #     )
+                    # )
+    
+            # Set the x-axis to display days in order from Monday to Sunday
+            plt.gca().xaxis.set_major_locator(mdates.DayLocator())
+            plt.gca().xaxis.set_minor_locator(mdates.HourLocator(byhour=[0, 6, 12, 18]))  # Including 0:00
+            
+            # Format the major ticks to show "Monday 0:00", "Tuesday 0:00", etc.
+            plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%A %H:%M'))
+            plt.gca().xaxis.set_minor_formatter(mdates.DateFormatter('%H:%M'))
+            
+            # Add vertical lines for major and minor ticks
+            plt.grid(visible=True, which='major', color='black', linestyle='-', linewidth=1)
+            plt.grid(visible=True, which='minor', color='gray', linestyle='--', linewidth=0.5, alpha=0.7)
+            
+            # Rotate all x-axis labels for clarity
+            plt.gcf().autofmt_xdate(rotation=90)
+            
+            # Rotate the minor ticks separately
+            for label in plt.gca().get_xticklabels(minor=True):
+                label.set_rotation(90)
+    
+            # Set label alignment for better centering with vertical lines
+            for label in plt.gca().get_xticklabels():
+                label.set_horizontalalignment('center')
+    
+            # Add legend for valid intervals
+            plt.legend(title="Valid Intervals", loc='upper right')
+            plt.tight_layout()
+            plt.show()
+    
+    
             
     @staticmethod
     def learned_parameters_one_home_plot(title:str, df: pd.DataFrame, propertycolors = []):
