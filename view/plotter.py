@@ -757,8 +757,33 @@ class Plot:
                    rot=35,
                    title=parameter)
             )
-            
+
+    
+    @staticmethod
+    def calculated_intervention_metrics_boxplot(df: pd.DataFrame, metrics: list):
+        """
+        Visualize box plots for calculated intervention metrics for different regimes of each ID.
         
+        Parameters:
+        - df: DataFrame containing the regime sequence numbers and metrics
+        - metrics: List of metrics to plot
+        """
+        unique_ids = df.index.get_level_values('id').unique()
+        
+        for id_value in unique_ids:
+            df_id = df.loc[id_value]  # Select data for the specific ID
+            
+            for metric in metrics:
+                plt.figure(figsize=(8, 6))
+                df_id.boxplot(column=metric, by='regime_sequence_number', grid=False)
+                plt.title(f'ID: {id_value} - Boxplot of {metric}')  # Title with ID and metric
+                plt.xlabel('Regime Sequence Number')
+                plt.ylabel(metric)
+                plt.suptitle("")  # Suppress the default suptitle            
+                plt.tight_layout()
+                plt.show()
+
+    
     @staticmethod
     def learned_parameters_boxplot_b4b(df_results_model_parameters: pd.DataFrame, learned: str, actual: str, units_to_mathtext = None):
         """
