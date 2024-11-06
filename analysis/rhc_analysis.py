@@ -656,7 +656,8 @@ class Learner():
             'temp_ret_ch__degC',
             'comfortable__bool',
             'temp_indoor__degC',
-            'temp_outdoor__degC'
+            'temp_outdoor__degC',
+            'temp_ch_sup_max__degC'
         ]
     
         for prop in properties_mean:
