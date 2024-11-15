@@ -157,15 +157,15 @@ class Learner():
         os.makedirs(results_dir, exist_ok=True)
         return results_dir
     
-    def get_actual_parameter_values(id, aperture_inf_avg__cm2, heat_tr_dist_avg__W_K_1, th_mass_dist_avg__Wh_K_1):
+    def get_actual_parameter_values(id, aperture_inf_avg__cm2, heat_tr_dstr_avg__W_K_1, th_mass_dstr_avg__Wh_K_1):
         """
         Calculate actual thermal parameter values based on the given 'id' and return them in a dictionary.
     
         Args:
             id: The unique identifier for which to calculate the actual values.
             aperture_inf_avg__cm2: Average aperture for infiltration in cm².
-            heat_tr_dist_avg__W_K_1: Average heat transfer coefficient of the distribution system in W/K.
-            th_mass_dist_avg__Wh_K_1: Average thermal mass of the distribution system in Wh/K.
+            heat_tr_dstr_avg__W_K_1: Average heat transfer coefficient of the distribution system in W/K.
+            th_mass_dstr_avg__Wh_K_1: Average thermal mass of the distribution system in Wh/K.
     
         Returns:
             dict: A dictionary containing the actual parameter values.
@@ -176,8 +176,8 @@ class Learner():
             'aperture_sol__m2': np.nan,
             'th_mass_bldng__Wh_K_1': np.nan,
             'aperture_inf__cm2': aperture_inf_avg__cm2,  # Use average value as provided
-            'heat_tr_dist__W_K_1': heat_tr_dist_avg__W_K_1,  # Use average value
-            'th_mass_dist__Wh_K_1': th_mass_dist_avg__Wh_K_1  # Use average value
+            'heat_tr_dstr__W_K_1': heat_tr_dstr_avg__W_K_1,  # Use average value
+            'th_mass_dstr__Wh_K_1': th_mass_dstr_avg__Wh_K_1  # Use average value
         }
     
         # Calculate specific actual values based on the 'id'
@@ -438,22 +438,22 @@ class Learner():
         heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W)
     
         # Optionally learn heat distribution system parameters
-        if 'heat_tr_dist__W_K_1' in learn:
-            heat_tr_dist__W_K_1 = m.FV(value=hints['heat_tr_dist__W_K_1'], lb=0, ub=1000)
-            heat_tr_dist__W_K_1.STATUS = 1
-            heat_tr_dist__W_K_1.FSTATUS = 0
+        if 'heat_tr_dstr__W_K_1' in learn:
+            heat_tr_dstr__W_K_1 = m.FV(value=hints['heat_tr_dstr__W_K_1'], lb=0, ub=1000)
+            heat_tr_dstr__W_K_1.STATUS = 1
+            heat_tr_dstr__W_K_1.FSTATUS = 0
         else:
-            heat_tr_dist__W_K_1 = hints['heat_tr_dist__W_K_1']
+            heat_tr_dstr__W_K_1 = hints['heat_tr_dstr__W_K_1']
         
-        if 'th_mass_dist__Wh_K_1' in learn:
-            th_mass_dist__Wh_K_1 = m.FV(value=hints['th_mass_dist__Wh_K_1'], lb=0, ub=10000)
-            th_mass_dist__Wh_K_1.STATUS = 1
-            th_mass_dist__Wh_K_1.FSTATUS = 0
+        if 'th_mass_dstr__Wh_K_1' in learn:
+            th_mass_dstr__Wh_K_1 = m.FV(value=hints['th_mass_dstr__Wh_K_1'], lb=0, ub=10000)
+            th_mass_dstr__Wh_K_1.STATUS = 1
+            th_mass_dstr__Wh_K_1.FSTATUS = 0
         else:
-            th_mass_dist__Wh_K_1 = hints['th_mass_dist__Wh_K_1']
+            th_mass_dstr__Wh_K_1 = hints['th_mass_dstr__Wh_K_1']
     
         # Central heating temperature
-        if 'heat_tr_dist__W_K_1' in learn or 'th_mass_dist__Wh_K_1' in learn:
+        if 'heat_tr_dstr__W_K_1' in learn or 'th_mass_dstr__Wh_K_1' in learn:
             temp_sup_ch__degC = m.MV(value=df_learn[property_sources['temp_sup_ch__degC']].astype('float32').values)
             temp_sup_ch__degC.STATUS = 0
             temp_sup_ch__degC.FSTATUS = 1
@@ -462,13 +462,13 @@ class Learner():
             temp_ret_ch__degC.STATUS = 0
             temp_ret_ch__degC.FSTATUS = 1
     
-            temp_dist__degC = m.Intermediate((temp_sup_ch__degC + temp_ret_ch__degC) / 2)
-            heat_dist__W = m.Intermediate(heat_tr_dist__W_K_1 * (temp_dist__degC - temp_indoor__degC))
+            temp_dstr__degC = m.Intermediate((temp_sup_ch__degC + temp_ret_ch__degC) / 2)
+            heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
 
             # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
-            m.Equation(temp_dist__degC.dt() == (heat_ch__W - heat_dist__W) / (th_mass_dist__Wh_K_1 * s_h_1))
+            m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / (th_mass_dstr__Wh_K_1 * s_h_1))
         else:
-            heat_dist__W = heat_ch__W
+            heat_dstr__W = heat_ch__W
     
         ##################################################################################################################
         # Solar heat gains
@@ -481,11 +481,11 @@ class Learner():
         else:
             aperture_sol__m2 = m.Param(value=hints['aperture_sol__m2'])
     
-        ghi__W_m_2 = m.MV(value=df_learn[property_sources['ghi__W_m_2']].astype('float32').values)
-        ghi__W_m_2.STATUS = 0
-        ghi__W_m_2.FSTATUS = 1
+        sol_ghi__W_m_2 = m.MV(value=df_learn[property_sources['sol_ghi__W_m_2']].astype('float32').values)
+        sol_ghi__W_m_2.STATUS = 0
+        sol_ghi__W_m_2.FSTATUS = 1
     
-        heat_sol__W = m.Intermediate(ghi__W_m_2 * aperture_sol__m2)
+        heat_sol__W = m.Intermediate(sol_ghi__W_m_2 * aperture_sol__m2)
     
         ##################################################################################################################
         ## Internal heat gains ##
@@ -591,7 +591,7 @@ class Learner():
         ### Heat balance ###
         ##################################################################################################################
 
-        heat_gain_bldng__W = m.Intermediate(heat_dist__W + heat_sol__W + heat_int__W)
+        heat_gain_bldng__W = m.Intermediate(heat_dstr__W + heat_sol__W + heat_int__W)
         heat_loss_bldng__W = m.Intermediate(heat_loss_bldng_cond__W + heat_loss_bldng_inf__W + heat_loss_bldng_vent__W)
         heat_tr_bldng__W_K_1 = m.Intermediate(heat_tr_bldng_cond__W_K_1 + heat_tr_bldng_inf__W_K_1 + heat_tr_bldng_vent__W_K_1)
         th_mass_bldng__Wh_K_1  = m.Intermediate(heat_tr_bldng__W_K_1 * th_inert_bldng__h) 
@@ -615,9 +615,9 @@ class Learner():
         # Store learned time-varying data in DataFrame
         df_learned_job_properties.loc[:,'learned_temp_indoor__degC'] = np.asarray(temp_indoor__degC)
     
-        # If 'learned_temp_dist__degC' is computed, include it as well
-        if 'heat_tr_dist__W_K_1' in learn or 'th_mass_dist__J_K_1' in learn:
-            df_learned_job_properties.loc[:,'learned_temp_dist__degC'] = np.asarray(temp_dist__degC)
+        # If 'learned_temp_dstr__degC' is computed, include it as well
+        if 'heat_tr_dstr__W_K_1' in learn or 'th_mass_dstr__J_K_1' in learn:
+            df_learned_job_properties.loc[:,'learned_temp_dstr__degC'] = np.asarray(temp_dstr__degC)
     
         # Initialize a DataFrame for learned thermal parameters (one row with id, start, end)
         df_learned_job_parameters = pd.DataFrame({
@@ -681,7 +681,7 @@ class Learner():
             'energy_ch__W',
             'heat_sol__W',
             'heat_int__W',
-            'heat_dist__W',
+            'heat_dstr__W',
             'heat_loss_bldng_cond__W', 
             'heat_loss_bldng_inf__W', 
             'heat_loss_bldng_vent__W',
@@ -900,7 +900,7 @@ class Learner():
               - property_sources['temp_outdoor__degC']: outdoor temperature 
               - property_sources['temp_set__degC']: indoor temperature
               - property_sources['wind__m_s_1']: outdoor wind speed
-              - property_sources['ghi__W_m_2']: global horizontal irradiation
+              - property_sources['sol_ghi__W_m_2']: global horizontal irradiation
               - property_sources['g_use_ch_hhv__W']: gas input power (using higher heating value) used for central heating
               - property_sources['eta_dhw_hhv__W0']: efficiency (against higher heating value) of turning gas power into heat
               - property_sources['g_use_dhw_hhv__W']: gas input power (using higher heating value) used for domestic hot water
@@ -927,8 +927,8 @@ class Learner():
             - 'g_use_cooking_hhv__W':         average gas power (higher heating value) for cooking
             - 'eta_cooking_hhv__W0':          cooking efficiency
             - 'frac_remain_cooking__0':       fraction of cooking heat contributing to heating the home
-            - 'heat_tr_dist__W_K_1':          heat transmissivity of the heat distribution system
-            - 'th_mass_dist__Wh_K_1':         thermal mass of the heat distribution system
+            - 'heat_tr_dstr__W_K_1':          heat transmissivity of the heat distribution system
+            - 'th_mass_dstr__Wh_K_1':         thermal mass of the heat distribution system
             - 'ventilation_default__dm3_s_1': default ventilation rate for for the learning process for the entire home
             - 'ventilation_max__dm3_s_1_m_2': maximum ventilation rate relative to the total floor area of the home
             - 'co2_outdoor__ppm':             average CO₂ outdoor concentration
@@ -944,7 +944,7 @@ class Learner():
         - a dataframe with per id the learned parameters and error metrics
         - a dataframe with additional column(s):
             - 'learned_temp_indoor__degC' best fitting indoor temperatures
-            - 'learned_temp_dist__degC' best fitting heat distribution system temperatures (if learned)
+            - 'learned_temp_dstr__degC' best fitting heat distribution system temperatures (if learned)
             - 'learned_ventilation__dm3_s_1' best fitting ventilation rates (if learned)
 
         """
@@ -1042,8 +1042,8 @@ class Learner():
                             # Get actual values of parameters of this id (if available)
                             actual_parameter_values = Learner.get_actual_parameter_values(id, 
                                                                                           aperture_inf_nl_avg__cm2,
-                                                                                          heat_tr_dist_nl_avg__W_K_1,
-                                                                                          th_mass_dist_nl_avg__Wh_K_1
+                                                                                          heat_tr_dstr_nl_avg__W_K_1,
+                                                                                          th_mass_dstr_nl_avg__Wh_K_1
                                                                                          )
                         else: 
                             actual_parameter_values = None
@@ -1122,7 +1122,7 @@ class Learner():
     
                 if any(df_data.columns.str.startswith('model_')): 
                     # Get actual values of parameters of this id (if available)
-                    actual_parameter_values = Learner.get_actual_parameter_values(id, aperture_inf_nl_avg__cm2, heat_tr_dist_nl_avg__W_K_1, th_mass_dist_nl_avg__Wh_K_1)
+                    actual_parameter_values = Learner.get_actual_parameter_values(id, aperture_inf_nl_avg__cm2, heat_tr_dstr_nl_avg__W_K_1, th_mass_dstr_nl_avg__Wh_K_1)
                 else: 
                     actual_parameter_values = None
     

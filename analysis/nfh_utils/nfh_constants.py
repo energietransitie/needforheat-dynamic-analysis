@@ -168,24 +168,24 @@ eta_ch_nl_avg_hhv__W0 = 0.963                                 # average superior
 # average Dutch heat distribution system characteristics
 radiator_capacity_design__W_m_2 = 100                         # recommended radiator heatig capacity per square meter floor area 
 design_temp_outdoor__degC = -10.0                             # outdoor design temperature
-design_temp_dist_hi__degC = 70.0                              # design temperature for high temperature radiators
+design_temp_dstr_hi__degC = 70.0                              # design temperature for high temperature radiators
 heated_fraction_nl_avg__0 = 0.4                               # estimate of typical fraction of an average Dutch home that is heated
 
-heat_tr_dist_nl_avg__W_K_1 = (
+heat_tr_dstr_nl_avg__W_K_1 = (
     radiator_capacity_design__W_m_2
     * floor_single_home_dwelling_nl_avg__m2
     * heated_fraction_nl_avg__0
     /
-    (design_temp_dist_hi__degC - temp_room_std__degC)
+    (design_temp_dstr_hi__degC - temp_room_std__degC)
 )                                                             # heat dissipation capacity of the heat distribution system
 
-heat_dist_water_nl_avg__kg = 100
-heat_dist_steel_nl_avg__kg = 100
-th_mass_dist_nl_avg__Wh_K_1 = (
+heat_dstr_water_nl_avg__kg = 100
+heat_dstr_steel_nl_avg__kg = 100
+th_mass_dstr_nl_avg__Wh_K_1 = (
     (
-        (heat_dist_water_nl_avg__kg * water__J_kg_1_K_1)
+        (heat_dstr_water_nl_avg__kg * water__J_kg_1_K_1)
         +
-        (heat_dist_steel_nl_avg__kg * steel__J_kg_1_K_1)
+        (heat_dstr_steel_nl_avg__kg * steel__J_kg_1_K_1)
     ) * heated_fraction_nl_avg__0
     / s_h_1
 )                                                             # thermal mass of the heat distribution system

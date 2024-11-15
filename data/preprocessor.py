@@ -1111,7 +1111,7 @@ class Preprocessor:
         out: pd.DataFrame  
         - unstacked: i.e. with the source names prefixed to column names
         - interpolated_min: interpolation interval with 15 minute as default
-        - KNMI weather data for lat, lon merged 'temp_outdoor__degC', 'wind__m_s_1', 'ghi__W_m_2'
+        - KNMI weather data for lat, lon merged 'temp_outdoor__degC', 'wind__m_s_1', 'sol_ghi__W_m_2'
                
         """
         
