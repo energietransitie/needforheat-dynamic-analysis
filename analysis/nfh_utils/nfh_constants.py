@@ -65,15 +65,16 @@ air_room__J_m_3_K_1 = (air_room__J_mol_K
                         )
                      )                                        # volumetric specific heat of air at standard conditions
 # Heat capacities
-water__J_kg_1_K_1 = 4181                                       # NB at 25 degC; source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
-steel__J_kg_1_K_1 = 466                                        # source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
+water__J_kg_1_K_1 = 4181                                      # NB at 25 degC; source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
+steel__J_kg_1_K_1 = 466                                       # source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
 
 # CO₂ concentration averages
-co2_outdoor_eu_avg_2022__ppm = 415                                # Yearly average CO₂ concentration in Europe in 2022
+co2_outdoor_eu_avg_2022__ppm = 415                            # Yearly average CO₂ concentration in Europe in 2022
 
 # Metabolic conversion factors
 O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
-desk_work__MET = 1.5                                          # Metabolic Equivalent of Task for desk work [MET]
+desk_work__MET = 1.5                                          # Metabolic Equivalent of Task [MET] for desk work
+sedentary__MET = 1.2                                          # Metabolic Equivalent of Task [MET] for sedentary activities according to NEN-EN 1521:2007
 metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
 adult_weight_nl_avg__kg = 77.5                                # average weight of Dutch adult [kg]
 O2umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
@@ -85,6 +86,10 @@ co2_exhale_desk_work__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
                             * desk_work__MET
                             * O2umol_s_1_p_1_MET_1
                            )                                  # molar quantity of CO₂ exhaled by Dutch desk worker doing desk work [µmol/(p⋅s)]
+co2_exhale_sedentary__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
+                            * sedentary__MET
+                            * O2umol_s_1_p_1_MET_1
+                           )                                  # molar quantity of CO₂ exhaled by a sedentary person [µmol/(p⋅s)]
 
 # Average Dutch occupancy and internal heat gain
 household_nl_avg__p = 2.2                                     # average number of persons per Dutch household
@@ -117,6 +122,10 @@ heat_int_nl_avg__W_p_1 = (
 # Groningen natural gas averages (81,30%vol CH4, 14,35%vol N2), presumably at P_std__Pa and temp_gas_std__degC
 gas_groningen_nl_avg_std_hhv__J_m_3 = 35.17e6                 # average higher heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
 gas_groningen_nl_avg_std_lhv__J_m_3 = 31.65e6                 # average lower heating value of Gronings gas: https://nl.wikipedia.org/wiki/Gronings_gas
+
+# CO₂ emission factors (NL, 2024)
+co2_wtw_groningen_gas_std_nl_avg_2024__g__m_3 = 2134          # https://www.co2emissiefactoren.nl/lijst-emissiefactoren/, January 2024
+co2_wtw_e_onbekend_nl_avg_2024__g__kWh_1 = 328                # https://www.co2emissiefactoren.nl/lijst-emissiefactoren/, January 2024
 
 # Characteristics of reference gas G25.3 (88%vol CH4, 12%vol N2) according to EN 437:2021 (E), Table B.5 (reference gas prescribed by Kiwa BRL 2021 for tests)
 gas_g25_3_ref_lhv__J_m_3 = 29.92e6                            # lower heating value of G25.3 reference gas at P_std__Pa and temp_gas_ref__degC 
@@ -159,24 +168,24 @@ eta_ch_nl_avg_hhv__W0 = 0.963                                 # average superior
 # average Dutch heat distribution system characteristics
 radiator_capacity_design__W_m_2 = 100                         # recommended radiator heatig capacity per square meter floor area 
 design_temp_outdoor__degC = -10.0                             # outdoor design temperature
-design_temp_dist_hi__degC = 70.0                              # design temperature for high temperature radiators
+design_temp_dstr_hi__degC = 70.0                              # design temperature for high temperature radiators
 heated_fraction_nl_avg__0 = 0.4                               # estimate of typical fraction of an average Dutch home that is heated
 
-heat_tr_dist_nl_avg__W_K_1 = (
+heat_tr_dstr_nl_avg__W_K_1 = (
     radiator_capacity_design__W_m_2
     * floor_single_home_dwelling_nl_avg__m2
     * heated_fraction_nl_avg__0
     /
-    (design_temp_dist_hi__degC - temp_room_std__degC)
+    (design_temp_dstr_hi__degC - temp_room_std__degC)
 )                                                             # heat dissipation capacity of the heat distribution system
 
-heat_dist_water_nl_avg__kg = 100
-heat_dist_steel_nl_avg__kg = 100
-th_mass_dist_nl_avg__Wh_K_1 = (
+heat_dstr_water_nl_avg__kg = 100
+heat_dstr_steel_nl_avg__kg = 100
+th_mass_dstr_nl_avg__Wh_K_1 = (
     (
-        (heat_dist_water_nl_avg__kg * water__J_kg_1_K_1)
+        (heat_dstr_water_nl_avg__kg * water__J_kg_1_K_1)
         +
-        (heat_dist_steel_nl_avg__kg * steel__J_kg_1_K_1)
+        (heat_dstr_steel_nl_avg__kg * steel__J_kg_1_K_1)
     ) * heated_fraction_nl_avg__0
     / s_h_1
 )                                                             # thermal mass of the heat distribution system

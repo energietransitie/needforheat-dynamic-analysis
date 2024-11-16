@@ -898,7 +898,7 @@ class Extractor(Database):
         rendered as a dataframe with a timezone-aware datetime index
         [
             'id', 'timestamp',
-            'temp_outdoor__degC','wind__m_s_1', 'ghi__W_m_2',   
+            'temp_outdoor__degC','wind__m_s_1', 'sol_ghi__W_m_2',   
             'temp_indoor__degC', 'temp_set__degC',
             'gas_use__W', 'gas_use_noCH__W', 'gas_use_CH__W', 
             'e_use__W',, 'e_ret__W'
@@ -1059,7 +1059,7 @@ class WeatherExtractor:
         with NO outlier removal (assuming that KNMI already did this)
         interpolated with the int_intv
         rendered as a dataframe with a timezone-aware datetime index
-        columns ['temp_outdoor__degC', 'wind__m_s_1', 'ghi__W_m_2', 'T_out_e_C']
+        columns ['temp_outdoor__degC', 'wind__m_s_1', 'sol_ghi__W_m_2', 'T_out_e_C']
         """
         
         up = '15min'
@@ -1090,11 +1090,11 @@ class WeatherExtractor:
         # merge weather data in a single dataframe
         df = pd.concat([outdoor_T_interpolated, windspeed_interpolated, irradiation_interpolated], axis=1, join='outer') 
         
-        df['ghi__W_m_2'] = df['ghi__J_h_1_cm_2']  * (100 * 100) / (60 * 60)
+        df['sol_ghi__W_m_2'] = df['ghi__J_h_1_cm_2']  * (100 * 100) / (60 * 60)
         df = df.drop('ghi__J_h_1_cm_2', axis=1)
 
         #oddly enough the column contains values that are minutely negative, which look weird and are impossible; hence: replace
-        df.loc[(df.ghi__W_m_2 < 0), 'ghi__W_m_2'] = 0
+        df.loc[(df.sol_ghi__W_m_2 < 0), 'sol_ghi__W_m_2'] = 0
        
         return df
 
