@@ -1072,13 +1072,17 @@ class Preprocessor:
     
         # Define bins and bin labels
         bins = [pd.Timedelta(minutes=1),  # Convert Timedelta to seconds
+                pd.Timedelta(minutes=5),
+                pd.Timedelta(minutes=10),
+                pd.Timedelta(minutes=15),
+                pd.Timedelta(minutes=30),
                 pd.Timedelta(hours=1),
                 pd.Timedelta(days=1),
                 pd.Timedelta(weeks=1),
                 pd.Timedelta(days=30),
                 pd.Timedelta(days=100000)]  # last is large number to represent infinity
         
-        bin_labels = ['[1T, 1H)', '[1H, 1D)', '[1D, 1W)', '[1W, 1M)', '[1M, inf)']
+        bin_labels = ['[1M, 5M)', '[5M, 10M)', '[10M, 15M)', '[15M, 30M)', '[30M, 1H)', '[1H, 1D)', '[1D, 1W)', '[1W, 1M)', '[1M, inf)']
         
         pd.cut(df_streaks['streak_cumulative_duration'], bins=bins, labels=bin_labels)
         
