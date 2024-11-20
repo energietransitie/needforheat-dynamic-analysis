@@ -1528,14 +1528,29 @@ class Learner():
                             # Reraise other exceptions to stop execution
                             raise
                 
-            # Now merge all learned job properties and parameters into cumulative DataFrames
-            all_learned_dstr_job_parameters= pd.concat(all_learned_dstr_job_parameters, axis=0).drop_duplicates()
-            all_learned_dstr_job_properties= pd.concat(all_learned_dstr_job_properties, axis=0).drop_duplicates()
         else:
-            #TODO simple case
-            print("Not implemented yet")       
-        return all_learned_dstr_job_parameters.sort_index()
+            for id, start, end in tqdm(df_dstr_analysis_jobs.index, desc=f"Analyzing heat distribution using 1 process"):
+                # Create df_learn for the current job
+                df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
+                                            (df_learn_all.index.get_level_values('timestamp') >= start) & 
+                                            (df_learn_all.index.get_level_values('timestamp') < end)]
+            
+                duration__min = (df_dstr_analysis_jobs.loc[(id, start, end)]['duration__min']*60)
     
+                df_learned_dstr_job_parameters, df_learned_dstr_job_properties = Learner.learn_heat_distribution(id, start, end,
+                                                                                                                 df_learn,
+                                                                                                                 duration__min, 60,
+                                                                                                                 property_sources, hints)
+                all_learned_dstr_job_properties.append(df_learned_dstr_job_properties)
+                all_learned_dstr_job_parameters.append(df_learned_dstr_job_parameters)    
+        
+        # Now merge all learned job properties and parameters into cumulative DataFrames
+        all_learned_dstr_job_parameters= pd.concat(all_learned_dstr_job_parameters, axis=0).drop_duplicates()
+        all_learned_dstr_job_properties= pd.concat(all_learned_dstr_job_properties, axis=0).drop_duplicates()
+
+        return all_learned_dstr_job_parameters.sort_index()    
+
+
 class Comfort():
 
     
