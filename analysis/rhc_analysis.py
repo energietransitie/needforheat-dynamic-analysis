@@ -130,7 +130,7 @@ class Learner():
         else:
             df_data['sanity'] = ~df_data[req_col].isna().any(axis="columns")
         
-        for id in ids:
+        for id in tqdm(ids, desc="Identifying learning periods per ID"):
             for learn_period_start in learn_period_starts:
                 learn_period_end = min(learn_period_start + timedelta(days=learn_period__d), end_analysis_period)
     
@@ -157,7 +157,7 @@ class Learner():
         df_data: pd.DataFrame,
         req_props: list,
         property_sources: dict,
-        duration_threshold: timedelta = timedelta(minutes=30)) -> pd.DataFrame:
+        duration_threshold_timedelta: timedelta = timedelta(minutes=30)) -> pd.DataFrame:
         """
         Create a list of jobs (id, start, end) based on consecutive streaks of data
         with non-NaN values in required columns and duration above a threshold.
@@ -201,15 +201,15 @@ class Learner():
                 streak_duration = end_time - start_time
     
                 # Only include streaks that meet the duration threshold
-                if streak_duration >= duration_threshold:
+                if streak_duration >= duration_threshold_timedelta:
                     jobs.append((id_, start_time, end_time))
     
         # Convert jobs to DataFrame
         job_df = pd.DataFrame(jobs, columns=['id', 'start', 'end'])
         job_df['duration'] =  job_df['end'] - job_df['start']
-        job_df['duration_minutes'] = job_df['duration'].dt.total_seconds() / 60  # Converts to minutes
+        job_df['duration__min'] = job_df['duration'].dt.total_seconds() / 60  # Converts to minutes
         
-        return job_df
+        return job_df.set_index(['id', 'start', 'end'])
     
 
     # Function to create a new results directory
@@ -450,8 +450,8 @@ class Learner():
         return df_learned_job_parameters, df_learned_job_properties
 
     
-    def learn_heat_distribution(df_learn,
-                                id, start, end,
+    def learn_heat_distribution(id, start, end,
+                                df_learn,
                                 duration__s, step__s,
                                 property_sources, hints) -> Tuple[pd.DataFrame, pd.DataFrame]:
         logging.info(f"learn heat distribution for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
@@ -1449,7 +1449,97 @@ class Learner():
         
         return df_learned_parameters.sort_index(), df_data.sort_index()
 
+    @staticmethod
+    def learn_heat_distribution_parameters(df_data:pd.DataFrame,
+                                           property_sources = None,
+                                           hints:dict = None,
+                                           req_props:list = None,
+                                           duration_threshold_timedelta:timedelta=timedelta(minutes=15),
+                                           parallel=False
+                                          ) -> pd.DataFrame:
 
+        if req_props is None:  # If req_col not set, use all property sources
+            req_col = list(property_sources.values())
+        else:
+            req_col = [property_sources[prop] for prop in req_props if prop in property_sources]
+
+        # focus only on the required columns
+        df_learn_all = df_data[req_col]
+        print("Identifying periods suitable for learning heat distribution characteristics...")
+        df_dstr_analysis_jobs = Learner.create_streak_job_list(df_data,
+                                                               req_props=req_props,
+                                                               property_sources= property_sources,
+                                                               duration_threshold_timedelta=duration_threshold_timedelta
+                                                              )
+        
+        # Initialize result lists
+        all_learned_dstr_job_properties = []
+        all_learned_dstr_job_parameters = []
+        
+        if parallel:
+            
+            num_jobs = df_dstr_analysis_jobs.shape[0]  # Get the number of jobs
+            num_workers = min(num_jobs, os.cpu_count())  # Use the lesser of number of jobs or 16 (or any other upper limit)
+            
+            with ProcessPoolExecutor() as executor:
+                # Submit tasks for each job
+                print(f"Processing {num_jobs} learning dstr jobs using {num_workers} processes")
+            
+                # Create a list to store futures for later result retrieval
+                futures = []
+                learned_dstr_jobs = {}
+                
+                with tqdm(total=num_jobs, desc="Learning heat distribution") as pbar:
+                    print(f"Submitting jobs to queue...")
+                    for id, start, end in df_dstr_analysis_jobs.index:
+                        # Create df_learn for the current job
+                        df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
+                                                    (df_learn_all.index.get_level_values('timestamp') >= start) & 
+                                                    (df_learn_all.index.get_level_values('timestamp') < end)]
+                    
+                        duration__min = (df_dstr_analysis_jobs.loc[(id, start, end)]['duration__min']*60)
+                      
+                    
+                        # Submit the analyze_job function to the executor
+                        future = executor.submit(Learner.learn_heat_distribution,
+                                                 id, start, end,
+                                                 df_learn,
+                                                 duration__min, 60,
+                                                 property_sources, hints)
+            
+                        futures.append(future)
+                        learned_dstr_jobs[(id, start, end)] = future
+            
+                
+                    # Collect results as they complete
+                    print(f"Processing results...")
+                    for future in as_completed(futures):
+                        pbar.update(1)  # Ensure progress bar updates even if there's an exception
+                        try:
+                            df_learned_dstr_job_parameters, df_learned_dstr_job_properties = future.result()
+                            all_learned_dstr_job_properties.append(df_learned_dstr_job_properties)
+                            all_learned_dstr_job_parameters.append(df_learned_dstr_job_parameters)
+                        except Exception as e:
+                            # Handle only the specific "Solution Not Found" error
+                            if "Solution Not Found" in str(e):
+                                # Find which job caused the error
+                                for (id, start, end), job_future in learned_dstr_jobs.items():
+                                    if job_future == future:
+                                        logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
+                                        break
+                                continue  # Skip this job and move on to the next one
+                            else:
+                                # Reraise other exceptions to stop execution
+                                raise
+                
+            # Now merge all learned job properties and parameters into cumulative DataFrames
+            all_learned_dstr_job_parameters= pd.concat(all_learned_dstr_job_parameters, axis=0).drop_duplicates()
+            all_learned_dstr_job_properties= pd.concat(all_learned_dstr_job_properties, axis=0).drop_duplicates()
+        else:
+            #TODO simple case
+            print("Not implemented yet")       
+        return all_learned_dstr_job_parameters.sort_index()
+    
 class Comfort():
 
     
