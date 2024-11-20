@@ -130,7 +130,7 @@ class Learner():
         else:
             df_data['sanity'] = ~df_data[req_col].isna().any(axis="columns")
         
-        for id in tqdm(ids, desc="Identifying learning periods per ID"):
+        for id in tqdm(ids, desc="Identifying learning jobs"):
             for learn_period_start in learn_period_starts:
                 learn_period_end = min(learn_period_start + timedelta(days=learn_period__d), end_analysis_period)
     
@@ -178,9 +178,9 @@ class Learner():
     
         # Initialize job list
         jobs = []
-    
+        
         # Iterate over each unique id
-        for id_, group in df_data.groupby(level='id'):
+        for id_, group in tqdm(df_data.groupby(level='id'), desc="Identifying learning jobs"):
             # Filter for rows where all required columns are not NaN
             group = group.droplevel('id')  # Drop 'id' level for easier handling
             group = group.loc[group[req_col].notna().all(axis=1)]
@@ -1465,7 +1465,6 @@ class Learner():
 
         # focus only on the required columns
         df_learn_all = df_data[req_col]
-        print("Identifying periods suitable for learning heat distribution characteristics...")
         df_dstr_analysis_jobs = Learner.create_streak_job_list(df_data,
                                                                req_props=req_props,
                                                                property_sources= property_sources,
@@ -1483,54 +1482,51 @@ class Learner():
             
             with ProcessPoolExecutor() as executor:
                 # Submit tasks for each job
-                print(f"Processing {num_jobs} learning dstr jobs using {num_workers} processes")
             
                 # Create a list to store futures for later result retrieval
                 futures = []
                 learned_dstr_jobs = {}
                 
-                with tqdm(total=num_jobs, desc="Learning heat distribution") as pbar:
-                    print(f"Submitting jobs to queue...")
-                    for id, start, end in df_dstr_analysis_jobs.index:
-                        # Create df_learn for the current job
-                        df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
-                                                    (df_learn_all.index.get_level_values('timestamp') >= start) & 
-                                                    (df_learn_all.index.get_level_values('timestamp') < end)]
-                    
-                        duration__min = (df_dstr_analysis_jobs.loc[(id, start, end)]['duration__min']*60)
-                      
-                    
-                        # Submit the analyze_job function to the executor
-                        future = executor.submit(Learner.learn_heat_distribution,
-                                                 id, start, end,
-                                                 df_learn,
-                                                 duration__min, 60,
-                                                 property_sources, hints)
-            
-                        futures.append(future)
-                        learned_dstr_jobs[(id, start, end)] = future
-            
+                # with tqdm(total=num_jobs, desc="Learning heat distribution") as pbar:
+                #     print(f"Submitting jobs to queue...")
+                for id, start, end in tqdm(df_dstr_analysis_jobs.index, desc=f"Submitting learning jobs to {num_workers} processes"):
+                    # Create df_learn for the current job
+                    df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
+                                                (df_learn_all.index.get_level_values('timestamp') >= start) & 
+                                                (df_learn_all.index.get_level_values('timestamp') < end)]
                 
-                    # Collect results as they complete
-                    print(f"Processing results...")
-                    for future in as_completed(futures):
-                        pbar.update(1)  # Ensure progress bar updates even if there's an exception
-                        try:
-                            df_learned_dstr_job_parameters, df_learned_dstr_job_properties = future.result()
-                            all_learned_dstr_job_properties.append(df_learned_dstr_job_properties)
-                            all_learned_dstr_job_parameters.append(df_learned_dstr_job_parameters)
-                        except Exception as e:
-                            # Handle only the specific "Solution Not Found" error
-                            if "Solution Not Found" in str(e):
-                                # Find which job caused the error
-                                for (id, start, end), job_future in learned_dstr_jobs.items():
-                                    if job_future == future:
-                                        logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
-                                        break
-                                continue  # Skip this job and move on to the next one
-                            else:
-                                # Reraise other exceptions to stop execution
-                                raise
+                    duration__min = (df_dstr_analysis_jobs.loc[(id, start, end)]['duration__min']*60)
+                  
+                
+                    # Submit the analyze_job function to the executor
+                    future = executor.submit(Learner.learn_heat_distribution,
+                                             id, start, end,
+                                             df_learn,
+                                             duration__min, 60,
+                                             property_sources, hints)
+        
+                    futures.append(future)
+                    learned_dstr_jobs[(id, start, end)] = future
+        
+            
+                # Collect results as they complete
+                for future in tqdm(as_completed(futures), desc=f"Collecting results from {num_workers} processes"):
+                    try:
+                        df_learned_dstr_job_parameters, df_learned_dstr_job_properties = future.result()
+                        all_learned_dstr_job_properties.append(df_learned_dstr_job_properties)
+                        all_learned_dstr_job_parameters.append(df_learned_dstr_job_parameters)
+                    except Exception as e:
+                        # Handle only the specific "Solution Not Found" error
+                        if "Solution Not Found" in str(e):
+                            # Find which job caused the error
+                            for (id, start, end), job_future in learned_dstr_jobs.items():
+                                if job_future == future:
+                                    logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
+                                    break
+                            continue  # Skip this job and move on to the next one
+                        else:
+                            # Reraise other exceptions to stop execution
+                            raise
                 
             # Now merge all learned job properties and parameters into cumulative DataFrames
             all_learned_dstr_job_parameters= pd.concat(all_learned_dstr_job_parameters, axis=0).drop_duplicates()
