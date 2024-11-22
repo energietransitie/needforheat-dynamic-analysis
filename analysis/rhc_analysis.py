@@ -147,7 +147,8 @@ class Learner():
                 ))
     
         # Drop the columns created during the process
-        df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'], inplace=True)
+        # df_data.drop(columns=['streak_id', 'streak_cumulative_duration__s', 'interval__s', 'sanity'], inplace=True)
+        df_data.drop(columns=['sanity'], inplace=True)
     
         # Return jobs as a DataFrame
         return pd.DataFrame(jobs, columns=['id', 'start', 'end']).set_index(['id', 'start', 'end'])
@@ -338,10 +339,13 @@ class Learner():
                           id, start, end,
                           duration__s, step__s,
                           property_sources, hints, learn, learn_change_interval__min,
-                          bldng__m3, floors__m2,
+                          bldng_data,
                           actual_parameter_values
                          ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
+        bldng__m3 = bldng_data['bldng__m3']
+        floors__m2 = bldng_data['floors__m2']
+        
         logging.info(f"learn ventilation rate for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
 
         ##################################################################################################################
@@ -554,7 +558,7 @@ class Learner():
                                  id, start, end,
                                  duration__s, step__s,
                                  property_sources, hints, learn,
-                                 bldng__m3,
+                                 bldng_data,
                                  actual_parameter_values) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Learn thermal parameters for a building's heating system using GEKKO.
@@ -564,8 +568,11 @@ class Learner():
         property_sources (dict): Dictionary mapping property names to their corresponding columns in df_learn.
         hints (dict): Dictionary containing default values for the various parameters.
         learn (list): List of parameters to be learned.
-        bldng__m3 (float): Volume of the building in m3.
+        bldng_data: dictionary containing at least:
+        - bldng__m3 (float): Volume of the building in m3.
         """
+        
+        bldng__m3 = bldng_data['bldng__m3']
         
         logging.info(f"learn_thermal_parameters for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
 
@@ -600,184 +607,158 @@ class Learner():
         
         heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W)
     
-       # Heat distribution system
+        # Heat distribution system
         temp_flow_ch__degC = m.MV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values)
         temp_flow_ch__degC.STATUS = 0
         temp_flow_ch__degC.FSTATUS = 1
 
-        if 'heat_tr_dstr__W_K_1' in learn and 'th_mass_dstr__Wh_K_1' in learn:
-        # Learn heat distribution system parameters
-            heat_tr_dstr__W_K_1 = m.FV(value=hints['heat_tr_dstr__W_K_1'], lb=0, ub=1000)
-            heat_tr_dstr__W_K_1.STATUS = 1
-            heat_tr_dstr__W_K_1.FSTATUS = 0
-
-            th_mass_dstr__Wh_K_1 = m.FV(value=hints['th_mass_dstr__Wh_K_1'], lb=0, ub=10000)
-            th_mass_dstr__Wh_K_1.STATUS = 1
-            th_mass_dstr__Wh_K_1.FSTATUS = 0
+        #TO DO: calculate return temperatures for what-if simulations
+        temp_ret_ch__degC = m.MV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
+        temp_ret_ch__degC.STATUS = 0
+        temp_ret_ch__degC.FSTATUS = 1
         
-            temp_ret_ch__degC = m.CV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
-            temp_ret_ch__degC.STATUS = 1
-            temp_ret_ch__degC.FSTATUS = 1
+        temp_indoor__degC = m.CV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
+        temp_indoor__degC.STATUS = 1
+        temp_indoor__degC.FSTATUS = 1
 
-            temp_indoor__degC = m.MV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
-            temp_indoor__degC.STATUS = 0
-            temp_indoor__degC.FSTATUS = 1
-        
-            # Define temp_dstr__degC as a GEKKO variable
-            temp_dstr__degC = m.Var(value=(df_learn[property_sources['temp_flow_ch__degC']].iloc[0] + 
-                                           df_learn[property_sources['temp_ret_ch__degC']].iloc[0]) / 2)
-            
-            heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
+        # assume immediate and full heat distribution
+        heat_dstr__W = heat_ch__W
+
+        # # If possible, use the learned heat transmissivity of the heat distribution system, otherwise use a generic value
+        # if pd.notna(bldng_data['learned_heat_tr_dstr__W_K_1']) & pd.notna(bldng_data['learned_th_mass_dstr__Wh_K_1']):
+        #     # Heat distribution characteristics were learned; use them:
+        #     heat_tr_dstr__W_K_1 =  m.Param(value=bldng_data['learned_heat_tr_dstr__W_K_1'])
+        #     th_mass_dstr__Wh_K_1 =  m.Param(value=bldng_data['learned_th_mass_dstr__Wh_K_1'])
+        #     #TO DO: calculate return temperatures for what-if simulations
+        #     temp_dstr__degC = m.Intermediate((temp_flow_ch__degC + temp_ret_ch__degC) / 2)
+        #     heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
+        # else:
+        #     # If the heat distribution system parameters were not learned, assume immediate and full heat distribution 
+        #     heat_dstr__W = heat_ch__W
     
-            # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
-            m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / (th_mass_dstr__Wh_K_1 * s_h_1))
-
+        ##################################################################################################################
+        # Solar heat gains
+        ##################################################################################################################
+    
+        if 'aperture_sol__m2' in learn:
+            aperture_sol__m2 = m.FV(value=hints['aperture_sol__m2'], lb=1, ub=100)
+            aperture_sol__m2.STATUS = 1
+            aperture_sol__m2.FSTATUS = 0
         else:
-            # Learn other thermal parameters
-            heat_tr_dstr__W_K_1 = m.Param(value = hints['heat_tr_dstr__W_K_1'])
-            th_mass_dstr__Wh_K_1 = m.Param(value = hints['th_mass_dstr__Wh_K_1'])
+            aperture_sol__m2 = m.Param(value=hints['aperture_sol__m2'])
+    
+        sol_ghi__W_m_2 = m.MV(value=df_learn[property_sources['sol_ghi__W_m_2']].astype('float32').values)
+        sol_ghi__W_m_2.STATUS = 0
+        sol_ghi__W_m_2.FSTATUS = 1
+    
+        heat_sol__W = m.Intermediate(sol_ghi__W_m_2 * aperture_sol__m2)
+    
+        ##################################################################################################################
+        ## Internal heat gains ##
+        ##################################################################################################################
 
-            temp_ret_ch__degC = m.MV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
-            temp_ret_ch__degC.STATUS = 0
-            temp_ret_ch__degC.FSTATUS = 1
-            
-            temp_indoor__degC = m.CV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
-            temp_indoor__degC.STATUS = 1
-            temp_indoor__degC.FSTATUS = 1
-    
-    
-            # # Define temp_dstr__degC as a GEKKO variable
-            # temp_dstr__degC = m.Intermediate((temp_flow_ch__degC + temp_ret_ch__degC) / 2)
-            
-            # # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
-            # heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
+        # Heat gains from domestic hot water
 
-            # as long as we don't learn heat distribution system parameters, assume immediate and full heat distribution 
-            heat_dstr__W = heat_ch__W
+        g_use_dhw_hhv__W = m.MV(value = df_learn[property_sources['g_use_dhw_hhv__W']].astype('float32').values)
+        g_use_dhw_hhv__W.STATUS = 0; g_use_dhw_hhv__W.FSTATUS = 1
+        heat_g_dhw__W = m.Intermediate(g_use_dhw_hhv__W * hints['eta_dhw_hhv__W0'] * hints['frac_remain_dhw__0'])
+
+        # Heat gains from cooking
+        heat_g_cooking__W = m.Param(hints['g_use_cooking_hhv__W'] * hints['eta_cooking_hhv__W0'] * hints['frac_remain_cooking__0'])
+
+        # Heat gains from electricity
+        # we assume all electricity is used indoors and turned into heat
+        heat_e__W = m.MV(value = df_learn[property_sources['e__W']].astype('float32').values)
+        heat_e__W.STATUS = 0; heat_e__W.FSTATUS = 1
+
+        # Heat gains from occupants
+        if 'ventilation__dm3_s_1' in learn:
+            # calculate using actual occupancy and average heat gain per occupant
+            occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values)
+            occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
+            heat_int_occupancy__W = m.Intermediate(occupancy__p * hints['heat_int__W_p_1'])
+        else:
+            # calculate using average occupancy and average heat gain per occupant
+            heat_int_occupancy__W = m.Param(hints['occupancy__p'] * hints['heat_int__W_p_1'])
+
+        # Sum of all 'internal' heat gains 
+        heat_int__W = m.Intermediate(heat_g_dhw__W + heat_g_cooking__W + heat_e__W + heat_int_occupancy__W)
         
-            ##################################################################################################################
-            # Solar heat gains
-            ##################################################################################################################
-        
-            if 'aperture_sol__m2' in learn:
-                aperture_sol__m2 = m.FV(value=hints['aperture_sol__m2'], lb=1, ub=100)
-                aperture_sol__m2.STATUS = 1
-                aperture_sol__m2.FSTATUS = 0
-            else:
-                aperture_sol__m2 = m.Param(value=hints['aperture_sol__m2'])
-        
-            sol_ghi__W_m_2 = m.MV(value=df_learn[property_sources['sol_ghi__W_m_2']].astype('float32').values)
-            sol_ghi__W_m_2.STATUS = 0
-            sol_ghi__W_m_2.FSTATUS = 1
-        
-            heat_sol__W = m.Intermediate(sol_ghi__W_m_2 * aperture_sol__m2)
-        
-            ##################################################################################################################
-            ## Internal heat gains ##
-            ##################################################################################################################
+        ##################################################################################################################
+        # Conductive heat losses
+        ##################################################################################################################
     
-            # Heat gains from domestic hot water
+        if 'heat_tr_bldng_cond__W_K_1' in learn:
+            heat_tr_bldng_cond__W_K_1 = m.FV(value=hints['heat_tr_bldng_cond__W_K_1'], lb=0, ub=1000)
+            heat_tr_bldng_cond__W_K_1.STATUS = 1
+            heat_tr_bldng_cond__W_K_1.FSTATUS = 0
+        else:
+            heat_tr_bldng_cond__W_K_1 = hints['heat_tr_bldng_cond__W_K_1']
     
-            g_use_dhw_hhv__W = m.MV(value = df_learn[property_sources['g_use_dhw_hhv__W']].astype('float32').values)
-            g_use_dhw_hhv__W.STATUS = 0; g_use_dhw_hhv__W.FSTATUS = 1
-            heat_g_dhw__W = m.Intermediate(g_use_dhw_hhv__W * hints['eta_dhw_hhv__W0'] * hints['frac_remain_dhw__0'])
+        temp_outdoor__degC = m.MV(value=df_learn[property_sources['temp_outdoor__degC']].astype('float32').values)
+        temp_outdoor__degC.STATUS = 0
+        temp_outdoor__degC.FSTATUS = 1
     
-            # Heat gains from cooking
-            heat_g_cooking__W = m.Param(hints['g_use_cooking_hhv__W'] * hints['eta_cooking_hhv__W0'] * hints['frac_remain_cooking__0'])
+        indoor_outdoor_delta__K = m.Intermediate(temp_indoor__degC - temp_outdoor__degC)
     
-            # Heat gains from electricity
-            # we assume all electricity is used indoors and turned into heat
-            heat_e__W = m.MV(value = df_learn[property_sources['e__W']].astype('float32').values)
-            heat_e__W.STATUS = 0; heat_e__W.FSTATUS = 1
+        heat_loss_bldng_cond__W = m.Intermediate(heat_tr_bldng_cond__W_K_1 * indoor_outdoor_delta__K)
     
-            # Heat gains from occupants
-            if 'ventilation__dm3_s_1' in learn:
-                # calculate using actual occupancy and average heat gain per occupant
-                occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values)
-                occupancy__p.STATUS = 0; occupancy__p.FSTATUS = 1
-                heat_int_occupancy__W = m.Intermediate(occupancy__p * hints['heat_int__W_p_1'])
-            else:
-                # calculate using average occupancy and average heat gain per occupant
-                heat_int_occupancy__W = m.Param(hints['occupancy__p'] * hints['heat_int__W_p_1'])
+        ##################################################################################################################
+        # Infiltration and ventilation heat losses
+        ##################################################################################################################
     
-            # Sum of all 'internal' heat gains 
-            heat_int__W = m.Intermediate(heat_g_dhw__W + heat_g_cooking__W + heat_e__W + heat_int_occupancy__W)
+        wind__m_s_1 = m.MV(value=df_learn[property_sources['wind__m_s_1']].astype('float32').values)
+        wind__m_s_1.STATUS = 0
+        wind__m_s_1.FSTATUS = 1
+    
+        if 'aperture_inf__cm2' in learn:
+            aperture_inf__cm2 = m.FV(value=hints['aperture_inf__cm2'], lb=0, ub=100000.0)
+            aperture_inf__cm2.STATUS = 1
+            aperture_inf__cm2.FSTATUS = 0
+        else:
+            aperture_inf__cm2 = m.Param(value=hints['aperture_inf__cm2'])
+    
+        air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2)
+        heat_tr_bldng_inf__W_K_1 = m.Intermediate(air_inf__m3_s_1 * air_room__J_m_3_K_1)
+        heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * indoor_outdoor_delta__K)
+    
+        if 'ventilation__dm3_s_1' in learn:
+            # in this model, we treat ventilation__dm3_s_1 as if it were measured, but it was learned earlier learn_property_ventilation_rate()  
+            ventilation__dm3_s_1 = m.MV(value=df_learn['learned_ventilation__dm3_s_1'].astype('float32').values)
+            ventilation__dm3_s_1.STATUS = 0
+            ventilation__dm3_s_1.FSTATUS = 1
             
-            ##################################################################################################################
-            # Conductive heat losses
-            ##################################################################################################################
+            air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3))
+            heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1)
+            heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * indoor_outdoor_delta__K)
+        else:
+            heat_tr_bldng_vent__W_K_1 = 0
+            heat_loss_bldng_vent__W = 0
+
+        ##################################################################################################################
+        ## Thermal inertia ##
+        ##################################################################################################################
+                    
+        # Thermal inertia of the building
+        if 'th_inert_bldng__h' in learn:
+            # Learn thermal inertia
+            th_inert_bldng__h = m.FV(value = hints['th_inert_bldng__h'], lb=(10), ub=(1000))
+            th_inert_bldng__h.STATUS = 1; th_inert_bldng__h.FSTATUS = 0
+        else:
+            # Do not learn thermal inertia of the building, but use a fixed value based on hint
+            th_inert_bldng__h = m.Param(value = hints['th_inert_bldng__h'])
+            learned_th_inert_bldng__h = np.nan
         
-            if 'heat_tr_bldng_cond__W_K_1' in learn:
-                heat_tr_bldng_cond__W_K_1 = m.FV(value=hints['heat_tr_bldng_cond__W_K_1'], lb=0, ub=1000)
-                heat_tr_bldng_cond__W_K_1.STATUS = 1
-                heat_tr_bldng_cond__W_K_1.FSTATUS = 0
-            else:
-                heat_tr_bldng_cond__W_K_1 = hints['heat_tr_bldng_cond__W_K_1']
-        
-            temp_outdoor__degC = m.MV(value=df_learn[property_sources['temp_outdoor__degC']].astype('float32').values)
-            temp_outdoor__degC.STATUS = 0
-            temp_outdoor__degC.FSTATUS = 1
-        
-            indoor_outdoor_delta__K = m.Intermediate(temp_indoor__degC - temp_outdoor__degC)
-        
-            heat_loss_bldng_cond__W = m.Intermediate(heat_tr_bldng_cond__W_K_1 * indoor_outdoor_delta__K)
-        
-            ##################################################################################################################
-            # Infiltration and ventilation heat losses
-            ##################################################################################################################
-        
-            wind__m_s_1 = m.MV(value=df_learn[property_sources['wind__m_s_1']].astype('float32').values)
-            wind__m_s_1.STATUS = 0
-            wind__m_s_1.FSTATUS = 1
-        
-            if 'aperture_inf__cm2' in learn:
-                aperture_inf__cm2 = m.FV(value=hints['aperture_inf__cm2'], lb=0, ub=100000.0)
-                aperture_inf__cm2.STATUS = 1
-                aperture_inf__cm2.FSTATUS = 0
-            else:
-                aperture_inf__cm2 = m.Param(value=hints['aperture_inf__cm2'])
-        
-            air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2)
-            heat_tr_bldng_inf__W_K_1 = m.Intermediate(air_inf__m3_s_1 * air_room__J_m_3_K_1)
-            heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * indoor_outdoor_delta__K)
-        
-            if 'ventilation__dm3_s_1' in learn:
-                # in this model, we treat ventilation__dm3_s_1 as if it were measured, but it was learned earlier learn_property_ventilation_rate()  
-                ventilation__dm3_s_1 = m.MV(value=df_learn['learned_ventilation__dm3_s_1'].astype('float32').values)
-                ventilation__dm3_s_1.STATUS = 0
-                ventilation__dm3_s_1.FSTATUS = 1
-                
-                air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3))
-                heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1)
-                heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * indoor_outdoor_delta__K)
-            else:
-                heat_tr_bldng_vent__W_K_1 = 0
-                heat_loss_bldng_vent__W = 0
-    
-            ##################################################################################################################
-            ## Thermal inertia ##
-            ##################################################################################################################
-                        
-            # Thermal inertia of the building
-            if 'th_inert_bldng__h' in learn:
-                # Learn thermal inertia
-                th_inert_bldng__h = m.FV(value = hints['th_inert_bldng__h'], lb=(10), ub=(1000))
-                th_inert_bldng__h.STATUS = 1; th_inert_bldng__h.FSTATUS = 0
-            else:
-                # Do not learn thermal inertia of the building, but use a fixed value based on hint
-                th_inert_bldng__h = m.Param(value = hints['th_inert_bldng__h'])
-                learned_th_inert_bldng__h = np.nan
-            
-            ##################################################################################################################
-            ### Heat balance ###
-            ##################################################################################################################
-    
-            heat_gain_bldng__W = m.Intermediate(heat_dstr__W + heat_sol__W + heat_int__W)
-            heat_loss_bldng__W = m.Intermediate(heat_loss_bldng_cond__W + heat_loss_bldng_inf__W + heat_loss_bldng_vent__W)
-            heat_tr_bldng__W_K_1 = m.Intermediate(heat_tr_bldng_cond__W_K_1 + heat_tr_bldng_inf__W_K_1 + heat_tr_bldng_vent__W_K_1)
-            th_mass_bldng__Wh_K_1  = m.Intermediate(heat_tr_bldng__W_K_1 * th_inert_bldng__h) 
-            m.Equation(temp_indoor__degC.dt() == ((heat_gain_bldng__W - heat_loss_bldng__W)  / (th_mass_bldng__Wh_K_1 * s_h_1)))
-    
+        ##################################################################################################################
+        ### Heat balance ###
+        ##################################################################################################################
+
+        heat_gain_bldng__W = m.Intermediate(heat_dstr__W + heat_sol__W + heat_int__W)
+        heat_loss_bldng__W = m.Intermediate(heat_loss_bldng_cond__W + heat_loss_bldng_inf__W + heat_loss_bldng_vent__W)
+        heat_tr_bldng__W_K_1 = m.Intermediate(heat_tr_bldng_cond__W_K_1 + heat_tr_bldng_inf__W_K_1 + heat_tr_bldng_vent__W_K_1)
+        th_mass_bldng__Wh_K_1  = m.Intermediate(heat_tr_bldng__W_K_1 * th_inert_bldng__h) 
+        m.Equation(temp_indoor__degC.dt() == ((heat_gain_bldng__W - heat_loss_bldng__W)  / (th_mass_bldng__Wh_K_1 * s_h_1)))
+
         ##################################################################################################################
         # Solve the model to start the learning process
         ##################################################################################################################
@@ -838,7 +819,7 @@ class Learner():
             'comfortable__bool',
             'temp_indoor__degC',
             'temp_outdoor__degC',
-            'temp_ch_sup_max__degC'
+            'temp_flow_ch_max__degC'
         ]
     
         for prop in properties_mean:
@@ -941,11 +922,11 @@ class Learner():
     def analyze_job(id, start, end, 
                     df_learn, 
                     property_sources, hints, learn, learn_change_interval__min,
-                    bldng__m3, floors__m2,
+                    bldng_data,
                     actual_parameter_values,
                     results_dir):
-        logging.info(f'Analyzing job for ID: {id}, Building Volume: {bldng__m3} m³, Floors: {floors__m2} m²')
-        
+        logging.info(f'Analyzing job for ID: {id}, Building data: {bldng_data}')
+
         if df_learn is None or df_learn.empty:
             logging.warning(f"No data available for job ID: {id}. Skipping job.")
             return None, None
@@ -1002,8 +983,7 @@ class Learner():
                     hints,
                     learn,
                     learn_change_interval__min,
-                    bldng__m3,
-                    floors__m2,
+                    bldng_data,
                     actual_parameter_values=actual_parameter_values
                 )
     
@@ -1038,7 +1018,7 @@ class Learner():
                 property_sources,
                 hints,
                 learn,
-                bldng__m3,
+                bldng_data,
                 actual_parameter_values=actual_parameter_values
             )
     
@@ -1063,7 +1043,7 @@ class Learner():
                                          learn:List[str] = None,
                                          learn_period__d=7, 
                                          learn_change_interval__min = None,
-                                         req_col:list = None,
+                                         req_props:list = None,
                                          sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                                          complete_most_recent_analysis=False,
                                          parallel=False
@@ -1089,9 +1069,9 @@ class Learner():
               - property_sources['temp_flow_ch__degC']: Temperture of hot water supplied by the heat generation system to the heat distributon system
               - property_sources['temp_ret_ch__degC']: Temperture of hot water returned to the heat generation system from the heat distributon system
         - 'property_sources', a dictionary that maps key listed above to actual column names in df_data
-        - 'req_col' list: a list of column names: 
+        - 'req_props' list: a list of properties, occuring as keys in property_sources: 
             - If any of the values in this column are NaN, the interval is not considered 'sane'.
-            - If you do not specify a value for req_col or specify req_col = None, then all properties from the property_sources dictionary are considered required
+            - If you do not specify a value for req_props or specify req_props = None, then all properties from the property_sources dictionary are considered required
             - to speficy NO columns are required, specify property_sources = []
         - a df_metadata with index 'id' and columns:
             - none (this feature is not used in the current implementation yet, but added here for consistentcy with the learn_room_parameters() function)
@@ -1190,7 +1170,7 @@ class Learner():
         if parallel:
             df_analysis_jobs = Learner.create_job_list(df_data,
                                           learn_period__d=learn_period__d,
-                                          req_col=req_col,
+                                          req_props=req_props,
                                           property_sources=property_sources,
                                           sanity_threshold_timedelta=sanity_threshold_timedelta
                                          )
@@ -1218,8 +1198,8 @@ class Learner():
                                                (df_data.index.get_level_values('timestamp') >= start) & 
                                                (df_data.index.get_level_values('timestamp') < end)]
                         # Extracting building-specific data for each job
-                        bldng__m3 = df_bldng_data.loc[id]['bldng__m3']
-                        floors__m2 = df_bldng_data.loc[id]['floors__m2']
+                        bldng_data = df_bldng_data.loc[id].to_dict()
+
                         if any(df_data.columns.str.startswith('model_')): 
                             # Get actual values of parameters of this id (if available)
                             actual_parameter_values = Learner.get_actual_parameter_values(id, 
@@ -1235,7 +1215,7 @@ class Learner():
                                                  id, start, end, 
                                                  df_learn, 
                                                  property_sources, hints, learn, learn_change_interval__min,
-                                                 bldng__m3, floors__m2,
+                                                 bldng_data,
                                                  actual_parameter_values,
                                                  results_dir)
     
@@ -1287,8 +1267,11 @@ class Learner():
                 
            
             # perform sanity check; not any of the required column values may be missing a value
-            if req_col is None: # then we assume all properties from property_sources are required
+            if req_props is None: # then we assume all properties from property_sources are required
                 req_col = list(property_sources.values())
+            else:
+                req_col = [property_sources[prop] for prop in req_props if prop in property_sources]
+
             if not req_col: # then the caller explicitly set the list to be empty
                 df_data.loc[:,'sanity'] = True
             else:
@@ -1308,9 +1291,9 @@ class Learner():
                 else: 
                     actual_parameter_values = None
     
-                # Get bldng__m3 and floors__m2 from building-specific table
-                bldng__m3 = df_bldng_data.loc[id]['bldng__m3']
-                floors__m2 = df_bldng_data.loc[id]['floors__m2']
+                # Get building specific data for each job
+                bldng_data = df_bldng_data.loc[id].to_dict()
+
     
                 learn_period_starts = pd.date_range(start=start_analysis_period, end=end_analysis_period, inclusive='both', freq=daterange_frequency)
     
@@ -1364,8 +1347,7 @@ class Learner():
                                     hints,
                                     learn,
                                     learn_change_interval__min,
-                                    bldng__m3,
-                                    floors__m2,
+                                    bldng_data,
                                     actual_parameter_values = actual_parameter_values
                                 )
                                 logging.info(f"Learned ventilation rates for {id} from {learn_streak_period_start} to {learn_streak_period_end}")
@@ -1394,7 +1376,7 @@ class Learner():
                                 property_sources, 
                                 hints, 
                                 learn, 
-                                bldng__m3,
+                                bldng_data,
                                 actual_parameter_values = actual_parameter_values
                             )
     
