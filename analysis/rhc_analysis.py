@@ -608,14 +608,14 @@ class Learner():
         heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W)
     
         # Heat distribution system
-        temp_flow_ch__degC = m.MV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values)
-        temp_flow_ch__degC.STATUS = 0  # No optimization
-        temp_flow_ch__degC.FSTATUS = 1 # Use the measured values
+        temp_flow__degC = m.MV(value=df_learn[property_sources['temp_flow__degC']].astype('float32').values)
+        temp_flow__degC.STATUS = 0  # No optimization
+        temp_flow__degC.FSTATUS = 1 # Use the measured values
 
         #TO DO: calculate return temperatures for what-if simulations
-        temp_ret_ch__degC = m.MV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
-        temp_ret_ch__degC.STATUS = 0  # No optimization
-        temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
+        temp_ret__degC = m.MV(value=df_learn[property_sources['temp_ret__degC']].astype('float32').values)
+        temp_ret__degC.STATUS = 0  # No optimization
+        temp_ret__degC.FSTATUS = 1 # Use the measured values
         
         temp_indoor__degC = m.CV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
         temp_indoor__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
@@ -630,7 +630,7 @@ class Learner():
         #     heat_tr_dstr__W_K_1 =  m.Param(value=bldng_data['learned_heat_tr_dstr__W_K_1'])
         #     th_mass_dstr__Wh_K_1 =  m.Param(value=bldng_data['learned_th_mass_dstr__Wh_K_1'])
         #     #TO DO: calculate return temperatures for what-if simulations
-        #     temp_dstr__degC = m.Intermediate((temp_flow_ch__degC + temp_ret_ch__degC) / 2)
+        #     temp_dstr__degC = m.Intermediate((temp_flow__degC + temp_ret__degC) / 2)
         #     heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
         # else:
         #     # If the heat distribution system parameters were not learned, assume immediate and full heat distribution 
@@ -818,8 +818,8 @@ class Learner():
         # Calculate periodical averages, which include Energy Case metrics
         properties_mean = [
             'temp_set__degC',
-            'temp_flow_ch__degC',
-            'temp_ret_ch__degC',
+            'temp_flow__degC',
+            'temp_ret__degC',
             'comfortable__bool',
             'temp_indoor__degC',
             'temp_outdoor__degC',
@@ -1070,8 +1070,10 @@ class Learner():
               - property_sources['eta_dhw_hhv__W0']: efficiency (against higher heating value) of turning gas power into heat
               - property_sources['g_use_dhw_hhv__W']: gas input power (using higher heating value) used for domestic hot water
               - property_sources['e__W']: electricity power used indoors
-              - property_sources['temp_flow_ch__degC']: Temperture of hot water supplied by the heat generation system to the heat distributon system
-              - property_sources['temp_ret_ch__degC']: Temperture of hot water returned to the heat generation system from the heat distributon system
+              - property_sources['temp_flow__degC']: Temperture of hot water flow temperature, measured inside the boiler
+              - property_sources['temp_ret__degC']: Temperture of hot water return temperature, measured inside the boiler
+              - property_sources['temp_flow_ch__degC']: Temperture of hot water flow temperature, filtered to represent the supply temperature to the heat distributon system
+              - property_sources['temp_ret_ch__degC']: Temperture of hot water return temperature, filtered to represent only the return temperature from the heat distributon system
         - 'property_sources', a dictionary that maps key listed above to actual column names in df_data
         - 'req_props' list: a list of properties, occuring as keys in property_sources: 
             - If any of the values in this column are NaN, the interval is not considered 'sane'.
@@ -1473,8 +1475,6 @@ class Learner():
                 futures = []
                 learned_dstr_jobs = {}
                 
-                # with tqdm(total=num_jobs, desc="Learning heat distribution") as pbar:
-                #     print(f"Submitting jobs to queue...")
                 for id, start, end in tqdm(df_dstr_analysis_jobs.index, desc=f"Submitting learning jobs to {num_workers} processes"):
                     # Create df_learn for the current job
                     df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
@@ -1496,23 +1496,26 @@ class Learner():
         
             
                 # Collect results as they complete
-                for future in tqdm(as_completed(futures), desc=f"Collecting results from {num_workers} processes"):
-                    try:
-                        df_learned_dstr_job_parameters, df_learned_dstr_job_properties = future.result()
-                        all_learned_dstr_job_properties.append(df_learned_dstr_job_properties)
-                        all_learned_dstr_job_parameters.append(df_learned_dstr_job_parameters)
-                    except Exception as e:
-                        # Handle only the specific "Solution Not Found" error
-                        if "Solution Not Found" in str(e):
-                            # Find which job caused the error
-                            for (id, start, end), job_future in learned_dstr_jobs.items():
-                                if job_future == future:
-                                    logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
-                                    break
-                            continue  # Skip this job and move on to the next one
-                        else:
-                            # Reraise other exceptions to stop execution
-                            raise
+                with tqdm(total=len(futures), desc=f"Collecting results from {num_workers} processes") as pbar:
+                    for future in as_completed(futures):
+                        try:
+                            df_learned_dstr_job_parameters, df_learned_dstr_job_properties = future.result()
+                            all_learned_dstr_job_properties.append(df_learned_dstr_job_properties)
+                            all_learned_dstr_job_parameters.append(df_learned_dstr_job_parameters)
+                        except Exception as e:
+                            # Handle only the specific "Solution Not Found" error
+                            if "Solution Not Found" in str(e):
+                                # Find which job caused the error
+                                for (id, start, end), job_future in learned_dstr_jobs.items():
+                                    if job_future == future:
+                                        logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
+                                        break
+                                continue  # Skip this job and move on to the next one
+                            else:
+                                # Reraise other exceptions to stop execution
+                                raise
+                        finally:
+                            pbar.update(1)
                 
         else:
             for id, start, end in tqdm(df_dstr_analysis_jobs.index, desc=f"Analyzing heat distribution using 1 process"):
