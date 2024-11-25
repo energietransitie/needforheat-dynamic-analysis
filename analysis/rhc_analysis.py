@@ -507,13 +507,12 @@ class Learner():
         temp_indoor__degC.STATUS = 0  # No optimization
         temp_indoor__degC.FSTATUS = 1 # Use the measured values
     
-        # Define temp_dstr__degC as a GEKKO variable
+        # Define an initial value for temp_dstr__degC
         temp_dstr__degC = m.Var(value=(df_learn[property_sources['temp_flow_ch__degC']].iloc[0] + 
                                        df_learn[property_sources['temp_ret_ch__degC']].iloc[0]) / 2)
         
         heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
 
-        # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
         m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / (th_mass_dstr__Wh_K_1 * s_h_1))
         
         ##################################################################################################################
