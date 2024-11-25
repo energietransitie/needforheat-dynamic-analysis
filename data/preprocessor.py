@@ -265,6 +265,78 @@ class Preprocessor:
     
         return df_result
 
+    
+    @staticmethod
+    def filter_streak_start_of_flow_return_temps(df: pd.DataFrame,
+                                                 flow_and_return_cols,
+                                                 remove_first__min=3,
+                                                 inplace=True) -> pd.DataFrame:
+        """
+        Filters flow and return temperature columns by excluding the first `remove_first__min`
+        minutes of valid streaks in the data.
+    
+        Parameters:
+        - df: pd.DataFrame
+            Input dataframe with a MultiIndex containing 'id' and 'timestamp'.
+        - flow_and_return_cols: list
+            List of flow and return temperature property names.
+        - remove_first__min: int, default=3
+            Number of initial valid rows to exclude per streak.
+        - inplace: bool, default=True
+            If True, modifies the input dataframe directly. If False, returns a copy.
+    
+        Returns:
+        - pd.DataFrame
+            The dataframe with filtered flow and return temperature columns.
+        """
+
+        if not len(df):
+            return df
+
+        missing_cols = [col for col in flow_and_return_cols if col not in df.columns]
+        if missing_cols:
+            raise ValueError(f"Missing columns: {', '.join(missing_cols)}")
+        
+        # If no columns are missing, proceed with the rest of the function
+        df_result = df
+        if not inplace:
+            df_result = df.copy(deep=True)
+    
+   
+        # Step 1: Determine the initial mask
+        initial_mask = df_result[flow_and_return_cols].notna().all(axis=1)
+    
+        # Step 2: Ensure streaks are calculated per `id`
+        id_array = df_result.index.get_level_values('id').to_numpy()
+        streak_ids = (~initial_mask).cumsum() + (id_array != np.roll(id_array, 1)).cumsum()
+    
+        # Step 3: Exclude the first `remove_first__min` rows of each streak
+        streak_df = pd.DataFrame({
+            'streak_ids': streak_ids,
+            'mask': initial_mask
+        }, index=df_result.index).reset_index()
+    
+        # Keep only rows where `initial_mask` is True
+        streak_df = streak_df[streak_df['mask']]
+    
+        # Rank rows within each streak (and id)
+        streak_df['rank'] = streak_df.groupby(['id', 'streak_ids']).cumcount()
+    
+        # Identify rows to exclude (rank < remove_first__min)
+        exclude_streak_rows = streak_df['rank'] < remove_first__min
+    
+        # Build the final valid_indices mask
+        valid_indices = ~exclude_streak_rows.reindex(index=np.arange(len(df_result)), fill_value=False).to_numpy()
+    
+        # Combine masks
+        learn_heat_dstr_mask = initial_mask & valid_indices
+    
+        # Apply mask to filter flow and return columns
+        df_result.loc[~learn_heat_dstr_mask, flow_and_return_cols] = float('nan')
+    
+        return df_result
+
+    
     @staticmethod
     @track_metadata
     def co2_baseline_adjustment(df: pd.DataFrame,
