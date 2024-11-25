@@ -15,6 +15,8 @@ from pythermalcomfort.models import pmv_ppd
 
 from nfh_utils import *
 
+# TEST: this line should only be visible to accounts with explicit access to this private repo
+
 class LearnError(Exception):
     def __init__(self, message):
         self.message = message
