@@ -1012,3 +1012,48 @@ class Plot:
         plt.ylabel(property_col)
         plt.xticks(rotation=45)  # Rotate x labels if needed
         plt.show()
+
+
+    @staticmethod
+    def nfh_property_grouped_boxplot(df, property_col, groupby_level, filter_value=True):
+        """
+        Create a boxplot for a specific property in the DataFrame, grouped by a specified index level.
+    
+        Parameters:
+        df (pd.DataFrame): The DataFrame containing the data.
+        property_col (str): The column name representing the property to be plotted.
+        groupby_level (str): The name of the index level to group by.
+        filter_value (bool): A placeholder for future filtering. Defaults to True.
+    
+        Returns:
+        None: Displays a boxplot.
+        """
+    
+        # Ensure the specified index level exists
+        if groupby_level not in df.index.names:
+            raise ValueError(f"'{groupby_level}' is not an index level in the DataFrame.")
+    
+        # Calculate the mean of the property_col per group and sort in descending order
+        mean_per_group = df.groupby(level=groupby_level)[property_col].mean().sort_values(ascending=False)
+    
+        # Reset the index and extract the relevant columns
+        df_boxplot = df.reset_index()[[groupby_level, property_col]].dropna()
+    
+        # Convert the grouping level to a categorical type based on the sorted values
+        df_boxplot[groupby_level] = pd.Categorical(df_boxplot[groupby_level], categories=mean_per_group.index, ordered=True)
+        df_boxplot = df_boxplot.sort_values(groupby_level)
+    
+        # Group by the specified level and collect the property_col values
+        grouped = df_boxplot.groupby(groupby_level, observed=True)[property_col].apply(list)
+    
+        # Create a list of lists for the boxplot
+        data = [grouped[group] for group in grouped.index]
+    
+        # Create the boxplot using matplotlib
+        plt.figure(figsize=(12, 6))
+        plt.boxplot(data, labels=grouped.index)
+        plt.title(f'{property_col} per {groupby_level} (Sorted by High Average {property_col})')
+        plt.xlabel(groupby_level)
+        plt.ylabel(property_col)
+        plt.xticks(rotation=45)  # Rotate x labels if needed
+        plt.show()
