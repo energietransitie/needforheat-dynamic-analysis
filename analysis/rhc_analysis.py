@@ -1561,6 +1561,10 @@ class Learner():
         temp_ret_ch__degC = m.MV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
         temp_ret_ch__degC.STATUS = 0  # No optimization
         temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
+
+        # TO DO: this boiler control model assumes non-modulating boiler control, i.e. a fixed temp_flow_ch_set__degC.
+        # TO DO: when controlled by OpenTherm thermostats and the Remeha eTwist, this flow setpoint is typically different!
+        # TO DO: make the temp_flow_ch_set__degC controllable by the thermostat control model?
         
         temp_flow_ch_set__degC = m.Param(value=60)                                                 # Default supply temp setpoint in Celsius (flow setpoint)
 
