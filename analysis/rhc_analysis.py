@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import List, Tuple
+from enum import Enum
 import pandas as pd
 import numpy as np
 import math
@@ -1540,190 +1541,210 @@ class Learner():
 
         return all_learned_dstr_job_parameters.sort_index()    
 
+
+    # Define the modes as an enumeration
+    class BoilerControlMode(Enum):
+        LEARN_ALGORITHMIC = "learn-algorithmic"
+        LEARN_PID = "learn-pid"   
         
+
     def boiler_control_model(df_learn,
                              id, start, end,
                              duration__s, step__s,
                              property_sources,
                              bldng_data,
-                             mode='learn', 
-                             pid_params=None):
+                             boiler_control_pid_hints_bounds=None,
+                             mode=BoilerControlMode.LEARN_PID, 
+                             ):
 
+        ##################################################################################################################
         # Initialize GEKKO model
+        ##################################################################################################################
         m = GEKKO(remote=False)
         m.time = np.arange(0, duration__s, step__s)
-    
-        # Default Parameters for flow setpoint, overheating and cooldown margins
-        temp_flow_ch__degC = m.CV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values)
-        temp_flow_ch__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+
+        ##################################################################################################################
+        # Flow setpoint
+        ##################################################################################################################
+
+        # TO DO: this boiler control model assumes non-modulating boiler control, i.e. a fixed temp_flow_ch_set__degC.
+        # TO DO: when controlled by OpenTherm thermostats and the Remeha eTwist, this flow setpoint is typically different!
+        # TO DO: make the temp_flow_ch_set__degC controllable by the thermostat control model?
+
+        temp_flow_ch_set__degC = m.Param(value=60)   # Default supply temp setpoint in Celsius (flow setpoint)
+
+        ##################################################################################################################
+        # Flow and return temperature
+        ##################################################################################################################
+        temp_flow_ch__degC = m.MV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values)
+        temp_flow_ch__degC.STATUS = 0  # No optimization
         temp_flow_ch__degC.FSTATUS = 1 # Use the measured values
         
         temp_ret_ch__degC = m.MV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
         temp_ret_ch__degC.STATUS = 0  # No optimization
         temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
 
-        # TO DO: this boiler control model assumes non-modulating boiler control, i.e. a fixed temp_flow_ch_set__degC.
-        # TO DO: when controlled by OpenTherm thermostats and the Remeha eTwist, this flow setpoint is typically different!
-        # TO DO: make the temp_flow_ch_set__degC controllable by the thermostat control model?
-        
-        temp_flow_ch_set__degC = m.Param(value=60)                                                 # Default supply temp setpoint in Celsius (flow setpoint)
+        ##################################################################################################################
+        # Fan speed and pump speed
+        ##################################################################################################################
+        # fan speed in rotations per minute
+        fan_rotations__min_1 = m.MV(value=df_learn[property_sources['fan_rotations__min_1']].astype('float32').values)
+        fan_rotations__min_1.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+        fan_rotations__min_1.FSTATUS = 1 # Use the measured values
+        fan_rotations__min_1.SCALE = bldng_data['fan_max_ch_rotations__min_1'] - bldng_data['fan_min_ch_rotations_min_1']
+						
+        # hydronic pump speed in % of maximum pump speed         
+        flow_ch_pump_speed__pct = m.MV(value=df_learn[property_sources['flow_ch_pump_speed__%']].astype('float32').values) 
+        flow_ch_pump_speed__pct.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+        flow_ch_pump_speed__pct.FSTATUS = 1 # Use the measured values
+        fan_rotations__min_1.SCALE = 100
 
-        # Default temperature margins
-        desired_temp_delta_flow_ret__K = m.Param(value=15)                                         # Default desired temperature difference between flow and return
+        ##################################################################################################################
+        # Control targets: flow temperature and delta between flow and return temperature
+        ##################################################################################################################
 
-        ## Question: there is also a max max (    
-        overheat_upper_margin_temp_flow__K = m.Param(value=5)                                      # Default overheating margin in K
-        overheat_hysteresis__K = m.Param(value=bldng_data['overheat_hysteresis__K'])               # Hysteresis, which is boiler specific
-        cooldown_margin_temp_flow__K = overheat_hysteresis__K - overheat_upper_margin_temp_flow__K # Default cooldown margin in K
-    
-        # Boolean variable to track whether the system is in cooldown mode
-        in_cooldown__bool = m.Var(value=0, integer=True)  # Initially not in cooldown mode
-        
-        # Define the conditions for overheating and cooldown mode
-        m.Equation(
-            in_cooldown__bool == m.if_else(
-                temp_flow_ch__degC > (temp_flow_ch_set__degC + overheat_upper_margin_temp_flow__K),  # Overheating condition
-                1,  # Enter cooldown mode
-                m.if_else(
-                    temp_flow_ch__degC < (temp_flow_ch_set__degC + cooldown_margin_temp_flow__K),  # Cooldown exit condition
-                    0,  # Exit cooldown mode
-                    in_cooldown__bool  # Maintain current state (hysteresis)
-                )
-            )
-        )
-       
-
-        # Error between supply temp and setpoint in K
+        # Error between supply temperature and setpoint fo the supply temperature
         error_temp_delta_flow_flowset__K = m.Intermediate(temp_flow_ch_set__degC - temp_flow_ch__degC)
 
-        # Error in difference between supply and return temps in K
-        error_temp_delta_flow_ret__K = m.Intermediate(desired_temp_delta_flow_ret__K - (temp_flow__degC - temp_ret__degC))
+        # Error in 'delta-T' (difference between supply and return temperature)
+        desired_temp_delta_flow_ret__K = m.Param(value=bldng_data['desired_temp_delta_flow_ret__K']) # Boiler-specific desired temperature difference between flow and return
+        error_temp_delta_flow_ret__K = m.Intermediate(desired_temp_delta_flow_ret__K - (temp_flow_ch__degC - temp_ret_ch__degC))
+        
     
-        # PID control variables for fan and pump speed speed
-        # Container to store the PID variables for fan and pump
-        boiler_control_pid_variables = {}
-        
-        # Loop over the components (fan, pump)
-        for component in ['fan', 'pump']:
-            if boiler_control_pid_hints_bounds is not None and component in boiler_control_pid_hints_bounds:
-                # Extract the bounds and hints for the current component
-                component_hints = boiler_control_pid_hints_bounds[component]
-                boiler_control_pid_variables[component] = {}  # Initialize section for this component
-        
-                # Default values for PID terms
-                default_values = {'p': 1.0, 'i': 0.1, 'd': 0.05}
-        
-                # Loop over the PID terms (p, i, d)
-                for term, default in default_values.items():
-                    param_name = f'K{term}_{component}'
-        
-                    if term in component_hints:
-                        # Create an adjustable FV for this term
-                        param = m.FV(
-                            value=component_hints[term]['initial_guess'],
-                            lb=component_hints[term].get('lower_bound', None),
-                            ub=component_hints[term].get('upper_bound', None)
-                        )
-                        param.STATUS = 1  # Allow optimization
-                        param.FSTATUS = 1  # Use the initial value as a hint for the solver
-                    else:
-                        # Create a fixed parameter for this term
-                        param = m.Param(value=default)
-        
-                    # Store the parameter in the structured dictionary
-                    boiler_control_pid_variables[component][term] = param
-        
-        # Measured fan speed in rotations per minute
-        fan_rotations__min_1 = m.MV(value=df_learn[property_sources['fan_rotations__min_1']].astype('float32').values)
-        fan_rotations__min_1.STATUS = 0  # No optimization
-        fan_rotations__min_1.FSTATUS = 1 # Use the measured values
-    
-        # Measured hydronic pump speed in % of maximum pump speed         
-        flow_ch_pump_speed__pct = m.MV(value=df_learn[property_sources['flow_ch_pump_speed__%']].astype('float32').values) 
-        flow_ch_pump_speed__pct.STATUS = 0  # No optimization
-        flow_ch_pump_speed__pct.FSTATUS = 1 # Use the measured values
-
-    
-        # Gain limits for fan and pump
-        fan_rotations_max_gain__min_1 = m.FV(value=1500)  # Max fan gain in rpm per minute, adjustable in learning
-        error_threshold_temp_delta_flow_flowset__K = m.FV(value=5)  # Fan error threshold in K
-    
-        flow_ch_pump_speed_max_gain__pct_min_1 = m.FV(value=3)   # Max pump gain in % per minute, adjustable
-        error_threshold_temp_delta_flow_ret__K = m.FV(value=2)  # Pump error threshold in K
-    
+        ##################################################################################################################
+        # Boiler control  algorithm 
+        ##################################################################################################################
         # Define variables to hold the rate of fan and pump speed changes
         fan_rotations_gain__min_1 = m.Var(value=0)    # Rate of change for fan speed
         flow_ch_pump_speed_gain__pct_min_1 = m.Var(value=0)  # Rate of change for pump speed
 
-        # Learning phase (set free variables as free for optimization)
-        if mode == 'learn':
-            # Set fan and pump gain limits to be adjustable during learning
-            fan_rotations_max_gain__min_1.STATUS = 1
-            fan_rotations_max_gain__min_1.lower = 100
-            fan_rotations_max_gain__min_1.upper = 2000
-    
-            error_threshold_temp_delta_flow_flowset__K.STATUS = 1
-            error_threshold_temp_delta_flow_flowset__K.lower = 2
-            error_threshold_temp_delta_flow_flowset__K.upper = 10
-    
-            flow_ch_pump_speed_max_gain__pct_min_1.STATUS = 1
-            flow_ch_pump_speed_max_gain__pct_min_1.lower = 1
-            flow_ch_pump_speed_max_gain__pct_min_1.upper = 5
-    
-            error_threshold_temp_delta_flow_ret__K.STATUS = 1
-            error_threshold_temp_delta_flow_ret__K.lower = 1
-            error_threshold_temp_delta_flow_ret__K.upper = 5
-    
-        # Fan speed rate limit based on error threshold
-        m.Equation(
-            fan_rotations_gain__min_1 == m.if_else(
-                error_temp_delta_flow_flowset__K > error_threshold_temp_delta_flow_flowset__K,
-                fan_rotations_max_gain__min_1, 
-                fan_rotations_gain__min_1
-            )
-        )
-        m.Equation(fan_rotations__min_1.dt() <= fan_rotations_gain__min_1)
+        match mode:
+            case Mode.LEARN_ALGORITHMIC:
+                ##################################################################################################################
+                # Algorithmic control 
+                ##################################################################################################################
         
-        # Pump speed rate limit based on error threshold
-        m.Equation(
-            flow_ch_pump_speed_gain__pct_min_1 == m.if_else(
-                error_temp_delta_flow_ret__K > error_threshold_temp_delta_flow_ret__K,  # Check if error exceeds threshold
-                flow_ch_pump_speed_max_gain__pct_min_1, # If so, set the gain to max
-                flow_ch_pump_speed_gain__pct_min_1  # Otherwise, keep the gain as calculated
-            )
-        )
-        m.Equation(flow_ch_pump_speed__pct.dt() <= flow_ch_pump_speed_gain__pct_min_1)
+                # Cooldown mode to prevent overheating of flow temperature
+                in_cooldown__bool = m.Var(value=0, integer=True)  # Initially not in cooldown mode
+                
+                # Temperature margins for cooldown hysteresis
+                overheat_upper_margin_temp_flow__K = m.Param(value=5)                                        # Default overheating margin in K
+                overheat_hysteresis__K = m.Param(value=bldng_data['overheat_hysteresis__K'])                 # Hysteresis, which might be boiler-specific
+                cooldown_margin_temp_flow__K = overheat_hysteresis__K - overheat_upper_margin_temp_flow__K   # Default cooldown margin in K
+        
+                # GEKKO constants for better code readability 
+                TRUE = 1
+                FALSE = 0
+        
+                # Cooldown hysteresis: starts at crossing overheating margin, ends at crossing cooldown margin
+                m.Equation(
+                    in_cooldown__bool == m.if_else(
+                        temp_flow_ch__degC > (temp_flow_ch_set__degC + overheat_upper_margin_temp_flow__K),  # Overheating condition
+                        TRUE,  # Enter cooldown mode
+                        m.if_else(
+                            temp_flow_ch__degC < (temp_flow_ch_set__degC + cooldown_margin_temp_flow__K),  # Cooldown exit condition
+                            FALSE,  # Exit cooldown mode
+                            in_cooldown__bool  # Maintain current state (hysteresis)
+                        )
+                    )
+                )
+                
+                # Max fan gain in rpm per minute
+                fan_rotations_max_gain__min_1 = m.FV(value=1500, lb=100, ub=2000)  # Initialize with value and bounds
+                fan_rotations_max_gain__min_1.STATUS = 1                           # Allow optimization
+                fan_rotations_max_gain__min_1.FSTATUS = 1                          # Use the initial value as a hint for the solver
+                
+                # Fan error threshold in K
+                error_threshold_temp_delta_flow_flowset__K = m.FV(value=5, lb=2, ub=10)  # Initialize with value and bounds
+                error_threshold_temp_delta_flow_flowset__K.STATUS = 1                    # Allow optimization
+                error_threshold_temp_delta_flow_flowset__K.FSTATUS = 1                   # Use the initial value as a hint for the solver
+                
+                # Max pump gain in % per minute
+                flow_ch_pump_speed_max_gain__pct_min_1 = m.FV(value=3, lb=1, ub=5)  # Initialize with value and bounds
+                flow_ch_pump_speed_max_gain__pct_min_1.STATUS = 1                   # Allow optimization
+                flow_ch_pump_speed_max_gain__pct_min_1.FSTATUS = 1                  # Use the initial value as a hint for the solver
+                
+                # Pump error threshold in K
+                error_threshold_temp_delta_flow_ret__K = m.FV(value=2, lb=1, ub=5)  # Initialize with value and bounds
+                error_threshold_temp_delta_flow_ret__K.STATUS = 1                   # Allow optimization
+                error_threshold_temp_delta_flow_ret__K.FSTATUS = 1                  # Use the initial value as a hint for the solver
 
-        
-        # PID control equations for fan speed (only apply when not in cooldown)
-        m.Equation(
-            fan_rotations__min_1.dt() == (
-                m.if_else(
-                    in_cooldown__bool, 
-                    0,  # If in cooldown, set to 0
-                    (
-                        boiler_control_pid_variables['fan']['p'] * error_temp_delta_flow_flowset__K +  # Proportional term
-                        boiler_control_pid_variables['fan']['i'] * m.integral(error_temp_delta_flow_flowset__K) +  # Integral term
-                        boiler_control_pid_variables['fan']['d'] * error_temp_delta_flow_flowset__K.dt()  # Derivative term
-                    )
+                # Conditional fan speed gain based on flow error threshold
+                m.Equation(fan_rotations_gain__min_1 == m.if_else(
+                    error_temp_delta_flow_flowset__K > error_threshold_temp_delta_flow_flowset__K, # Check if flow error exceeds threshold
+                    fan_rotations_max_gain__min_1, # If so, set the gain to max
+                    fan_rotations_gain__min_1 # Otherwise, keep the gain as calculated
+                ))
+                m.Equation(fan_rotations__min_1.dt() == fan_rotations_gain__min_1)
+                
+                # Conditional fan rotations updates: if in cooldown, set to 0, otherwise, keep the gain as calculated
+                m.Equation(fan_rotations__min_1 == m.if_else(in_cooldown__bool, 0, fan_rotations__min_1))
+                
+                # Conditional pump speed gain based on error threshold
+                m.Equation(flow_ch_pump_speed_gain__pct_min_1 == m.if_else(
+                    error_temp_delta_flow_ret__K > error_threshold_temp_delta_flow_ret__K,  # Check if error exceeds threshold
+                    flow_ch_pump_speed_max_gain__pct_min_1, # If so, set the gain to max
+                    flow_ch_pump_speed_gain__pct_min_1  # Otherwise, keep the gain as calculated
+                ))
+                m.Equation(flow_ch_pump_speed__pct.dt() == flow_ch_pump_speed_gain__pct_min_1)
+                
+                # Conditional pump speed updates: if in cooldown, set to 100, otherwise, keep the gain as calculated
+                m.Equation(flow_ch_pump_speed__pct == m.if_else(in_cooldown__bool, 100, flow_ch_pump_speed__pct))
+                
+            case Mode.LEARN_PID:
+                ##################################################################################################################
+                # PID control 
+                ##################################################################################################################
+                # Container to store the PID variables for fan and pump
+                boiler_control_pid_variables = {}
+                
+                # Loop over the components (fan, pump)
+                for component in ['fan', 'pump']:
+                    if boiler_control_pid_hints_bounds is not None and component in boiler_control_pid_hints_bounds:
+                        # Extract the bounds and hints for the current component
+                        component_hints = boiler_control_pid_hints_bounds[component]
+                        boiler_control_pid_variables[component] = {}  # Initialize section for this component
+                
+                        # Default values for PID terms
+                        default_values = {'p': 1.0, 'i': 0.1, 'd': 0.05}
+                
+                        # Loop over the PID terms (p, i, d)
+                        for term, default in default_values.items():
+                            param_name = f'K{term}_{component}'
+                
+                            if term in component_hints:
+                                # Create an adjustable FV for this term
+                                param = m.FV(
+                                    value=component_hints[term]['initial_guess'],
+                                    lb=component_hints[term].get('lower_bound', None),
+                                    ub=component_hints[term].get('upper_bound', None)
+                                )
+                                param.STATUS = 1  # Allow optimization
+                                param.FSTATUS = 1  # Use the initial value as a hint for the solver
+                            else:
+                                # Create a fixed parameter for this term
+                                param = m.Param(value=default)
+                
+                            # Store the parameter in the structured dictionary
+                            boiler_control_pid_variables[component][term] = param
+            
+                # PID control equations for fan speed (only apply when not in cooldown)
+                m.Equation(fan_rotations__min_1.dt() == (
+                    boiler_control_pid_variables['fan']['p'] * error_temp_delta_flow_flowset__K +  # Proportional term
+                    boiler_control_pid_variables['fan']['i'] * m.integral(error_temp_delta_flow_flowset__K) +  # Integral term
+                    boiler_control_pid_variables['fan']['d'] * error_temp_delta_flow_flowset__K.dt()  # Derivative term
+                   )
                 )
-            )
-        )
-        
-        # PID control equations for pump speed (only apply when not in cooldown)
-        m.Equation(
-            flow_ch_pump_speed__pct.dt() == (
-                m.if_else(
-                    in_cooldown__bool, 
-                    1,  # If in cooldown, set to 1
-                    (
-                        boiler_control_pid_variables['pump']['p'] * error_temp_delta_flow_ret__K +  # Proportional term
-                        boiler_control_pid_variables['pump']['i'] * m.integral(error_temp_delta_flow_ret__K) +  # Integral term
-                        boiler_control_pid_variables['pump']['d'] * error_temp_delta_flow_ret__K.dt()  # Derivative term
-                    )
+                
+                # PID control equations for pump speed (only apply when not in cooldown)
+                m.Equation(flow_ch_pump_speed__pct.dt() == (
+                    boiler_control_pid_variables['pump']['p'] * error_temp_delta_flow_ret__K +  # Proportional term
+                    boiler_control_pid_variables['pump']['i'] * m.integral(error_temp_delta_flow_ret__K) +  # Integral term
+                    boiler_control_pid_variables['pump']['d'] * error_temp_delta_flow_ret__K.dt()  # Derivative term
+                   )
                 )
-            )
-        )    
+            case _:
+                raise ValueError(f"Invalid BoilerControlMode: {mode}")
     
         return m
 
