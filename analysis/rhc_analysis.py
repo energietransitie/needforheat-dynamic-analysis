@@ -184,7 +184,7 @@ class Learner():
         jobs = []
         
         # Iterate over each unique id
-        for id_, group in tqdm(df_data.groupby(level='id'), desc="Identifying learning jobs"):
+        for id_, group in tqdm(df_data.groupby(level='id'), desc=f"Identifying learning jobs of at least {duration_threshold_timedelta}"):
             # Filter for rows where all required columns are not NaN
             group = group.droplevel('id')  # Drop 'id' level for easier handling
             group = group.loc[group[req_col].notna().all(axis=1)]
@@ -1153,10 +1153,6 @@ class Learner():
             if param in not_learnable:
                 raise LearnError(f'No support for learning {param} (yet).')
      
-        # Initialize DataFrames to store cumulative results
-        df_learned_parameters = pd.DataFrame()
-        df_learned_properties = pd.DataFrame()
-        
         # ensure that dataframe is sorted
         if not df_data.index.is_monotonic_increasing:
             df_data = df_data.sort_index()  
@@ -1252,9 +1248,16 @@ class Learner():
                             pbar.update(1)  # Ensure progress bar updates even if there's an exception
     
             # Now merge all learned job properties and parameters into cumulative DataFrames
-            df_learned_properties = pd.concat(all_learned_job_properties, axis=0).drop_duplicates()
-            df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates()
+            if all_learned_job_properties:
+                df_learned_properties = pd.concat(all_learned_job_properties, axis=0).drop_duplicates()
+            else: 
+                df_learned_properties = pd.DataFrame()
 
+            if all_learned_job_parameters:
+                df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates()
+            else:
+                df_learned_parameters = pd.DataFrame()
+                
             # Merging all learned time series data into df_data
             df_data = df_data.merge(df_learned_properties, left_index=True, right_index=True, how='left')
 
@@ -1462,8 +1465,8 @@ class Learner():
                                                               )
         
         # Initialize result lists
-        all_learned_dstr_job_properties = []
-        all_learned_dstr_job_parameters = []
+        all_learned_job_properties = []
+        all_learned_job_parameters = []
         
         if parallel:
             
@@ -1475,7 +1478,7 @@ class Learner():
             
                 # Create a list to store futures for later result retrieval
                 futures = []
-                learned_dstr_jobs = {}
+                learned_jobs = {}
                 
                 for id, start, end in tqdm(df_dstr_analysis_jobs.index, desc=f"Submitting learning jobs to {num_workers} processes"):
                     # Create df_learn for the current job
@@ -1494,21 +1497,21 @@ class Learner():
                                              property_sources, hints)
         
                     futures.append(future)
-                    learned_dstr_jobs[(id, start, end)] = future
+                    learned_jobs[(id, start, end)] = future
         
             
                 # Collect results as they complete
                 with tqdm(total=len(futures), desc=f"Collecting results from {num_workers} processes") as pbar:
                     for future in as_completed(futures):
                         try:
-                            df_learned_dstr_job_parameters, df_learned_dstr_job_properties = future.result()
-                            all_learned_dstr_job_properties.append(df_learned_dstr_job_properties)
-                            all_learned_dstr_job_parameters.append(df_learned_dstr_job_parameters)
+                            df_learned_job_parameters, df_learned_job_properties = future.result()
+                            all_learned_job_properties.append(df_learned_job_properties)
+                            all_learned_job_parameters.append(df_learned_job_parameters)
                         except Exception as e:
                             # Handle only the specific "Solution Not Found" error
                             if "Solution Not Found" in str(e):
                                 # Find which job caused the error
-                                for (id, start, end), job_future in learned_dstr_jobs.items():
+                                for (id, start, end), job_future in learned_jobs.items():
                                     if job_future == future:
                                         logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
                                         break
@@ -1528,18 +1531,25 @@ class Learner():
             
                 duration__s = (df_dstr_analysis_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
     
-                df_learned_dstr_job_parameters, df_learned_dstr_job_properties = Learner.learn_heat_distribution(id, start, end,
-                                                                                                                 df_learn,
-                                                                                                                 duration__s, s_min_1,
-                                                                                                                 property_sources, hints)
-                all_learned_dstr_job_properties.append(df_learned_dstr_job_properties)
-                all_learned_dstr_job_parameters.append(df_learned_dstr_job_parameters)    
+                df_learned_job_parameters, df_learned_job_properties = Learner.learn_heat_distribution(id, start, end,
+                                                                                                       df_learn,
+                                                                                                       duration__s, s_min_1,
+                                                                                                       property_sources, hints)
+                all_learned_job_properties.append(df_learned_job_properties)
+                all_learned_job_parameters.append(df_learned_job_parameters)    
         
         # Now merge all learned job properties and parameters into cumulative DataFrames
-        all_learned_dstr_job_parameters= pd.concat(all_learned_dstr_job_parameters, axis=0).drop_duplicates()
-        all_learned_dstr_job_properties= pd.concat(all_learned_dstr_job_properties, axis=0).drop_duplicates()
+        if all_learned_job_properties:
+            df_learned_properties = pd.concat(all_learned_job_properties, axis=0).drop_duplicates()
+        else: 
+            df_learned_properties = pd.DataFrame()
 
-        return all_learned_dstr_job_parameters.sort_index()    
+        if all_learned_job_parameters:
+            df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates()
+        else:
+            df_learned_parameters = pd.DataFrame()
+
+        return df_learned_parameters.sort_index()    
 
 
     # Define the modes as an enumeration
@@ -1553,8 +1563,8 @@ class Learner():
                              duration__s, step__s,
                              property_sources,
                              bldng_data,
-                             boiler_control_pid_hints_bounds=None,
-                             mode=BoilerControlMode.LEARN_PID, 
+                             boiler_pid_hints_bounds=None,
+                             mode=BoilerControlMode.LEARN_ALGORITHMIC, 
                             ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         ##################################################################################################################
@@ -1593,14 +1603,14 @@ class Learner():
         # fan_rotations__min_1.FSTATUS = 1 # Use the measured values
 
         # calculated fan speed fraction btween min and max
-        calculated_fan__pct = m.CV(value=df_learn[property_sources['calculated_fan__pct']].astype('float32').values)
-        calculated_fan__pct.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
-        calculated_fan__pct.FSTATUS = 1 # Use the measured values
+        fan_speed__pct = m.CV(value=df_learn[property_sources['fan_speed__pct']].astype('float32').values)
+        fan_speed__pct.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+        fan_speed__pct.FSTATUS = 1 # Use the measured values
 						
         # hydronic pump speed in % of maximum pump speed         
-        flow_ch_pump_speed__pct = m.CV(value=df_learn[property_sources['flow_ch_pump_speed__%']].astype('float32').values) 
-        flow_ch_pump_speed__pct.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
-        flow_ch_pump_speed__pct.FSTATUS = 1 # Use the measured values
+        flow_dstr_pump_speed__pct = m.CV(value=df_learn[property_sources['flow_dstr_pump_speed__pct']].astype('float32').values) 
+        flow_dstr_pump_speed__pct.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+        flow_dstr_pump_speed__pct.FSTATUS = 1 # Use the measured values
 
         ##################################################################################################################
         # Control targets: flow temperature and 'delta-T': difference between flow and return temperature
@@ -1623,7 +1633,7 @@ class Learner():
                 # Define variables to hold the rate of fan and pump speed changes
                 # fan_rotations_gain__min_1 = m.Var(value=0)    # Rate of change for fan speed
                 fan_rotations_gain__pct_min_1 = m.Var(value=0)    # Rate of change for fan speed
-                flow_ch_pump_speed_gain__pct_min_1 = m.Var(value=0)  # Rate of change for pump speed
+                flow_dstr_pump_speed_gain__pct_min_1 = m.Var(value=0)  # Rate of change for pump speed
 
                 ##################################################################################################################
                 # Algorithmic control 
@@ -1640,16 +1650,23 @@ class Learner():
                 # GEKKO constants for better code readability 
                 TRUE = 1
                 FALSE = 0
-        
+                
                 # Cooldown hysteresis: starts at crossing overheating margin, ends at crossing cooldown margin
+                cooldown_condition = m.Var(value=FALSE)  # Initialize hysteresis state variable
+                
+                # Define the overheating and cooldown conditions
+                overheat_condition = temp_flow_ch__degC - (temp_flow_ch_set__degC + overheat_upper_margin_temp_flow__K)
+                cooldown_exit_condition = (temp_flow_ch__degC - (temp_flow_ch_set__degC + cooldown_margin_temp_flow__K)) * -1
+                
+                # Cooldown state transitions
                 m.Equation(
-                    in_cooldown__bool == m.if_else(
-                        temp_flow_ch__degC > (temp_flow_ch_set__degC + overheat_upper_margin_temp_flow__K),  # Overheating condition
-                        TRUE,  # Enter cooldown mode
-                        m.if_else(
-                            temp_flow_ch__degC < (temp_flow_ch_set__degC + cooldown_margin_temp_flow__K),  # Cooldown exit condition
-                            FALSE,  # Exit cooldown mode
-                            in_cooldown__bool  # Maintain current state (hysteresis)
+                    cooldown_condition == m.if3(
+                        overheat_condition,  # Enter cooldown mode if overheat condition is positive
+                        TRUE,                # Cooldown mode active
+                        m.if3(
+                            cooldown_exit_condition,  # Exit cooldown mode if this condition is positive
+                            FALSE,                   # Cooldown mode inactive
+                            cooldown_condition       # Maintain current state (hysteresis)
                         )
                     )
                 )
@@ -1671,9 +1688,9 @@ class Learner():
                 error_threshold_temp_delta_flow_flowset__K.FSTATUS = 1                   # Use the initial value as a hint for the solver
                 
                 # Max pump gain in % per minute
-                flow_ch_pump_speed_max_gain__pct_min_1 = m.FV(value=3, lb=1, ub=5)  # Initialize with value and bounds
-                flow_ch_pump_speed_max_gain__pct_min_1.STATUS = 1                   # Allow optimization
-                flow_ch_pump_speed_max_gain__pct_min_1.FSTATUS = 1                  # Use the initial value as a hint for the solver
+                flow_dstr_pump_speed_max_gain__pct_min_1 = m.FV(value=3, lb=1, ub=5)  # Initialize with value and bounds
+                flow_dstr_pump_speed_max_gain__pct_min_1.STATUS = 1                   # Allow optimization
+                flow_dstr_pump_speed_max_gain__pct_min_1.FSTATUS = 1                  # Use the initial value as a hint for the solver
                 
                 # Pump error threshold in K
                 error_threshold_temp_delta_flow_ret__K = m.FV(value=2, lb=1, ub=5)  # Initialize with value and bounds
@@ -1693,40 +1710,58 @@ class Learner():
                 
 
                 # Conditional fan speed gain based on flow error threshold
-                m.Equation(fan_rotations_gain__pct_min_1 == m.if_else(
-                    error_temp_delta_flow_flowset__K > error_threshold_temp_delta_flow_flowset__K, # Check if flow error exceeds threshold
-                    fan_rotations_max_gain__pct_min_1, # If so, set the fan speed gain to max
-                    fan_rotations_gain__pct_min_1 # Otherwise, keep thefan speed gain as calculated
-                ))
-                m.Equation(fan_rotations__pct.dt() == fan_rotations_gain__pct_min_1)
+                
+                # Define fan rotation gain logic using `if3`
+                m.Equation(
+                    fan_rotations_gain__pct_min_1 == m.if3(
+                        # Condition: error exceeds the threshold
+                        error_temp_delta_flow_flowset__K - error_threshold_temp_delta_flow_flowset__K, # >0 if error exceeds threshold
+                        fan_rotations_max_gain__pct_min_1,  # Assign max gain if condition is met
+                        fan_rotations_gain__pct_min_1  # Otherwise, retain the current gain
+                    )
+                )
+                m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
                 
                 # Conditional fan rotations updates: if in cooldown, set to 0, otherwise, keep the gain as calculated
-                m.Equation(fan_rotations__pct == m.if_else(in_cooldown__bool, 0, fan_rotations__pct))
+                m.Equation(
+                    fan_speed__pct == m.if3(
+                        in_cooldown__bool - 0.5,  # Condition (binary): if in_cooldown__bool is 1 (true)
+                        0,                        # Fan speed is set to 0
+                        fan_speed__pct            # Otherwise, keep the current fan speed
+                    )
+                )
                 
                 # Conditional pump speed gain based on error threshold
-                m.Equation(flow_ch_pump_speed_gain__pct_min_1 == m.if_else(
-                    error_temp_delta_flow_ret__K > error_threshold_temp_delta_flow_ret__K,  # Check if error exceeds threshold
-                    flow_ch_pump_speed_max_gain__pct_min_1, # If so, set the pump speed gain to max
-                    flow_ch_pump_speed_gain__pct_min_1  # Otherwise, keep the pump speed gain as calculated
+                m.Equation(flow_dstr_pump_speed_gain__pct_min_1 == m.if3(
+                    # Condition: error exceeds the threshold
+                    error_temp_delta_flow_ret__K - error_threshold_temp_delta_flow_ret__K,  # >0 if error exceeds threshold
+                    flow_dstr_pump_speed_max_gain__pct_min_1, # If so, set the pump speed gain to max
+                    flow_dstr_pump_speed_gain__pct_min_1  # Otherwise, keep the pump speed gain as calculated
                 ))
-                m.Equation(flow_ch_pump_speed__pct.dt() == flow_ch_pump_speed_gain__pct_min_1)
+                m.Equation(flow_dstr_pump_speed__pct.dt() == flow_dstr_pump_speed_gain__pct_min_1)
                 
                 # Conditional pump speed updates: if in cooldown, set to 100, otherwise, keep the gain as calculated
-                m.Equation(flow_ch_pump_speed__pct == m.if_else(in_cooldown__bool, 100, flow_ch_pump_speed__pct))
-                
+                m.Equation(
+                    flow_dstr_pump_speed__pct == m.if3(
+                        in_cooldown__bool - 0.5,  # Condition: binary (1 = true, 0 = false)
+                        100,                      # Pump speed set to 100 if in cooldown
+                        flow_dstr_pump_speed__pct # Otherwise, retain the current pump speed
+                    )
+                )      
+
             case Learner.BoilerControlMode.LEARN_PID:
                 ##################################################################################################################
                 # PID control 
                 ##################################################################################################################
                 # Container to store the PID variables for fan and pump
-                boiler_control_pid_variables = {}
+                boiler_pid_parameters = {}
                 
                 # Loop over the components (fan, pump)
                 for component in ['fan', 'pump']:
-                    if boiler_control_pid_hints_bounds is not None and component in boiler_control_pid_hints_bounds:
+                    if boiler_pid_hints_bounds is not None and component in boiler_pid_hints_bounds:
                         # Extract the bounds and hints for the current component
-                        component_hints = boiler_control_pid_hints_bounds[component]
-                        boiler_control_pid_variables[component] = {}  # Initialize section for this component
+                        component_hints = boiler_pid_hints_bounds[component]
+                        boiler_pid_parameters[component] = {}  # Initialize section for this component
                 
                         # Default values for PID terms
                         default_values = {'p': 1.0, 'i': 0.1, 'd': 0.05}
@@ -1749,21 +1784,21 @@ class Learner():
                                 param = m.Param(value=default)
                 
                             # Store the parameter in the structured dictionary
-                            boiler_control_pid_variables[component][term] = param
+                            boiler_pid_parameters[component][term] = param
             
                 # PID control equations for fan speed (only apply when not in cooldown)
-                m.Equation(fan_rotations__pct.dt() == (
-                    boiler_control_pid_variables['fan']['p'] * error_temp_delta_flow_flowset__K +  # Proportional term
-                    boiler_control_pid_variables['fan']['i'] * m.integral(error_temp_delta_flow_flowset__K) +  # Integral term
-                    boiler_control_pid_variables['fan']['d'] * error_temp_delta_flow_flowset__K.dt()  # Derivative term
+                m.Equation(fan_speed__pct.dt() == (
+                    boiler_pid_parameters['fan']['p'] * error_temp_delta_flow_flowset__K +  # Proportional term
+                    boiler_pid_parameters['fan']['i'] * m.integral(error_temp_delta_flow_flowset__K) +  # Integral term
+                    boiler_pid_parameters['fan']['d'] * error_temp_delta_flow_flowset__K.dt()  # Derivative term
                    )
                 )
                 
                 # PID control equations for pump speed (only apply when not in cooldown)
-                m.Equation(flow_ch_pump_speed__pct.dt() == (
-                    boiler_control_pid_variables['pump']['p'] * error_temp_delta_flow_ret__K +  # Proportional term
-                    boiler_control_pid_variables['pump']['i'] * m.integral(error_temp_delta_flow_ret__K) +  # Integral term
-                    boiler_control_pid_variables['pump']['d'] * error_temp_delta_flow_ret__K.dt()  # Derivative term
+                m.Equation(flow_dstr_pump_speed__pct.dt() == (
+                    boiler_pid_parameters['pump']['p'] * error_temp_delta_flow_ret__K +  # Proportional term
+                    boiler_pid_parameters['pump']['i'] * m.integral(error_temp_delta_flow_ret__K) +  # Integral term
+                    boiler_pid_parameters['pump']['d'] * error_temp_delta_flow_ret__K.dt()  # Derivative term
                    )
                 )
             case _:
@@ -1794,7 +1829,7 @@ class Learner():
             case Learner.BoilerControlMode.LEARN_ALGORITHMIC:
                 learn = ['fan_rotations_max_gain__pct_min_1',
                          'error_threshold_temp_delta_flow_flowset__K',
-                         'flow_ch_pump_speed_max_gain__pct_min_1',
+                         'flow_dstr_pump_speed_max_gain__pct_min_1',
                          'error_threshold_temp_delta_flow_ret__K'
                         ]                
                 for param in learn:
@@ -1802,7 +1837,7 @@ class Learner():
                         learned_value = locals()[param].value[0]
                         df_learned_job_parameters.loc[0, f'learned_{param}'] = learned_value
             case Learner.BoilerControlMode.LEARN_PID:
-                # TO DO: copy parameters from boiler_control_pid_variables to df_learned_job_parameters
+                # TO DO: copy parameters from boiler_pid_parameters to df_learned_job_parameters
                 raise ValueError(f"Reporting results for BoilerControlMode: {mode} not implemented yet")
             case _:
                 raise ValueError(f"Invalid BoilerControlMode: {mode}")
@@ -1819,12 +1854,11 @@ class Learner():
     def learn_boiler_control_parameters(df_data: pd.DataFrame,
                                         df_bldng_data: pd.DataFrame,
                                         property_sources=None,
-                                        boiler_control_pid_hints_bounds=None,
+                                        boiler_pid_hints_bounds=None,
                                         req_props: list = None,
                                         duration_threshold_timedelta: timedelta = timedelta(minutes=15),
-                                        parallel=False) -> pd.DataFrame:
-
-        print("Nieuwe versie")
+                                        mode=BoilerControlMode.LEARN_ALGORITHMIC, 
+                                        parallel=True) -> pd.DataFrame:
 
         if req_props is None:  # If req_col not set, use all property sources
             req_col = list(property_sources.values())
@@ -1833,31 +1867,31 @@ class Learner():
     
         # Focus only on the required columns
         df_learn_all = df_data[req_col]
-        df_control_jobs = Learner.create_streak_job_list(df_data,
+        df_learn_jobs = Learner.create_streak_job_list(df_data,
                                                          req_props=req_props,
                                                          property_sources=property_sources,
                                                          duration_threshold_timedelta=duration_threshold_timedelta)
     
         # Initialize result lists
-        all_learned_control_job_properties = []
-        all_learned_control_job_parameters = []
+        all_learned_job_properties = []
+        all_learned_job_parameters = []
     
         if parallel:
-            num_jobs = df_control_jobs.shape[0]  # Get the number of jobs
+            num_jobs = df_learn_jobs.shape[0]  # Get the number of jobs
             num_workers = min(num_jobs, os.cpu_count())  # Use the lesser of number of jobs or CPU count
     
             with ProcessPoolExecutor() as executor:
                 # Submit tasks for each job
                 futures = []
-                learned_control_jobs = {}
+                learned_jobs = {}
     
-                for id, start, end in tqdm(df_control_jobs.index, desc=f"Submitting control learning jobs to {num_workers} processes"):
+                for id, start, end in tqdm(df_learn_jobs.index, desc=f"Submitting {mode} learning jobs to {num_workers} processes"):
                     # Create df_learn for the current job
                     df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
                                                 (df_learn_all.index.get_level_values('timestamp') >= start) & 
                                                 (df_learn_all.index.get_level_values('timestamp') < end)]
     
-                    duration__s = int(df_control_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
+                    duration__s = int(df_learn_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
     
                     # Get building-specific data for each job
                     bldng_data = df_bldng_data.loc[id].to_dict()
@@ -1868,23 +1902,21 @@ class Learner():
                                              id, start, end,
                                              duration__s, s_min_1,
                                              property_sources,
-                                             bldng_data,
-                                             boiler_control_pid_hints_bounds)
+                                             bldng_data)
+
                     futures.append(future)
-                    learned_control_jobs[(id, start, end)] = future
+                    learned_jobs[(id, start, end)] = future
     
-                print("starting to collect info")
                 # Collect results as they complete
-                with tqdm(total=len(futures), desc=f"Collecting results from {num_workers} processes") as pbar:
+                with tqdm(total=len(futures), desc=f"Collecting {mode} results from {num_workers} processes") as pbar:
                     for future in as_completed(futures):
                         try:
-                            df_learned_control_job_parameters, df_learned_control_job_properties = future.result()
-                            all_learned_control_job_properties.append(df_learned_control_job_properties)
-                            all_learned_control_job_parameters.append(df_learned_control_job_parameters)
-                            print(f"partial result: {df_learned_control_job_parameters}")
+                            df_learned_job_parameters, df_learned_job_properties = future.result()
+                            all_learned_job_properties.append(df_learned_job_properties)
+                            all_learned_job_parameters.append(df_learned_job_parameters)
                         except Exception as e:
                             if "Solution Not Found" in str(e):
-                                for (id, start, end), job_future in learned_control_jobs.items():
+                                for (id, start, end), job_future in learned_jobs.items():
                                     if job_future == future:
                                         logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
                                         break
@@ -1894,32 +1926,41 @@ class Learner():
                         finally:
                             pbar.update(1)                            
         else:
-            for id, start, end in tqdm(df_control_jobs.index, desc=f"Learning boiler control using 1 process"):
+            for id, start, end in tqdm(df_learn_jobs.index, desc=f"Learning boiler control using 1 process"):
                 # Create df_learn for the current job
                 df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
                                             (df_learn_all.index.get_level_values('timestamp') >= start) & 
                                             (df_learn_all.index.get_level_values('timestamp') < end)]
     
-                duration__s = int(df_control_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
+                duration__s = int(df_learn_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
     
                 # Get building-specific data for each job
                 bldng_data = df_bldng_data.loc[id].to_dict()
     
-                df_learned_control_job_parameters, df_learned_control_job_properties = Learner.learn_boiler_control(
+                df_learned_job_parameters, df_learned_job_properties = Learner.learn_boiler_control(
                     df_learn,
                     id, start, end,
                     duration__s, s_min_1,
                     property_sources,
                     bldng_data,
-                    boiler_control_pid_hints_bounds)
-                all_learned_control_job_properties.append(df_learned_control_job_properties)
-                all_learned_control_job_parameters.append(df_learned_control_job_parameters)
+                    boiler_pid_hints_bounds,
+                    mode,
+                )
+                all_learned_job_properties.append(df_learned_job_properties)
+                all_learned_job_parameters.append(df_learned_job_parameters)
     
         # Merge all learned job properties and parameters into cumulative DataFrames
-        all_learned_control_job_parameters = pd.concat(all_learned_control_job_parameters, axis=0).drop_duplicates()
-        all_learned_control_job_properties = pd.concat(all_learned_control_job_properties, axis=0).drop_duplicates()
+        if all_learned_job_properties:
+            df_learned_properties = pd.concat(all_learned_job_properties, axis=0).drop_duplicates()
+        else: 
+            df_learned_properties = pd.DataFrame()
+
+        if all_learned_job_parameters:
+            df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates()
+        else:
+            df_learned_parameters = pd.DataFrame()
     
-        return all_learned_control_job_parameters.sort_index()
+        return df_learned_parameters.sort_index()
 
 
 
