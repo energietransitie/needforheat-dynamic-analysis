@@ -1061,7 +1061,65 @@ class Preprocessor:
                     df_result[col] = df_result[col].astype(original_dtype)
 
         return df_result
- 
+
+    
+    @staticmethod
+    def interpolate_with_gap_limit(df_prep, cols, gap_max_duration__min):
+        """
+        Interpolate specified columns in a DataFrame with a maximum gap duration restriction.
+        All specified columns must have non-NaN values within a gap group for interpolation to be performed.
+    
+        Args:
+            df_prep (pd.DataFrame): Input DataFrame with a MultiIndex ('id', 'timestamp').
+            cols (list of str): List of column names to interpolate. All columns must have values (other than NaN)
+                                within a gap group for interpolation to be applied.
+            gap_max_duration__min (int): Maximum gap duration in minutes for interpolation.
+    
+        Returns:
+            pd.DataFrame: DataFrame with interpolated columns prefixed by 'interpolated_'.
+        """
+        # Step 1: Ensure the DataFrame is sorted by the MultiIndex levels ('id', 'timestamp')
+        df_prep = df_prep.sort_index(level=['id', 'timestamp'])
+    
+        # Step 2: Identify gaps where any column in `cols` is NaN
+        nan_mask = df_prep[cols].isna().any(axis=1)
+    
+        # Step 3: Group by 'id' and create a gap group identifier
+        df_prep['gap_group'] = (~nan_mask).cumsum()
+    
+        # Step 4: Add 'gap_group' to the MultiIndex & calculate gap sizes
+        df_prep = df_prep.set_index('gap_group', append=True)
+        gap_sizes = (
+            df_prep.loc[nan_mask]
+            .groupby(['id', 'gap_group'])
+            .size()
+        )
+    
+        # Step 5: Identify large gap groups
+        large_gap_groups = pd.MultiIndex.from_frame(
+            gap_sizes[gap_sizes > gap_max_duration__min].index.to_frame(index=False)
+        )
+    
+        # Step 6: Interpolate columns and handle large gaps
+        for col in cols:
+            df_prep[f"interpolated_{col}"] = (
+                df_prep[col]
+                .groupby(level='id')
+                .apply(lambda group: group.reset_index(level='id', drop=True)
+                                        .interpolate(method='linear', limit=gap_max_duration__min))
+            )
+    
+        # Step 7: Set interpolated values to NaN for large gaps
+        affected_rows = df_prep.index.droplevel('timestamp').isin(large_gap_groups)
+        for col in cols:
+            df_prep.loc[affected_rows, f"interpolated_{col}"] = np.nan
+    
+        # Step 8: Clean up the 'gap_group' index
+        df_prep.index = df_prep.index.droplevel('gap_group')
+    
+        return df_prep
+
+    
     @staticmethod
     def safe_to_timedelta(freq_str):
         try:
