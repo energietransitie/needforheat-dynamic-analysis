@@ -1640,7 +1640,7 @@ class Learner():
         # Fan speed and pump speed
         ##################################################################################################################
 
-        # calculated fan speed fraction btween min and max
+        # calculated fan speed percentage between min (0 %) and max (100 %)
         fan_speed__pct = m.CV(value=df_learn[property_sources['fan_speed__pct']].astype('float32').values)
         fan_speed__pct.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
         fan_speed__pct.FSTATUS = 1 # Use the measured values
@@ -1674,8 +1674,8 @@ class Learner():
         match mode:
             case Learner.BoilerControlMode.LEARN_ALGORITHMIC:
 
-                # TO DO: consider moving learn to parameters and making learning optionsal
-                # TO DO: consider accepting hints for paraeters that don't neet do be learned
+                # TO DO: consider moving learn to parameters and making learning optional
+                # TO DO: consider accepting hints for parameters that don't need do be learned
                 learn = ['fan_rotations_max_gain__pct_min_1',
                          'error_threshold_temp_delta_flow_flowset__K',
                          'flow_dstr_pump_speed_max_gain__pct_min_1',
@@ -1723,11 +1723,13 @@ class Learner():
                     )
                 )
                 
-                # Max fan gain in in frac_0
+                # Max fan gain in in %
                 fan_scale = bldng_data['fan_max_ch_rotations__min_1'] - bldng_data['fan_min_ch_rotations__min_1']
-                fan_rotations_max_gain__pct_min_1 = m.FV(value=1500/fan_scale, lb=100/fan_scale, ub=2000/fan_scale)  # Initialize with value and bounds
-                fan_rotations_max_gain__pct_min_1.STATUS = 1                                                         # Allow optimization
-                fan_rotations_max_gain__pct_min_1.FSTATUS = 1                                                        # Use the initial value as a hint for the solver
+                fan_rotations_max_gain__pct_min_1 = m.FV(value=1500/fan_scale * 100, 
+                                                         lb=100/fan_scale * 100, 
+                                                         ub=2000/fan_scale * 100)        # Initialize with value and bounds
+                fan_rotations_max_gain__pct_min_1.STATUS = 1                             # Allow optimization
+                fan_rotations_max_gain__pct_min_1.FSTATUS = 1                            # Use the initial value as a hint for the solver
                 
                 # Fan error threshold in K
                 error_threshold_temp_delta_flow_flowset__K = m.FV(value=5, lb=2, ub=10)  # Initialize with value and bounds
@@ -1744,15 +1746,11 @@ class Learner():
                 error_threshold_temp_delta_flow_ret__K.STATUS = 1                   # Allow optimization
                 error_threshold_temp_delta_flow_ret__K.FSTATUS = 1                  # Use the initial value as a hint for the solver
 
-                # Conditional fan speed gain based on flow error threshold
-                
-                # Define fan rotation gain logic using `if3`
-                m.Equation(
-                    fan_rotations_gain__pct_min_1 == m.if3(
-                        # Condition: error exceeds the threshold
-                        error_temp_delta_flow_flowset__K - error_threshold_temp_delta_flow_flowset__K, # >0 if error exceeds threshold
-                        fan_rotations_max_gain__pct_min_1,  # Assign max gain if condition is met
-                        fan_rotations_gain__pct_min_1  # Otherwise, retain the current gain
+                # Conditional fan speed gain based on flow error threshold, with an enforced maximum
+                fan_rotations_gain__pct_min_1 = m.Intermediate(
+                    m.min2(
+                        error_temp_delta_flow_flowset__K / error_threshold_temp_delta_flow_flowset__K * fan_rotations_max_gain__pct_min_1, 
+                        fan_rotations_max_gain__pct_min_1  # max gain
                     )
                 )
                 m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
@@ -1766,13 +1764,13 @@ class Learner():
                     )
                 )
                 
-                # Conditional pump speed gain based on error threshold
-                m.Equation(flow_dstr_pump_speed_gain__pct_min_1 == m.if3(
-                    # Condition: error exceeds the threshold
-                    error_temp_delta_flow_ret__K - error_threshold_temp_delta_flow_ret__K,  # >0 if error exceeds threshold
-                    flow_dstr_pump_speed_max_gain__pct_min_1, # If so, set the pump speed gain to max
-                    flow_dstr_pump_speed_gain__pct_min_1  # Otherwise, keep the pump speed gain as calculated
-                ))
+                # Conditional pump speed gain based on error threshold, with en enforced maximum
+                flow_dstr_pump_speed_gain__pct_min_1 = m.Intermediate(
+                    m.min2(
+                        error_temp_delta_flow_ret__K / error_threshold_temp_delta_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1,
+                        flow_dstr_pump_speed_max_gain__pct_min_1 # max gain
+                    )
+                )
                 m.Equation(flow_dstr_pump_speed__pct.dt() == flow_dstr_pump_speed_gain__pct_min_1)
                 
                 # Conditional pump speed updates: if in cooldown, set to 100, otherwise, keep the gain as calculated
