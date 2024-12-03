@@ -1714,7 +1714,7 @@ class Learner():
                 )
                 
                 # Max fan gain in in frac_0
-                fan_scale = bldng_data['fan_max_ch_rotations__min_1'] - bldng_data['fan_min_ch_rotations_min_1']
+                fan_scale = bldng_data['fan_max_ch_rotations__min_1'] - bldng_data['fan_min_ch_rotations__min_1']
                 fan_rotations_max_gain__pct_min_1 = m.FV(value=1500/fan_scale, lb=100/fan_scale, ub=2000/fan_scale)  # Initialize with value and bounds
                 fan_rotations_max_gain__pct_min_1.STATUS = 1                                                         # Allow optimization
                 fan_rotations_max_gain__pct_min_1.FSTATUS = 1                                                        # Use the initial value as a hint for the solver
