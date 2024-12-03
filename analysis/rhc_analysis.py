@@ -1070,7 +1070,8 @@ class Learner():
                                          req_props:list = None,
                                          sanity_threshold_timedelta:timedelta=timedelta(hours=24),
                                          complete_most_recent_analysis=False,
-                                         parallel=False
+                                         parallel=False,
+                                         max_periods=None,
                                         ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Input:  
@@ -1196,7 +1197,11 @@ class Learner():
                                                        property_sources=property_sources,
                                                        sanity_threshold_timedelta=sanity_threshold_timedelta
                                                       )
-            
+
+            # if max_periods is not None take a random subsample to limit calculation time
+            if max_periods is not None and max_periods < len(df_analysis_jobs):
+                df_analysis_jobs = df_analysis_jobs.sample(n=max_periods, random_state=42)
+          
    
             # Initialize lists to store learned properties and parameters
             all_learned_job_properties = []
@@ -1466,7 +1471,8 @@ class Learner():
                                            hints:dict = None,
                                            req_props:list = None,
                                            duration_threshold_timedelta:timedelta=timedelta(minutes=15),
-                                           parallel=False
+                                           parallel=False,
+                                           max_periods=None,
                                           ) -> pd.DataFrame:
 
         if req_props is None:  # If req_col not set, use all property sources
@@ -1476,19 +1482,23 @@ class Learner():
 
         # focus only on the required columns
         df_learn_all = df_data[req_col]
-        df_dstr_analysis_jobs = Learner.create_streak_job_list(df_data,
-                                                               req_props=req_props,
-                                                               property_sources= property_sources,
-                                                               duration_threshold_timedelta=duration_threshold_timedelta
-                                                              )
+        df_analysis_jobs = Learner.create_streak_job_list(df_data,
+                                                          req_props=req_props,
+                                                          property_sources= property_sources,
+                                                          duration_threshold_timedelta=duration_threshold_timedelta
+                                                         )
         
+        # if max_periods is not None take a random subsample to limit calculation time
+        if max_periods is not None and max_periods < len(df_analysis_jobs):
+            df_analysis_jobs = df_analysis_jobs.sample(n=max_periods, random_state=42)
+
         # Initialize result lists
         all_learned_job_properties = []
         all_learned_job_parameters = []
         
         if parallel:
             
-            num_jobs = df_dstr_analysis_jobs.shape[0]  # Get the number of jobs
+            num_jobs = df_analysis_jobs.shape[0]  # Get the number of jobs
             num_workers = min(num_jobs, os.cpu_count())  # Use the lesser of number of jobs or 16 (or any other upper limit)
             
             with ProcessPoolExecutor() as executor:
@@ -1498,13 +1508,13 @@ class Learner():
                 futures = []
                 learned_jobs = {}
                 
-                for id, start, end in tqdm(df_dstr_analysis_jobs.index, desc=f"Submitting learning jobs to {num_workers} processes"):
+                for id, start, end in tqdm(df_analysis_jobs.index, desc=f"Submitting learning jobs to {num_workers} processes"):
                     # Create df_learn for the current job
                     df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
                                                 (df_learn_all.index.get_level_values('timestamp') >= start) & 
                                                 (df_learn_all.index.get_level_values('timestamp') < end)]
                 
-                    duration__s = (df_dstr_analysis_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
+                    duration__s = (df_analysis_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
                   
                 
                     # Submit the analyze_job function to the executor
@@ -1541,13 +1551,13 @@ class Learner():
                             pbar.update(1)
                 
         else:
-            for id, start, end in tqdm(df_dstr_analysis_jobs.index, desc=f"Analyzing heat distribution using 1 process"):
+            for id, start, end in tqdm(df_analysis_jobs.index, desc=f"Analyzing heat distribution using 1 process"):
                 # Create df_learn for the current job
                 df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
                                             (df_learn_all.index.get_level_values('timestamp') >= start) & 
                                             (df_learn_all.index.get_level_values('timestamp') < end)]
             
-                duration__s = (df_dstr_analysis_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
+                duration__s = (df_analysis_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
     
                 df_learned_job_parameters, df_learned_job_properties = Learner.learn_heat_distribution(id, start, end,
                                                                                                        df_learn,
@@ -1600,7 +1610,7 @@ class Learner():
         temp_flow_ch_max__degC .FSTATUS = 1 # Use the measured values
         
         # Initial assumption: fixed setpoint; will be relaxed later
-        temp_flow_ch_set__degC = m.Var(value=60)   # Default supply temp setpoint in Celsius (flow setpoint)
+        temp_flow_ch_set__degC = m.Var(value=60)   # Default supply temperature setpoint in Celsius (flow setpoint)
         temp_flow_ch_set__degC.lower = 0  # Minimum value
         m.Equation(temp_flow_ch_set__degC <= temp_flow_ch_max__degC) # constraint to enforce the maximum limit dynamically
 
@@ -1747,12 +1757,12 @@ class Learner():
                 )
                 m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
                 
-                # Conditional fan rotations updates: if in cooldown, set to 0, otherwise, keep the gain as calculated
+                # Conditional fan rotations updates: if in cooldown, set to 0, otherwise, keep the fan speed as calculated
                 m.Equation(
                     fan_speed__pct == m.if3(
                         in_cooldown__bool - 0.5,  # Condition (binary): if in_cooldown__bool is 1 (true)
                         0,                        # Fan speed is set to 0
-                        fan_speed__pct            # Otherwise, keep the current fan speed
+                        fan_speed__pct            # Otherwise, retain the current fan speed
                     )
                 )
                 
@@ -1781,44 +1791,43 @@ class Learner():
                 # Container to store the PID variables for fan and pump
                 boiler_pid_parameters = {}
                 
-                # Loop over the components (thermostat, fan, pump)
-                for component in ['thermostat', 'fan', 'pump']:
-                    if boiler_pid_hints_bounds is not None and component in boiler_pid_hints_bounds:
-                        # Extract the bounds and hints for the current component
-                        component_hints = boiler_pid_hints_bounds[component]
-                        boiler_pid_parameters[component] = {}  # Initialize section for this component
-                
-                        # Default values for PID terms
-                        default_values = {'p': 1.0, 'i': 0.1, 'd': 0.05}
-                
-                        # Loop over the PID terms (p, i, d)
-                        for term, default in default_values.items():
-                            param_name = f'K{term}_{component}'
-                
-                            if term in component_hints:
-                                # Create an adjustable FV for this term
-                                param = m.FV(
-                                    value=component_hints[term]['initial_guess'],
-                                    lb=component_hints[term].get('lower_bound', None),
-                                    ub=component_hints[term].get('upper_bound', None)
-                                )
-                                param.STATUS = 1  # Allow optimization
-                                param.FSTATUS = 1  # Use the initial value as a hint for the solver
-                            else:
-                                # Create a fixed parameter for this term
-                                param = m.Param(value=default)
-                
-                            # Store the parameter in the structured dictionary
-                            boiler_pid_parameters[component][term] = param
+                # Loop over the components 
+                for component in boiler_pid_hints_bounds:
+                    # Extract the bounds and hints for the current component
+                    component_hints = boiler_pid_hints_bounds[component]
+                    boiler_pid_parameters[component] = {}  # Initialize section for this component
             
-                # PID control equations for fan speed
-                m.Equation(
-                    temp_flow_ch_set__degC.dt() == (
-                        boiler_pid_parameters['thermostat']['p'] * error_temp_delta_indoor_set__K +              # Proportional term
-                        boiler_pid_parameters['thermostat']['i'] * m.integral(error_temp_delta_indoor_set__K) +  # Integral term
-                        boiler_pid_parameters['thermostat']['d'] * error_temp_delta_indoor_set__K.dt()           # Derivative term
-                    )
-                )
+                    # Default values for PID terms
+                    default_values = {'p': 1.0, 'i': 0.1, 'd': 0.05}
+            
+                    # Loop over the PID terms (p, i, d)
+                    for term, default in default_values.items():
+                        param_name = f'K{term}_{component}'
+            
+                        if term in component_hints:
+                            # Create an adjustable FV for this term
+                            param = m.FV(
+                                value=component_hints[term]['initial_guess'],
+                                lb=component_hints[term].get('lower_bound', None),
+                                ub=component_hints[term].get('upper_bound', None)
+                            )
+                            param.STATUS = 1  # Allow optimization
+                            param.FSTATUS = 1  # Use the initial value as a hint for the solver
+                        else:
+                            # Create a fixed parameter for this term
+                            param = m.Param(value=default)
+            
+                        # Store the parameter in the structured dictionary
+                        boiler_pid_parameters[component][term] = param
+            
+                # # PID control equations for flow temperature setpoint 
+                # m.Equation(
+                #     temp_flow_ch_set__degC.dt() == (
+                #         boiler_pid_parameters['thermostat']['p'] * error_temp_delta_indoor_set__K +              # Proportional term
+                #         boiler_pid_parameters['thermostat']['i'] * m.integral(error_temp_delta_indoor_set__K) +  # Integral term
+                #         boiler_pid_parameters['thermostat']['d'] * error_temp_delta_indoor_set__K.dt()           # Derivative term
+                #     )
+                # )
                 
                 # PID control equations for fan speed
                 m.Equation(
@@ -1893,7 +1902,9 @@ class Learner():
                                         req_props: list = None,
                                         duration_threshold_timedelta: timedelta = timedelta(minutes=15),
                                         mode=None, 
-                                        parallel=True) -> pd.DataFrame:
+                                        parallel=True,
+                                        max_periods=None,
+                                       ) -> pd.DataFrame:
 
         if req_props is None:  # If req_col not set, use all property sources
             req_col = list(property_sources.values())
@@ -1902,17 +1913,21 @@ class Learner():
     
         # Focus only on the required columns
         df_learn_all = df_data[req_col]
-        df_learn_jobs = Learner.create_streak_job_list(df_data,
+        df_analysis_jobs = Learner.create_streak_job_list(df_data,
                                                        req_props=req_props,
                                                        property_sources=property_sources,
                                                        duration_threshold_timedelta=duration_threshold_timedelta)
     
+        # if max_periods is not None take a random subsample to limit calculation time
+        if max_periods is not None and max_periods < len(df_analysis_jobs):
+            df_analysis_jobs = df_analysis_jobs.sample(n=max_periods, random_state=42)
+
         # Initialize result lists
         all_learned_job_properties = []
         all_learned_job_parameters = []
     
         if parallel:
-            num_jobs = df_learn_jobs.shape[0]  # Get the number of jobs
+            num_jobs = df_analysis_jobs.shape[0]  # Get the number of jobs
             num_workers = min(num_jobs, os.cpu_count())  # Use the lesser of number of jobs or CPU count
     
             with ProcessPoolExecutor() as executor:
@@ -1920,13 +1935,13 @@ class Learner():
                 futures = []
                 learned_jobs = {}
     
-                for id, start, end in tqdm(df_learn_jobs.index, desc=f"Submitting {mode} learning jobs to {num_workers} processes"):
+                for id, start, end in tqdm(df_analysis_jobs.index, desc=f"Submitting {mode} learning jobs to {num_workers} processes"):
                     # Create df_learn for the current job
                     df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
                                                 (df_learn_all.index.get_level_values('timestamp') >= start) & 
                                                 (df_learn_all.index.get_level_values('timestamp') < end)]
     
-                    duration__s = int(df_learn_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
+                    duration__s = int(df_analysis_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
     
                     # Get building-specific data for each job
                     bldng_data = df_bldng_data.loc[id].to_dict()
@@ -1963,13 +1978,13 @@ class Learner():
                         finally:
                             pbar.update(1)                            
         else:
-            for id, start, end in tqdm(df_learn_jobs.index, desc=f"Learning boiler control using 1 process"):
+            for id, start, end in tqdm(df_analysis_jobs.index, desc=f"Learning boiler control using 1 process"):
                 # Create df_learn for the current job
                 df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
                                             (df_learn_all.index.get_level_values('timestamp') >= start) & 
                                             (df_learn_all.index.get_level_values('timestamp') < end)]
     
-                duration__s = int(df_learn_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
+                duration__s = int(df_analysis_jobs.loc[(id, start, end)]['duration__min'] * s_min_1)
     
                 # Get building-specific data for each job
                 bldng_data = df_bldng_data.loc[id].to_dict()
