@@ -179,7 +179,8 @@ class Plot:
                     subplots = unit_tuples,
                     style='.--',
                     alpha=0.5,  # Set alpha for transparency
-                    title=f'id: {id}'
+                    title=f'id: {id}',
+                     grid=True  # Enable gridlines (both horizontal and vertical)
                 )
                 for unit in enumerate(units_with_data):
                     if units_to_mathtext is not None:
