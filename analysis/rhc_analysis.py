@@ -1609,7 +1609,7 @@ class Learner():
 
 
     # Define the modes as an enumeration
-    class BoilerControlMode(Enum):
+    class ControlMode(Enum):
         LEARN_ALGORITHMIC = "alg"
         LEARN_PID = "pid"   
         
@@ -1619,7 +1619,7 @@ class Learner():
                              duration__s, step__s,
                              property_sources,
                              bldng_data,
-                             boiler_pid_hints_bounds=None,
+                             pid_hints_bounds=None,
                              mode=None, 
                             ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
@@ -1700,7 +1700,7 @@ class Learner():
         ##################################################################################################################
 
         match mode:
-            case Learner.BoilerControlMode.LEARN_ALGORITHMIC:
+            case Learner.ControlMode.LEARN_ALGORITHMIC:
 
                 # TO DO: consider moving learn to parameters and making learning optional
                 # TO DO: consider accepting hints for parameters that don't need do be learned
@@ -1828,18 +1828,18 @@ class Learner():
                     )
                 )      
 
-            case Learner.BoilerControlMode.LEARN_PID:
+            case Learner.ControlMode.LEARN_PID:
                 ##################################################################################################################
                 # PID control 
                 ##################################################################################################################
                 # Container to store the PID variables for fan and pump
-                boiler_pid_parameters = {}
+                pid_parameters = {}
                 
                 # Loop over the components 
-                for component in boiler_pid_hints_bounds:
+                for component in pid_hints_bounds:
                     # Extract the bounds and hints for the current component
-                    component_hints = boiler_pid_hints_bounds[component]
-                    boiler_pid_parameters[component] = {}  # Initialize section for this component
+                    component_hints = pid_hints_bounds[component]
+                    pid_parameters[component] = {}  # Initialize section for this component
             
                     # Default values for PID terms
                     default_values = {'p': 1.0, 'i': 0.1, 'd': 0.05}
@@ -1862,37 +1862,37 @@ class Learner():
                             param = m.Param(value=default)
             
                         # Store the parameter in the structured dictionary
-                        boiler_pid_parameters[component][term] = param
+                        pid_parameters[component][term] = param
             
                 # # PID control equations for flow temperature setpoint 
                 # m.Equation(
                 #     temp_flow_ch_set__degC.dt() == (
-                #         boiler_pid_parameters['thermostat']['p'] * error_temp_delta_indoor_set__K +              # Proportional term
-                #         boiler_pid_parameters['thermostat']['i'] * m.integral(error_temp_delta_indoor_set__K) +  # Integral term
-                #         boiler_pid_parameters['thermostat']['d'] * error_temp_delta_indoor_set__K.dt()           # Derivative term
+                #         pid_parameters['thermostat']['p'] * error_temp_delta_indoor_set__K +              # Proportional term
+                #         pid_parameters['thermostat']['i'] * m.integral(error_temp_delta_indoor_set__K) +  # Integral term
+                #         pid_parameters['thermostat']['d'] * error_temp_delta_indoor_set__K.dt()           # Derivative term
                 #     )
                 # )
                 
                 # PID control equations for fan speed
                 m.Equation(
                     fan_speed__pct.dt() == (
-                        boiler_pid_parameters['fan']['p'] * error_temp_delta_flow_flowset__K +                   # Proportional term
-                        boiler_pid_parameters['fan']['i'] * m.integral(error_temp_delta_flow_flowset__K) +       # Integral term
-                        boiler_pid_parameters['fan']['d'] * error_temp_delta_flow_flowset__K.dt()                # Derivative term
+                        pid_parameters['fan']['p'] * error_temp_delta_flow_flowset__K +                   # Proportional term
+                        pid_parameters['fan']['i'] * m.integral(error_temp_delta_flow_flowset__K) +       # Integral term
+                        pid_parameters['fan']['d'] * error_temp_delta_flow_flowset__K.dt()                # Derivative term
                     )
                 )
 
                 # PID control equations for pump speed
                 m.Equation(
                     flow_dstr_pump_speed__pct.dt() == (
-                        boiler_pid_parameters['pump']['p'] * error_temp_delta_flow_ret__K +                      # Proportional term
-                        boiler_pid_parameters['pump']['i'] * m.integral(error_temp_delta_flow_ret__K) +          # Integral term
-                        boiler_pid_parameters['pump']['d'] * error_temp_delta_flow_ret__K.dt()                   # Derivative term
+                        pid_parameters['pump']['p'] * error_temp_delta_flow_ret__K +                      # Proportional term
+                        pid_parameters['pump']['i'] * m.integral(error_temp_delta_flow_ret__K) +          # Integral term
+                        pid_parameters['pump']['d'] * error_temp_delta_flow_ret__K.dt()                   # Derivative term
                     )
                 )
 
             case _:
-                raise ValueError(f"Invalid BoilerControlMode: {mode}")
+                raise ValueError(f"Invalid ControlMode: {mode}")
     
         ##################################################################################################################
         # Solve the model to start the learning process
@@ -1942,16 +1942,16 @@ class Learner():
                 warnings.warn(f"Property {prop} not found in property_sources. Skipping.")
                 
         match mode:
-            case Learner.BoilerControlMode.LEARN_ALGORITHMIC:
+            case Learner.ControlMode.LEARN_ALGORITHMIC:
                 for param in learn:
                     if param in locals():
                         df_learned_job_parameters.loc[0, f'learned_{param}'] = locals()[param].value[0]
-            case Learner.BoilerControlMode.LEARN_PID:
-                for component, params in boiler_pid_parameters.items():
+            case Learner.ControlMode.LEARN_PID:
+                for component, params in pid_parameters.items():
                     for param_name, value in params.items():
                         df_learned_job_parameters.loc[0, f'learned_{component}_K{param_name}'] = value[0]
             case _:
-                raise ValueError(f"Invalid BoilerControlMode: {mode}")
+                raise ValueError(f"Invalid ControlMode: {mode}")
             
 
         # Set MultiIndex on the DataFrame (id, start, end)
@@ -1966,7 +1966,7 @@ class Learner():
     def learn_boiler_control_parameters(df_data: pd.DataFrame,
                                         df_bldng_data: pd.DataFrame,
                                         property_sources=None,
-                                        boiler_pid_hints_bounds=None,
+                                        pid_hints_bounds=None,
                                         req_props: list = None,
                                         duration_threshold_timedelta: timedelta = timedelta(minutes=15),
                                         mode=None, 
@@ -2021,7 +2021,7 @@ class Learner():
                                              duration__s, s_min_1,
                                              property_sources,
                                              bldng_data,
-                                             boiler_pid_hints_bounds=boiler_pid_hints_bounds,
+                                             pid_hints_bounds=pid_hints_bounds,
                                              mode=mode
                                             )
                     futures.append(future)
@@ -2063,7 +2063,7 @@ class Learner():
                     duration__s, s_min_1,
                     property_sources,
                     bldng_data,
-                    boiler_pid_hints_bounds,
+                    pid_hints_bounds,
                     mode,
                 )
                 all_learned_job_properties.append(df_learned_job_properties)
@@ -2084,6 +2084,191 @@ class Learner():
         df_data = df_data.merge(df_learned_job_properties, left_index=True, right_index=True, how='left')
     
         return df_learned_parameters, df_data
+
+
+    def learn_thermostat_control(df_learn,
+                                 id, start, end,
+                                 duration__s, step__s,
+                                 property_sources,
+                                 bldng_data,
+                                 pid_hints_bounds=None,
+                                 mode=None, 
+                                ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+        ##################################################################################################################
+        # Initialize GEKKO model
+        ##################################################################################################################
+        m = GEKKO(remote=False)
+        m.time = np.arange(0, duration__s, step__s)
+
+        ##################################################################################################################
+        # Flow setpoint
+        ##################################################################################################################
+
+        temp_flow_ch_max__degC  = m.MV(value=df_learn[property_sources['temp_flow_ch_max__degC']].astype('float32').values)
+        temp_flow_ch_max__degC .STATUS = 0  # No optimization
+        temp_flow_ch_max__degC .FSTATUS = 1 # Use the measured values
+        
+        # Initial assumption: fixed setpoint; will be relaxed later
+        temp_flow_ch_set__degC = m.Var(value=0)
+        temp_flow_ch_set__degC.lower = 0  # Minimum value
+        m.Equation(temp_flow_ch_set__degC <= temp_flow_ch_max__degC) # constraint to enforce the maximum limit dynamically
+
+        ##################################################################################################################
+        # Setpoint and indoor temperature
+        ##################################################################################################################
+        temp_set__degC = m.MV(value=df_learn[property_sources['temp_set__degC']].astype('float32').values)
+        temp_set__degC.STATUS = 0  # No optimization
+        temp_set__degC.FSTATUS = 1 # Use the measured values
+        
+        temp_indoor__degC = m.MV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
+        temp_indoor__degC.STATUS = 0  # No optimization
+        temp_indoor__degC.FSTATUS = 1 # Use the measured values
+
+        ##################################################################################################################
+        # Control targets: 'delta-T': difference between indoor setpoint and indoor temperature
+        ##################################################################################################################
+
+        # Error between thermostat setpoint and indoor temperature
+        # error_temp_delta_indoor_set__K  = m.Var(value=0.0)  # Initialize with a default value
+        m.Equation(error_temp_delta_indoor_set__K == temp_set__degC - temp_indoor__degC)
+
+        ##################################################################################################################
+        # Control  algorithm 
+        ##################################################################################################################
+
+        match mode:
+            case Learner.ControlMode.LEARN_ALGORITHMIC:
+
+                learn = ['thermostat_hysteresis__K']
+                
+                ##################################################################################################################
+                # Algorithmic control; this implements a simple ON/OFF thermostat with hysteresis
+                ##################################################################################################################
+        
+                # Thermostat hysteresis
+                thermostat_hysteresis__K = m.FV(value=0.1,
+                                               lb=0.0,
+                                               ub=2.0)         # Thermostat hysteresis, which might be boiler-specific
+                thermostat_hysteresis__K.STATUS = 1            # Allow optimization
+                thermostat_hysteresis__K.FSTATUS = 1           # Use the initial value as a hint for the solver
+                
+                hysteresis_upper_margin__K = m.Intermediate(temp_set__degC + thermostat_hysteresis__K/2)
+                hysteresis_lower_margin__K = m.Intermediate(temp_set__degC - thermostat_hysteresis__K/2)
+        
+                m.Equation(
+                    temp_flow_ch_set__degC == m.if3(
+                        temp_indoor__degC - hysteresis_upper_margin__K,     # Positive if above upper margin (OFF)
+                        0,                                                  # turn heating OFF
+                        m.if3(
+                            hysteresis_lower_margin__K - temp_indoor__degC, # Positive if below lower margin (ON)
+                            temp_flow_ch_max__degC,                         # turn heating ON
+                            temp_flow_ch_set__degC                          # Maintain current state
+                        )
+                    )
+                )
+
+            case Learner.ControlMode.LEARN_PID:
+                ##################################################################################################################
+                # PID control 
+                ##################################################################################################################
+                # Container to store the PID variables
+                pid_parameters = {}
+                
+                # Define default PID terms
+                default_pid_values = {'p': 1.0, 'i': 0.1, 'd': 0.05}
+                
+                # PID parameter initialization
+                for component, component_hints in pid_hints_bounds.items():
+                    pid_parameters[component] = {}
+                    for term, default in default_pid_values.items():
+                        param_name = f'K{term}_{component}'
+                        bounds = component_hints.get(term, {})
+                        pid_parameters[component][term] = m.FV(
+                            value=bounds.get('initial_guess', default),
+                            lb=bounds.get('lower_bound', None),
+                            ub=bounds.get('upper_bound', None)
+                        )
+                        pid_parameters[component][term].STATUS = 1
+                        pid_parameters[component][term].FSTATUS = 1
+            
+                # PID control equations for flow temperature setpoint 
+                m.Equation(
+                    temp_flow_ch_set__degC.dt() == (
+                        pid_parameters['thermostat']['p'] * error_temp_delta_indoor_set__K +              # Proportional term
+                        pid_parameters['thermostat']['i'] * m.integral(error_temp_delta_indoor_set__K) +  # Integral term
+                        pid_parameters['thermostat']['d'] * error_temp_delta_indoor_set__K.dt()           # Derivative term
+                    )
+                )
+
+            case _:
+                raise ValueError(f"Invalid ControlMode: {mode}")
+    
+        ##################################################################################################################
+        # Solve the model to start the learning process
+        ##################################################################################################################
+        m.options.IMODE = 5        # Simultaneous Estimation 
+        m.options.EV_TYPE = 2      # RMSE
+        m.solve(disp=False)
+
+        ##################################################################################################################
+        # Store results of the learning process
+        ##################################################################################################################
+        
+        # Define the dictionary mapping property names to GEKKO variables
+        learned_job_properties_dict = {
+            'temp_flow_ch_set__degC': temp_flow_ch_set__degC,
+        }
+        
+        # Initialize a DataFrame for learned time-varying properties
+        df_learned_job_properties = pd.DataFrame(index=df_learn.index)
+        
+        # Initialize a DataFrame for learned parameters (single row for metadata)
+        df_learned_job_parameters = pd.DataFrame({
+            'id': id, 
+            'start': start,
+            'end': end
+        }, index=[0])
+        
+        # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+        for prop, predictions in learned_job_properties_dict.items():
+            if prop in property_sources:  # Ensure the property has a source
+                learned_prop = f'learned_{mode.value}_{prop}'
+                
+                # Store the learned values in the DataFrame
+                df_learned_job_properties[learned_prop] = np.asarray(predictions)
+                
+                # Calculate and store MAE and RMSE
+                df_learned_job_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
+                    df_learn[property_sources[prop]],  # Measured values
+                    df_learned_job_properties[learned_prop]  # Predicted values
+                )
+                df_learned_job_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
+                    df_learn[property_sources[prop]],  # Measured values
+                    df_learned_job_properties[learned_prop]  # Predicted values
+                )
+            else:
+                warnings.warn(f"Property {prop} not found in property_sources. Skipping.")
+                
+        match mode:
+            case Learner.ControlMode.LEARN_ALGORITHMIC:
+                for param in learn:
+                    if param in locals():
+                        df_learned_job_parameters.loc[0, f'learned_{param}'] = locals()[param].value[0]
+            case Learner.ControlMode.LEARN_PID:
+                for component, params in pid_parameters.items():
+                    for param_name, value in params.items():
+                        df_learned_job_parameters.loc[0, f'learned_{component}_K{param_name}'] = value[0]
+            case _:
+                raise ValueError(f"Invalid ControlMode: {mode}")
+            
+
+        # Set MultiIndex on the DataFrame (id, start, end)
+        df_learned_job_parameters.set_index(['id', 'start', 'end'], inplace=True)
+
+        m.cleanup()
+
+        return df_learned_job_parameters, df_learned_job_properties
 
 
 class Comfort():
