@@ -529,15 +529,40 @@ class Learner():
         # Store results of the learning process
         ##################################################################################################################
         
+        # Define the dictionary mapping property names to GEKKO variables
+        learned_job_properties_dict = {
+            'temp_ret_ch__degC': temp_ret_ch__degC,
+        }
+        
         # Initialize a DataFrame for learned time-varying properties
         df_learned_job_properties = pd.DataFrame(index=df_learn.index)
-
-        # Initialize a DataFrame, even for a single learned parameter (one row with id, start, end), for consistency
+        
+        # Initialize a DataFrame for learned parameters (single row for metadata)
         df_learned_job_parameters = pd.DataFrame({
             'id': id, 
             'start': start,
             'end': end
         }, index=[0])
+        
+        # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+        for prop, predictions in learned_job_properties_dict.items():
+            if prop in property_sources:  # Ensure the property has a source
+                learned_prop = f'learned_{prop}'
+                
+                # Store the learned values in the DataFrame
+                df_learned_job_properties[learned_prop] = np.asarray(predictions)
+                
+                # Calculate and store MAE and RMSE
+                df_learned_job_parameters.loc[0, f'mae_{prop}'] = mae(
+                    df_learn[property_sources[prop]],  # Measured values
+                    df_learned_job_properties[learned_prop]  # Predicted values
+                )
+                df_learned_job_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                    df_learn[property_sources[prop]],  # Measured values
+                    df_learned_job_properties[learned_prop]  # Predicted values
+                )
+            else:
+                warnings.warn(f"Property {prop} not found in property_sources. Skipping.")
 
         # Store learned heat transmissivity of the heat distribution system
         param = 'heat_tr_dstr__W_K_1'
@@ -1473,7 +1498,7 @@ class Learner():
                                            duration_threshold_timedelta:timedelta=timedelta(minutes=15),
                                            parallel=False,
                                            max_periods=None,
-                                          ) -> pd.DataFrame:
+                                          ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         if req_props is None:  # If req_col not set, use all property sources
             req_col = list(property_sources.values())
@@ -1568,22 +1593,25 @@ class Learner():
         
         # Now merge all learned job properties and parameters into cumulative DataFrames
         if all_learned_job_properties:
-            df_learned_properties = pd.concat(all_learned_job_properties, axis=0).drop_duplicates()
+            df_learned_properties = pd.concat(all_learned_job_properties, axis=0).drop_duplicates().sort_index()
         else: 
             df_learned_properties = pd.DataFrame()
 
         if all_learned_job_parameters:
-            df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates()
+            df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates().sort_index()
         else:
             df_learned_parameters = pd.DataFrame()
 
-        return df_learned_parameters.sort_index()    
+        # Merging all learned time series data into df_data
+        df_data = df_data.merge(df_learned_job_properties, left_index=True, right_index=True, how='left')
+
+        return df_learned_parameters, df_data    
 
 
     # Define the modes as an enumeration
     class BoilerControlMode(Enum):
-        LEARN_ALGORITHMIC = "learn-algorithmic"
-        LEARN_PID = "learn-pid"   
+        LEARN_ALGORITHMIC = "alg"
+        LEARN_PID = "pid"   
         
 
     def learn_boiler_control(df_learn,
@@ -1725,26 +1753,44 @@ class Learner():
                 
                 # Max fan gain in in %
                 fan_scale = bldng_data['fan_max_ch_rotations__min_1'] - bldng_data['fan_min_ch_rotations__min_1']
-                fan_rotations_max_gain__pct_min_1 = m.FV(value=1500/fan_scale * 100, 
-                                                         lb=100/fan_scale * 100, 
-                                                         ub=2000/fan_scale * 100)        # Initialize with value and bounds
+                fan_rotations_max_gain__pct_min_1 = m.FV(value=1500/fan_scale * 100,
+                                                         lb=0,
+                                                         ub=100,
+                                                         # lb=100/fan_scale * 100, 
+                                                         # ub=2000/fan_scale * 100
+                                                        )                                # Initialize with value and bounds
                 fan_rotations_max_gain__pct_min_1.STATUS = 1                             # Allow optimization
                 fan_rotations_max_gain__pct_min_1.FSTATUS = 1                            # Use the initial value as a hint for the solver
                 
                 # Fan error threshold in K
-                error_threshold_temp_delta_flow_flowset__K = m.FV(value=5, lb=2, ub=10)  # Initialize with value and bounds
+                error_threshold_temp_delta_flow_flowset__K = m.FV(value=5,
+                                                                  lb=0,
+                                                                  ub=100,
+                                                                  # lb=2,
+                                                                  # ub=10
+                                                                 )                       # Initialize with value and bounds
                 error_threshold_temp_delta_flow_flowset__K.STATUS = 1                    # Allow optimization
                 error_threshold_temp_delta_flow_flowset__K.FSTATUS = 1                   # Use the initial value as a hint for the solver
                 
                 # Max pump gain in % per minute
-                flow_dstr_pump_speed_max_gain__pct_min_1 = m.FV(value=3, lb=1, ub=5)  # Initialize with value and bounds
-                flow_dstr_pump_speed_max_gain__pct_min_1.STATUS = 1                   # Allow optimization
-                flow_dstr_pump_speed_max_gain__pct_min_1.FSTATUS = 1                  # Use the initial value as a hint for the solver
+                flow_dstr_pump_speed_max_gain__pct_min_1 = m.FV(value=3,
+                                                                lb=0,
+                                                                ub=100,
+                                                                # lb=1,
+                                                                # ub=5
+                                                               )                         # Initialize with value and bounds
+                flow_dstr_pump_speed_max_gain__pct_min_1.STATUS = 1                      # Allow optimization
+                flow_dstr_pump_speed_max_gain__pct_min_1.FSTATUS = 1                     # Use the initial value as a hint for the solver
                 
                 # Pump error threshold in K
-                error_threshold_temp_delta_flow_ret__K = m.FV(value=2, lb=1, ub=5)  # Initialize with value and bounds
-                error_threshold_temp_delta_flow_ret__K.STATUS = 1                   # Allow optimization
-                error_threshold_temp_delta_flow_ret__K.FSTATUS = 1                  # Use the initial value as a hint for the solver
+                error_threshold_temp_delta_flow_ret__K = m.FV(value=2,
+                                                              lb=0,
+                                                              ub=100,
+                                                              # lb=1,
+                                                              # ub=5
+                                                             )                           # Initialize with value and bounds
+                error_threshold_temp_delta_flow_ret__K.STATUS = 1                        # Allow optimization
+                error_threshold_temp_delta_flow_ret__K.FSTATUS = 1                       # Use the initial value as a hint for the solver
 
                 # Conditional fan speed gain based on flow error threshold, with an enforced maximum
                 fan_rotations_gain__pct_min_1 = m.Intermediate(
@@ -1845,8 +1891,6 @@ class Learner():
                     )
                 )
 
-                
-
             case _:
                 raise ValueError(f"Invalid BoilerControlMode: {mode}")
     
@@ -1861,16 +1905,42 @@ class Learner():
         # Store results of the learning process
         ##################################################################################################################
         
+        # Define the dictionary mapping property names to GEKKO variables
+        learned_job_properties_dict = {
+            'fan_speed__pct': fan_speed__pct,
+            'flow_dstr_pump_speed__pct': flow_dstr_pump_speed__pct
+        }
+        
         # Initialize a DataFrame for learned time-varying properties
         df_learned_job_properties = pd.DataFrame(index=df_learn.index)
-
-        # Initialize a DataFrame, even for a single learned parameter (one row with id, start, end), for consistency
+        
+        # Initialize a DataFrame for learned parameters (single row for metadata)
         df_learned_job_parameters = pd.DataFrame({
             'id': id, 
             'start': start,
             'end': end
         }, index=[0])
         
+        # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+        for prop, predictions in learned_job_properties_dict.items():
+            if prop in property_sources:  # Ensure the property has a source
+                learned_prop = f'learned_{mode.value}_{prop}'
+                
+                # Store the learned values in the DataFrame
+                df_learned_job_properties[learned_prop] = np.asarray(predictions)
+                
+                # Calculate and store MAE and RMSE
+                df_learned_job_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
+                    df_learn[property_sources[prop]],  # Measured values
+                    df_learned_job_properties[learned_prop]  # Predicted values
+                )
+                df_learned_job_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
+                    df_learn[property_sources[prop]],  # Measured values
+                    df_learned_job_properties[learned_prop]  # Predicted values
+                )
+            else:
+                warnings.warn(f"Property {prop} not found in property_sources. Skipping.")
+                
         match mode:
             case Learner.BoilerControlMode.LEARN_ALGORITHMIC:
                 for param in learn:
@@ -1902,7 +1972,7 @@ class Learner():
                                         mode=None, 
                                         parallel=True,
                                         max_periods=None,
-                                       ) -> pd.DataFrame:
+                                       ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         if req_props is None:  # If req_col not set, use all property sources
             req_col = list(property_sources.values())
@@ -2001,16 +2071,19 @@ class Learner():
     
         # Merge all learned job properties and parameters into cumulative DataFrames
         if all_learned_job_properties:
-            df_learned_properties = pd.concat(all_learned_job_properties, axis=0).drop_duplicates()
+            df_learned_properties = pd.concat(all_learned_job_properties, axis=0).drop_duplicates().sort_index()
         else: 
             df_learned_properties = pd.DataFrame()
 
         if all_learned_job_parameters:
-            df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates()
+            df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates().sort_index()
         else:
             df_learned_parameters = pd.DataFrame()
+
+        # Merging all learned time series data into df_data
+        df_data = df_data.merge(df_learned_job_properties, left_index=True, right_index=True, how='left')
     
-        return df_learned_parameters.sort_index()
+        return df_learned_parameters, df_data
 
 
 class Comfort():
