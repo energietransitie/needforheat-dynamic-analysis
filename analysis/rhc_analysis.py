@@ -181,7 +181,7 @@ class Learner():
         df_data: pd.DataFrame,
         req_props: list,
         property_sources: dict,
-        duration_threshold_timedelta: timedelta = timedelta(minutes=30),
+        duration_threshold: timedelta = timedelta(minutes=30),
         max_len=None,
         ) -> pd.DataFrame:
         """
@@ -208,7 +208,7 @@ class Learner():
         jobs = []
         
         # Iterate over each unique id
-        for id_, group in tqdm(df_data.groupby(level='id'), desc=f"Identifying learning jobs of at least {duration_threshold_timedelta}"):
+        for id_, group in tqdm(df_data.groupby(level='id'), desc=f"Identifying learning jobs of at least {duration_threshold}"):
             # Filter for rows where all required columns are not NaN
             group = group.droplevel('id')  # Drop 'id' level for easier handling
             group = group.loc[group[req_col].notna().all(axis=1)]
@@ -229,7 +229,7 @@ class Learner():
                 streak_duration = end_time - start_time
     
                 # Only include streaks that meet the duration threshold
-                if streak_duration >= duration_threshold_timedelta:
+                if streak_duration >= duration_threshold:
                     jobs.append((id_, start_time, end_time))
     
         # Convert jobs to DataFrame
