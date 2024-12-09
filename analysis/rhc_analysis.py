@@ -849,15 +849,15 @@ class Learner():
             
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
         for prop in [prop for prop in learned_job_properties if prop in property_sources and prop in locals()]:
-            learned_prop = f'learned_{mode.value}_{prop}'
+            learned_prop = f'learned_{prop}'
             df_learned_job_properties.loc[:,learned_prop] = np.asarray(locals()[prop].value)
             
             # Calculate and store MAE and RMSE
-            df_learned_job_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
+            df_learned_job_parameters.loc[0, f'mae_{prop}'] = mae(
                 df_learn[property_sources[prop]],  # Measured values
                 df_learned_job_properties[learned_prop]  # Predicted values
             )
-            df_learned_job_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
+            df_learned_job_parameters.loc[0, f'rmse_{prop}'] = rmse(
                 df_learn[property_sources[prop]],  # Measured values
                 df_learned_job_properties[learned_prop]  # Predicted values
             )
