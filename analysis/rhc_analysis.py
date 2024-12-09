@@ -428,12 +428,6 @@ class Learner():
         # Store results of the learning process
         ##################################################################################################################
         
-        # Initialize a DataFrame for learned time-varying properties
-        df_learned_job_properties = pd.DataFrame(index=df_learn.index)
-
-        # Store learned time-varying data in DataFrame
-        df_learned_job_properties.loc[:,'learned_ventilation__dm3_s_1'] = np.asarray(ventilation__dm3_s_1)
-
         # Initialize a DataFrame, even for a single learned parameter (one row with id, start, end), for consistency
         df_learned_job_parameters = pd.DataFrame({
             'id': id, 
@@ -441,14 +435,40 @@ class Learner():
             'end': end
         }, index=[0])
         
-        param = 'aperture_inf__cm2'
+        learn = ['aperture_inf__cm2']
     
-        df_learned_job_parameters.loc[0, f'learned_co2_{param}'] = aperture_inf__cm2.value[0]
-    
-        # If actual value exists, compute MAE
-        if actual_parameter_values is not None and param in actual_parameter_values:
-            df_learned_job_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
+        # Loop over the learn list and store learned values and calculate MAE if actual value is available
+        for param in [param  for param  in learn if param  in locals()]:
+            learned_value = locals()[param].value[0]
+            df_learned_job_parameters.loc[0, f'learned_{param}'] = learned_value
 
+            # If actual value exists, compute MAE
+            if actual_parameter_values is not None and param in actual_parameter_values:
+                df_learned_job_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
+
+        # Initialize a DataFrame for learned time-varying properties
+        df_learned_job_properties = pd.DataFrame(index=df_learn.index)
+
+        # Store learned time-varying data in DataFrame
+        learned_job_properties = [
+            'ventilation__dm3_s_1',
+        ]
+
+        # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+        for prop in [prop for prop in learned_job_properties if prop in property_sources and  prop in locals()]:
+            learned_prop = f'learned_{prop}'
+            df_learned_job_properties.loc[:,learned_prop] = np.asarray(locals()[prop].value)
+            
+            # Calculate and store MAE and RMSE
+            df_learned_job_parameters.loc[0, f'mae_{prop}'] = mae(
+                df_learn[property_sources[prop]],  # Measured values
+                df_learned_job_properties[learned_prop]  # Predicted values
+            )
+            df_learned_job_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                df_learn[property_sources[prop]],  # Measured values
+                df_learned_job_properties[learned_prop]  # Predicted values
+            )
+        
         # Set MultiIndex on the DataFrame (id, start, end)
         df_learned_job_parameters.set_index(['id', 'start', 'end'], inplace=True)
 
@@ -529,14 +549,6 @@ class Learner():
         # Store results of the learning process
         ##################################################################################################################
         
-        # Define the dictionary mapping property names to GEKKO variables
-        learned_job_properties_dict = {
-            'temp_ret_ch__degC': temp_ret_ch__degC,
-        }
-        
-        # Initialize a DataFrame for learned time-varying properties
-        df_learned_job_properties = pd.DataFrame(index=df_learn.index)
-        
         # Initialize a DataFrame for learned parameters (single row for metadata)
         df_learned_job_parameters = pd.DataFrame({
             'id': id, 
@@ -544,33 +556,42 @@ class Learner():
             'end': end
         }, index=[0])
         
+        learn = [
+            'heat_tr_dstr__W_K_1', 
+            'th_mass_dstr__Wh_K_1',
+        ]
+        
+        # Loop over the learn list and store learned values and calculate MAE if actual value is available
+        for param in [param  for param  in learn if param  in locals()]:
+            learned_value = locals()[param].value[0]
+            df_learned_job_parameters.loc[0, f'learned_{param}'] = learned_value
+
+            # If actual value exists, compute MAE
+            if actual_parameter_values is not None and param in actual_parameter_values:
+                df_learned_job_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
+                
+        # Define the dictionary mapping property names to GEKKO variables
+        learned_job_properties = [
+            'temp_ret_ch__degC',
+        ]
+        
+        # Initialize a DataFrame for learned time-varying properties
+        df_learned_job_properties = pd.DataFrame(index=df_learn.index)
+        
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-        for prop, predictions in learned_job_properties_dict.items():
-            if prop in property_sources:  # Ensure the property has a source
-                learned_prop = f'learned_{prop}'
-                
-                # Store the learned values in the DataFrame
-                df_learned_job_properties[learned_prop] = np.asarray(predictions)
-                
-                # Calculate and store MAE and RMSE
-                df_learned_job_parameters.loc[0, f'mae_{prop}'] = mae(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_learned_job_properties[learned_prop]  # Predicted values
-                )
-                df_learned_job_parameters.loc[0, f'rmse_{prop}'] = rmse(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_learned_job_properties[learned_prop]  # Predicted values
-                )
-            else:
-                warnings.warn(f"Property {prop} not found in property_sources. Skipping.")
-
-        # Store learned heat transmissivity of the heat distribution system
-        param = 'heat_tr_dstr__W_K_1'
-        df_learned_job_parameters.loc[0, f'learned_{param}'] = heat_tr_dstr__W_K_1.value[0]
-
-        # Store learned thermal mass of the heat distribution system
-        param = 'th_mass_dstr__Wh_K_1'
-        df_learned_job_parameters.loc[0, f'learned_{param}'] = th_mass_dstr__Wh_K_1.value[0]
+        for prop in [prop for prop in learned_job_properties if prop in property_sources and prop in locals()]:
+            learned_prop = f'learned_{prop}'
+            df_learned_job_properties.loc[:,learned_prop] = np.asarray(locals()[prop].value)
+            
+            # Calculate and store MAE and RMSE
+            df_learned_job_parameters.loc[0, f'mae_{prop}'] = mae(
+                df_learn[property_sources[prop]],  # Measured values
+                df_learned_job_properties[learned_prop]  # Predicted values
+            )
+            df_learned_job_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                df_learn[property_sources[prop]],  # Measured values
+                df_learned_job_properties[learned_prop]  # Predicted values
+            )
 
         # Set MultiIndex on the DataFrame (id, start, end)
         df_learned_job_parameters.set_index(['id', 'start', 'end'], inplace=True)
@@ -802,16 +823,6 @@ class Learner():
         # Store results of the learning process
         ##################################################################################################################
 
-        # Initialize a DataFrame for learned time-varying properties
-        df_learned_job_properties = pd.DataFrame(index=df_learn.index)
-    
-        # Store learned time-varying data in DataFrame
-        df_learned_job_properties.loc[:,'learned_temp_indoor__degC'] = np.asarray(temp_indoor__degC)
-    
-        # If 'learned_temp_dstr__degC' is computed, include it as well
-        if 'heat_tr_dstr__W_K_1' in learn or 'th_mass_dstr__J_K_1' in learn:
-            df_learned_job_properties.loc[:,'learned_temp_dstr__degC'] = np.asarray(temp_dstr__degC)
-    
         # Initialize a DataFrame for learned thermal parameters (one row with id, start, end)
         df_learned_job_parameters = pd.DataFrame({
             'id': id, 
@@ -820,28 +831,37 @@ class Learner():
         }, index=[0])
     
         # Loop over the learn list and store learned values and calculate MAE if actual value is available
-        for param in learn: 
-            if param != 'ventilation__dm3_s_1':
-                if param in locals():
-                    learned_value = locals()[param].value[0]
-                    df_learned_job_parameters.loc[0, f'learned_{param}'] = learned_value
-    
-                    # If actual value exists, compute MAE
-                    if actual_parameter_values is not None and param in actual_parameter_values:
-                        df_learned_job_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
+        for param in [param for param in learn if param in locals() and param != 'ventilation__dm3_s_1']:
+            learned_value = locals()[param].value[0]
+            df_learned_job_parameters.loc[0, f'learned_{param}'] = learned_value
 
-        # Calculate MAE and RMSE for indoor temperature
-        if 'temp_indoor__degC' in property_sources and 'learned_temp_indoor__degC' in df_learned_job_properties.columns:
-            df_learned_job_parameters.loc[0, 'mae_temp_indoor__degC'] = mae(
-                df_learn[property_sources['temp_indoor__degC']],  # the measured indoor temperatures 
-                df_learned_job_properties['learned_temp_indoor__degC']  # the predicted indoor temperatures
-            )
+            # If actual value exists, compute MAE
+            if actual_parameter_values is not None and param in actual_parameter_values:
+                df_learned_job_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_parameter_values[param])
     
-            df_learned_job_parameters.loc[0, 'rmse_temp_indoor__degC'] = rmse(
-                df_learn[property_sources['temp_indoor__degC']],  # the measured indoor temperatures
-                df_learned_job_properties['learned_temp_indoor__degC']  # the predicted indoor temperatures
-            )
+        # Initialize a DataFrame for learned time-varying properties
+        df_learned_job_properties = pd.DataFrame(index=df_learn.index)
     
+        learned_job_properties = [
+            'temp_indoor__degC',
+            # 'heat_tr_dstr__W_K_1',
+        ]
+            
+        # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+        for prop in [prop for prop in learned_job_properties if prop in property_sources and prop in locals()]:
+            learned_prop = f'learned_{mode.value}_{prop}'
+            df_learned_job_properties.loc[:,learned_prop] = np.asarray(locals()[prop].value)
+            
+            # Calculate and store MAE and RMSE
+            df_learned_job_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
+                df_learn[property_sources[prop]],  # Measured values
+                df_learned_job_properties[learned_prop]  # Predicted values
+            )
+            df_learned_job_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
+                df_learn[property_sources[prop]],  # Measured values
+                df_learned_job_properties[learned_prop]  # Predicted values
+            )
+            
         # Calculate periodical averages, which include Energy Case metrics
         properties_mean = [
             'temp_set__degC',
@@ -1008,6 +1028,44 @@ class Learner():
         learned_job_properties_file_path = os.path.join(results_dir, 
             f'learned-properties-job-{id}-{start.strftime("%Y%m%d_%H%M%S")}-{end.strftime("%Y%m%d_%H%M%S")}.parquet')
 
+        param = 'thermostat_hysteresis__K' 
+        mode= Learner.ControlMode.LEARN_ALGORITHMIC
+        learned_param = 'learned_'+ mode.value + "_" + param
+        
+        # Check if thermostat algorithmic learning is needed
+        if param in learn:
+            thermostat_alg_learned = False
+    
+            # Check if thermostat algoritmic results already exist
+            if os.path.exists(learned_job_parameters_file_path) and os.path.exists(learned_job_properties_file_path):
+                df_learned_thrm_alg_job_parameters = pd.read_parquet(learned_job_parameters_file_path)
+                df_learned_thrm_alg_job_properties = pd.read_parquet(learned_job_properties_file_path)
+                if learned_param in df_learned_thrm_alg_job_properties.columns:
+                    logging.info(f"thermostat algoritmic control already learned for job ID {id} (from {start} to {end}).")
+                    thermostat_alg_learned = True
+    
+            if not thermostat_alg_learned:
+                # Learn thermostat algoritmic rates
+                logging.info(f"Analyzing thermostat algoritmic control for job ID {id} (from {start} to {end})...")
+                
+                df_learned_thrm_alg_job_parameters, df_learned_thrm_alg_job_properties = Learner.learn_thermostat_control(
+                    df_learn,
+                    id, start, end,
+                    duration__s, step__s,
+                    bldng_data,
+                    mode=mode, 
+                )
+    
+                df_learned_job_parameters = df_learned_thrm_alg_job_parameters
+                df_learned_job_properties = df_learned_thrm_alg_job_properties
+
+                # Storing learned thermostat algoritmic flow setpoints in df_learn
+                df_learn.loc[:,learned_param] = df_learned_thrm_alg_job_properties[learned_param].values
+                logging.info(f"Wrote thermostat algoritmic flow setpoints to df_learn for {id} from {learn_streak_period_start} to {learn_streak_period_end}")
+
+                # Save results for thermostat algoritmic
+                Learner.save_job_results_to_parquet(id, start, end, df_learned_job_parameters, df_learned_job_properties, results_dir)
+                
         # Check if ventilation learning is needed
         if 'ventilation__dm3_s_1' in learn:
             ventilation_learned = False
@@ -1193,9 +1251,8 @@ class Learner():
                            'heat_int__W_p_1'
                           ]
         
-        for param in learn:
-            if param in not_learnable:
-                raise LearnError(f'No support for learning {param} (yet).')
+        for param in [param for param in learn if param in not_learnable]:
+            raise LearnError(f'No support for learning {param} (yet).')
      
         # ensure that dataframe is sorted
         if not df_data.index.is_monotonic_increasing:
@@ -1596,6 +1653,7 @@ class Learner():
             df_learned_properties = pd.concat(all_learned_job_properties, axis=0).drop_duplicates().sort_index()
         else: 
             df_learned_properties = pd.DataFrame()
+            
 
         if all_learned_job_parameters:
             df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates().sort_index()
@@ -1638,7 +1696,8 @@ class Learner():
         temp_flow_ch_max__degC .FSTATUS = 1 # Use the measured values
         
         # Initial assumption: fixed setpoint; will be relaxed later
-        temp_flow_ch_set__degC = m.Var(value=60)   # Default supply temperature setpoint in Celsius (flow setpoint)
+        # temp_flow_ch_set__degC = m.Var(value=60)   # Default supply temperature setpoint in Celsius (flow setpoint)
+        temp_flow_ch_set__degC = m.MV(value=df_learn['temp_flow_ch_set__degC'].astype('float32').values)
         temp_flow_ch_set__degC.lower = 0  # Minimum value
         m.Equation(temp_flow_ch_set__degC <= temp_flow_ch_max__degC) # constraint to enforce the maximum limit dynamically
 
@@ -1681,10 +1740,6 @@ class Learner():
         ##################################################################################################################
         # Control targets: flow temperature and 'delta-T': difference between flow and return temperature
         ##################################################################################################################
-
-        # Error between thermostat setpoint and indoor temperature
-        error_temp_delta_indoor_set__K  = m.Var(value=0.0)  # Initialize with a default value
-        m.Equation(error_temp_delta_indoor_set__K == temp_set__degC - temp_indoor__degC)
 
         # Error between supply temperature and setpoint fo the supply temperature
         error_temp_delta_flow_flowset__K = m.Var(value=0.0)  # Initialize with a default value
@@ -1864,16 +1919,7 @@ class Learner():
                         # Store the parameter in the structured dictionary
                         pid_parameters[component][term] = param
             
-                # # PID control equations for flow temperature setpoint 
-                # m.Equation(
-                #     temp_flow_ch_set__degC.dt() == (
-                #         pid_parameters['thermostat']['p'] * error_temp_delta_indoor_set__K +              # Proportional term
-                #         pid_parameters['thermostat']['i'] * m.integral(error_temp_delta_indoor_set__K) +  # Integral term
-                #         pid_parameters['thermostat']['d'] * error_temp_delta_indoor_set__K.dt()           # Derivative term
-                #     )
-                # )
-                
-                # PID control equations for fan speed
+               # PID control equations for fan speed
                 m.Equation(
                     fan_speed__pct.dt() == (
                         pid_parameters['fan']['p'] * error_temp_delta_flow_flowset__K +                   # Proportional term
@@ -1906,10 +1952,10 @@ class Learner():
         ##################################################################################################################
         
         # Define the dictionary mapping property names to GEKKO variables
-        learned_job_properties_dict = {
-            'fan_speed__pct': fan_speed__pct,
-            'flow_dstr_pump_speed__pct': flow_dstr_pump_speed__pct
-        }
+        learned_job_properties = [
+            'fan_speed__pct',
+            'flow_dstr_pump_speed__pct',
+        ]
         
         # Initialize a DataFrame for learned time-varying properties
         df_learned_job_properties = pd.DataFrame(index=df_learn.index)
@@ -1922,29 +1968,23 @@ class Learner():
         }, index=[0])
         
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-        for prop, predictions in learned_job_properties_dict.items():
-            if prop in property_sources:  # Ensure the property has a source
-                learned_prop = f'learned_{mode.value}_{prop}'
-                
-                # Store the learned values in the DataFrame
-                df_learned_job_properties[learned_prop] = np.asarray(predictions)
-                
-                # Calculate and store MAE and RMSE
-                df_learned_job_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_learned_job_properties[learned_prop]  # Predicted values
-                )
-                df_learned_job_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_learned_job_properties[learned_prop]  # Predicted values
-                )
-            else:
-                warnings.warn(f"Property {prop} not found in property_sources. Skipping.")
+        for prop in [prop for prop in learned_job_properties if prop in property_sources and prop in locals()]:
+            learned_prop = f'learned_{mode.value}_{prop}'
+            df_learned_job_properties.loc[:,learned_prop] = np.asarray(locals()[prop].value)
+            
+            # Calculate and store MAE and RMSE
+            df_learned_job_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
+                df_learn[property_sources[prop]],  # Measured values
+                df_learned_job_properties[learned_prop]  # Predicted values
+            )
+            df_learned_job_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
+                df_learn[property_sources[prop]],  # Measured values
+                df_learned_job_properties[learned_prop]  # Predicted values
+            )
                 
         match mode:
             case Learner.ControlMode.LEARN_ALGORITHMIC:
-                for param in learn:
-                    if param in locals():
+                for param in [param  for param  in learn if param  in locals()]:
                         df_learned_job_parameters.loc[0, f'learned_{param}'] = locals()[param].value[0]
             case Learner.ControlMode.LEARN_PID:
                 for component, params in pid_parameters.items():
@@ -2130,7 +2170,7 @@ class Learner():
         ##################################################################################################################
 
         # Error between thermostat setpoint and indoor temperature
-        # error_temp_delta_indoor_set__K  = m.Var(value=0.0)  # Initialize with a default value
+        error_temp_delta_indoor_set__K  = m.Var(value=0.0)  # Initialize with a default value
         m.Equation(error_temp_delta_indoor_set__K == temp_set__degC - temp_indoor__degC)
 
         ##################################################################################################################
@@ -2216,9 +2256,9 @@ class Learner():
         ##################################################################################################################
         
         # Define the dictionary mapping property names to GEKKO variables
-        learned_job_properties_dict = {
-            'temp_flow_ch_set__degC': temp_flow_ch_set__degC,
-        }
+        learned_job_properties = [
+            'temp_flow_ch_set__degC',
+        ]
         
         # Initialize a DataFrame for learned time-varying properties
         df_learned_job_properties = pd.DataFrame(index=df_learn.index)
@@ -2231,24 +2271,19 @@ class Learner():
         }, index=[0])
         
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-        for prop, predictions in learned_job_properties_dict.items():
-            if prop in property_sources:  # Ensure the property has a source
-                learned_prop = f'learned_{mode.value}_{prop}'
-                
-                # Store the learned values in the DataFrame
-                df_learned_job_properties[learned_prop] = np.asarray(predictions)
-                
-                # Calculate and store MAE and RMSE
-                df_learned_job_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_learned_job_properties[learned_prop]  # Predicted values
-                )
-                df_learned_job_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_learned_job_properties[learned_prop]  # Predicted values
-                )
-            else:
-                warnings.warn(f"Property {prop} not found in property_sources. Skipping.")
+        for prop in [prop for prop in learned_job_properties if prop in property_sources and prop in locals()]:
+            learned_prop = f'learned_{mode.value}_{prop}'
+            df_learned_job_properties.loc[:,learned_prop] = np.asarray(locals()[prop].value)
+            
+            # Calculate and store MAE and RMSE
+            df_learned_job_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
+                df_learn[property_sources[prop]],  # Measured values
+                df_learned_job_properties[learned_prop]  # Predicted values
+            )
+            df_learned_job_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
+                df_learn[property_sources[prop]],  # Measured values
+                df_learned_job_properties[learned_prop]  # Predicted values
+            )
                 
         match mode:
             case Learner.ControlMode.LEARN_ALGORITHMIC:
