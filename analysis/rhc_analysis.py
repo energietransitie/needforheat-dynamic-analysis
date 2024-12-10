@@ -290,7 +290,8 @@ class Learner():
             raise ValueError("The intervals between timestamps are not consistent.")
         
         # Calculate step (interval in seconds) and total duration in seconds
-        step__s = time_diffs.iloc[0].total_seconds()
+        step__s = time_diffs[0].total_seconds()
+
         duration__s = step__s * len(df_learn)
         
         return id, start, end, step__s, duration__s
@@ -527,7 +528,7 @@ class Learner():
         
         # Loop over the learn_params list and store learned values and calculate MAE if actual value is available
         current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-        for param in [param for param in learn_params if param in current_locals]:
+        for param in [param for param in (learn_params or []) if param in current_locals]:
             learned_value = current_locals[param].value[0]
             df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
             # If actual value exists, compute MAE
@@ -538,7 +539,7 @@ class Learner():
         df_learned_properties = pd.DataFrame(index=df_learn.index)
 
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-        for prop in [prop for prop in learned_properties if prop in property_sources and prop in current_locals]:
+        for prop in [prop for prop in (learned_properties or []) if prop in property_sources and prop in current_locals]:
             learned_prop = f'learned_{prop}'
             df_learned_properties.loc[:,learned_prop] = np.asarray(current_locals[prop].value)
             
@@ -654,7 +655,7 @@ class Learner():
         
         # Loop over the learn_params list and store learned values and calculate MAE if actual value is available
         current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-        for param in [param for param in learn_params if param in current_locals]:
+        for param in [param for param in (learn_params or []) if param in current_locals]:
             learned_value = current_locals[param].value[0]
             df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
             # If actual value exists, compute MAE
@@ -666,7 +667,7 @@ class Learner():
         df_learned_properties = pd.DataFrame(index=df_learn.index)
         
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-        for prop in [prop for prop in learned_properties if prop in property_sources and prop in current_locals]:
+        for prop in [prop for prop in (learned_properties or []) if prop in property_sources and prop in current_locals]:
             learned_prop = f'learned_{prop}'
             df_learned_properties.loc[:,learned_prop] = np.asarray(current_locals[prop].value)
             
@@ -937,7 +938,7 @@ class Learner():
     
         # Loop over the learn_params list and store learned values and calculate MAE if actual value is available
         current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-        for param in [param for param in learn_params if param in current_locals and param != 'ventilation__dm3_s_1']:
+        for param in [param for param in (learn_params or []) if param in current_locals and param != 'ventilation__dm3_s_1']:
             learned_value = current_locals[param].value[0]
             df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
             # If actual value exists, compute MAE
@@ -948,7 +949,7 @@ class Learner():
         df_learned_properties = pd.DataFrame(index=df_learn.index)
     
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-        for prop in [prop for prop in learned_properties if prop in property_sources and prop in current_locals]:
+        for prop in [prop for prop in (learned_properties or []) if prop in property_sources and prop in current_locals]:
             learned_prop = f'learned_{prop}'
             df_learned_properties.loc[:,learned_prop] = np.asarray(current_locals[prop].value)
             
@@ -1339,7 +1340,7 @@ class Learner():
                            'heat_int__W_p_1'
                           ]
         
-        for param in [param for param in learn_params if param in not_learnable]:
+        for param in [param for param in (learn_params or []) if param in not_learnable]:
             raise LearnError(f'No support for learning {param} (yet).')
      
         # ensure that dataframe is sorted
@@ -1450,9 +1451,10 @@ class Learner():
         else:
             df_learned_parameters = pd.DataFrame()
             
-        # Merging all learned time series data into df_data
-        df_data = df_data.merge(df_learned_properties, left_index=True, right_index=True, how='left')
-    
+        # Merging all learned time series data into df_data, making sure that columns from df_learned_properties take precedende
+        df_data = df_data.drop(columns=df_data.columns.intersection(df_learned_properties.columns))
+        df_data = df_data.merge(df_learned_properties, left_index=True, right_index=True, how='left')    
+
         # After all IDs, save final results
         Learner.final_save_to_parquet(df_learned_parameters, df_data, results_dir)
         
@@ -1552,7 +1554,8 @@ class Learner():
         else:
             df_learned_parameters = pd.DataFrame()
 
-        # Merging all learned time series data into df_data
+        # Merging all learned time series data into df_data, making sure that columns from df_learned_properties take precedende
+        df_data = df_data.drop(columns=df_data.columns.intersection(df_learned_properties.columns))
         df_data = df_data.merge(df_learned_properties, left_index=True, right_index=True, how='left')
 
         return df_learned_parameters, df_data    
@@ -1568,11 +1571,7 @@ class Learner():
             df_learn,
             bldng_data,
             property_sources,
-            learn_params=['fan_rotations_max_gain__pct_min_1',
-                          'error_threshold_temp_delta_flow_flowset__K',
-                          'flow_dstr_pump_speed_max_gain__pct_min_1',
-                          'error_threshold_temp_delta_flow_ret__K',
-                          ], 
+            learn_params=None, 
             param_hints=None,
             actual_params=None,
             mode=None, 
@@ -1600,21 +1599,9 @@ class Learner():
         temp_flow_ch_max__degC .FSTATUS = 1 # Use the measured values
         
         # Initial assumption: fixed setpoint; will be relaxed later
-        # temp_flow_ch_set__degC = m.Var(value=60)   # Default supply temperature setpoint in Celsius (flow setpoint)
-        temp_flow_ch_set__degC = m.MV(value=df_learn['temp_flow_ch_set__degC'].astype('float32').values)
+        temp_flow_ch_set__degC = m.MV(value=df_learn[property_sources['temp_flow_ch_set__degC']].astype('float32').values)
         temp_flow_ch_set__degC.lower = 0  # Minimum value
         m.Equation(temp_flow_ch_set__degC <= temp_flow_ch_max__degC) # constraint to enforce the maximum limit dynamically
-
-        ##################################################################################################################
-        # Setpoint and indoor temperature
-        ##################################################################################################################
-        temp_set__degC = m.MV(value=df_learn[property_sources['temp_set__degC']].astype('float32').values)
-        temp_set__degC.STATUS = 0  # No optimization
-        temp_set__degC.FSTATUS = 1 # Use the measured values
-        
-        temp_indoor__degC = m.MV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
-        temp_indoor__degC.STATUS = 0  # No optimization
-        temp_indoor__degC.FSTATUS = 1 # Use the measured values
 
         ##################################################################################################################
         # Flow and return temperature
@@ -1861,7 +1848,7 @@ class Learner():
         
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
         current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-        for prop in [prop for prop in learned_properties if prop in property_sources and prop in current_locals]:
+        for prop in [prop for prop in (learned_properties or []) if prop in property_sources and prop in current_locals]:
             learned_prop = f'learned_{mode.value}_{prop}'
             df_learned_properties.loc[:,learned_prop] = np.asarray(current_locals[prop].value)
             
@@ -1877,7 +1864,7 @@ class Learner():
                 
         match mode:
             case Learner.ControlMode.LEARN_ALGORITHMIC:
-                for param in [param for param in learn_params if param in current_locals]:
+                for param in [param for param in (learn_params or []) if param in current_locals]:
                         learned_value = current_locals[param].value[0]
                         df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                         # If actual value exists, compute MAE
@@ -1991,9 +1978,10 @@ class Learner():
         else:
             df_learned_parameters = pd.DataFrame()
 
-        # Merging all learned time series data into df_data
+        # Merging all learned time series data into df_data, making sure that columns from df_learned_properties take precedende
+        df_data = df_data.drop(columns=df_data.columns.intersection(df_learned_properties.columns))
         df_data = df_data.merge(df_learned_properties, left_index=True, right_index=True, how='left')
-    
+        
         return df_learned_parameters, df_data
 
 
@@ -2152,7 +2140,7 @@ class Learner():
         
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
         current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-        for prop in [prop for prop in learned_properties if prop in property_sources and prop in current_locals]:
+        for prop in [prop for prop in (learned_properties or []) if prop in property_sources and prop in current_locals]:
             learned_prop = f'learned_{mode.value}_{prop}'
             df_learned_properties.loc[:,learned_prop] = np.asarray(current_locals[prop].value)
             
@@ -2168,7 +2156,7 @@ class Learner():
                 
         match mode:
             case Learner.ControlMode.LEARN_ALGORITHMIC:
-                for param in [param for param in learn_params and param in current_locals]:
+                for param in [param for param in (learn_params or []) and param in current_locals]:
                     learned_value = current_locals[param].value[0]
                     df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                     # If actual value exists, compute MAE
