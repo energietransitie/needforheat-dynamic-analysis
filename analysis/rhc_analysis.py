@@ -156,26 +156,23 @@ class Learner():
                 df_learn = Learner.get_longest_sane_streak(df_data, id, learn_period_start, learn_period_end, duration_threshold)
                 if df_learn is None:
                     continue
-                
-                jobs.append((
-                    id,
-                    df_learn.index.unique('timestamp').min().to_pydatetime(),
-                    df_learn.index.unique('timestamp').max().to_pydatetime()
-                ))
+                    
+                start_time = df_learn.index.unique('timestamp').min().to_pydatetime()
+                end_time = df_learn.index.unique('timestamp').max().to_pydatetime()
+                streak_duration = end_time - start_time
+
+                jobs.append((id, start_time, end_time, streak_duration))
     
         df_data.drop(columns=['sanity'], inplace=True)
     
         # Convert jobs to DataFrame
-        df_jobs = pd.DataFrame(jobs, columns=['id', 'start', 'end'])
+        df_jobs = pd.DataFrame(jobs, columns=['id', 'start', 'end', 'duration'])
 
         # if max_len is not None take a random subsample to limit calculation time
         if max_len is not None and max_len < len(df_jobs):
             df_jobs = df_jobs.sample(n=max_len, random_state=42)
-
-        # Calculate job duration in minutes (include the last minute in the duration)
-        df_jobs['duration__min'] =  (df_jobs['end'] - df_jobs['start']).dt.total_seconds() / s_min_1 + 1
         
-        return df_jobs.set_index(['id', 'start', 'end']) # TO DO: consider adding duration__min to index.
+        return df_jobs.set_index(['id', 'start', 'end', 'duration'])
 
     
     def valid_learn_list(
@@ -523,7 +520,8 @@ class Learner():
         df_learned_parameters = pd.DataFrame({
             'id': id, 
             'start': start,
-            'end': end
+            'end': end,
+            'duration': timedelta(seconds=duration__s),
         }, index=[0])
         
         # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
@@ -556,7 +554,7 @@ class Learner():
                 )
         
         # Set MultiIndex on the DataFrame (id, start, end)
-        df_learned_parameters.set_index(['id', 'start', 'end'], inplace=True)
+        df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
 
         m.cleanup()
 
@@ -652,7 +650,8 @@ class Learner():
         df_learned_parameters = pd.DataFrame({
             'id': id, 
             'start': start,
-            'end': end
+            'end': end,
+            'duration': timedelta(seconds=duration__s),
         }, index=[0])
         
         # Loop over the learn_params and store learned values and calculate MAE if actual value is available
@@ -685,7 +684,7 @@ class Learner():
                 )
 
         # Set MultiIndex on the DataFrame (id, start, end)
-        df_learned_parameters.set_index(['id', 'start', 'end'], inplace=True)
+        df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
 
         m.cleanup()
 
@@ -933,7 +932,8 @@ class Learner():
         df_learned_parameters = pd.DataFrame({
             'id': id, 
             'start': start,
-            'end': end
+            'end': end,
+            'duration': timedelta(seconds=duration__s),
         }, index=[0])
     
         # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
@@ -1013,7 +1013,7 @@ class Learner():
         )
         
         # Set MultiIndex on the DataFrame (id, start, end)
-        df_learned_parameters.set_index(['id', 'start', 'end'], inplace=True)    
+        df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)    
 
         m.cleanup()
     
@@ -1206,7 +1206,7 @@ class Learner():
             )
     
             # Add newly learned to already learned job parameters
-            df_learned_parameters = Learner.merge_learned(df_learned_parameters, df_learned_thermal_job_parameters, ['id', 'start', 'end'])
+            df_learned_parameters = Learner.merge_learned(df_learned_parameters, df_learned_thermal_job_parameters, ['id', 'start', 'end', 'duration'])
             
             # Add newly learned to already learned job properties
             df_learned_properties = Learner.merge_learned(df_learned_properties, df_learned_thermal_job_properties, ['id', 'timestamp'])
@@ -1408,7 +1408,7 @@ class Learner():
                                              results_dir=results_dir)
 
                     futures.append(future)
-                    learned_jobs[(id, start, end)] = future
+                    learned_jobs[(id, start, end, duration)] = future
     
                 # Collect results as they complete
                 for future in as_completed(futures):
@@ -1420,7 +1420,7 @@ class Learner():
                         # Handle only the specific "Solution Not Found" error
                         if "Solution Not Found" in str(e):
                             # Find which job caused the error
-                            for (id, start, end), job_future in learned_jobs.items():
+                            for (id, start, end, duration), job_future in learned_jobs.items():
                                 if job_future == future:
                                     logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
                                     break
@@ -1835,7 +1835,8 @@ class Learner():
         df_learned_parameters = pd.DataFrame({
             'id': id, 
             'start': start,
-            'end': end
+            'end': end,
+            'duration': timedelta(seconds=duration__s),
         }, index=[0])
         
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
@@ -1874,7 +1875,7 @@ class Learner():
             
 
         # Set MultiIndex on the DataFrame (id, start, end)
-        df_learned_parameters.set_index(['id', 'start', 'end'], inplace=True)
+        df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
 
         m.cleanup()
 
@@ -1882,16 +1883,17 @@ class Learner():
         
 
     @staticmethod
-    def learn_boiler_control_parameters(df_data: pd.DataFrame,
-                                        df_bldng_data: pd.DataFrame,
-                                        property_sources=None,
-                                        learn_params=None,
-                                        param_hints=None,
-                                        req_props: list = None,
-                                        duration_threshold: timedelta = timedelta(minutes=15),
-                                        mode=None, 
-                                        max_periods=None,
-                                       ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    def learn_boiler_control_parameters(
+        df_data: pd.DataFrame,
+        df_bldng_data: pd.DataFrame,
+        property_sources=None,
+        learn_params=None,
+        param_hints=None,
+        req_props: list = None,
+        duration_threshold: timedelta = timedelta(minutes=15),
+        mode=None, 
+        max_periods=None,
+       ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         if req_props is None:  # If req_col not set, use all property sources
             req_col = list(property_sources.values())
@@ -1914,13 +1916,16 @@ class Learner():
     
         num_jobs = df_analysis_jobs.shape[0]  # Get the number of jobs
         num_workers = min(num_jobs, os.cpu_count())  # Use the lesser of number of jobs or CPU count
+        shortest_job = df_analysis_jobs.index.get_level_values('duration').min()
+        longest_job = df_analysis_jobs.index.get_level_values('duration').max()
+        
 
         with ProcessPoolExecutor() as executor:
             # Submit tasks for each job
             futures = []
             learned_jobs = {}
 
-            for id, start, end, duration in tqdm(df_analysis_jobs.index, desc=f"Submitting {mode} learning jobs to {num_workers} processes"):
+            for id, start, end, duration in tqdm(df_analysis_jobs.index, desc=f"Submitting {mode} learning jobs [{shortest_job}-{longest_job}] to {num_workers} processes"):
                 # Create df_learn for the current job
                 df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
                                             (df_learn_all.index.get_level_values('timestamp') >= start) & 
@@ -1941,7 +1946,7 @@ class Learner():
                                          mode=mode,
                                          )
                 futures.append(future)
-                learned_jobs[(id, start, end)] = future
+                learned_jobs[(id, start, end, duration)] = future
 
             # Collect results as they complete
             with tqdm(total=len(futures), desc=f"Collecting {mode} results from {num_workers} processes") as pbar:
@@ -1952,9 +1957,9 @@ class Learner():
                         all_learned_job_parameters.append(df_learned_parameters)
                     except Exception as e:
                         if "Solution Not Found" in str(e):
-                            for (id, start, end), job_future in learned_jobs.items():
+                            for (id, start, end, duration), job_future in learned_jobs.items():
                                 if job_future == future:
-                                    logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
+                                    logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}, duration: {duration}). Skipping.")
                                     break
                             continue
                         else:
@@ -2129,7 +2134,8 @@ class Learner():
         df_learned_parameters = pd.DataFrame({
             'id': id, 
             'start': start,
-            'end': end
+            'end': end,
+            'duration': timedelta(seconds=duration__s),
         }, index=[0])
         
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
@@ -2167,7 +2173,7 @@ class Learner():
             
 
         # Set MultiIndex on the DataFrame (id, start, end)
-        df_learned_parameters.set_index(['id', 'start', 'end'], inplace=True)
+        df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
 
         m.cleanup()
 
