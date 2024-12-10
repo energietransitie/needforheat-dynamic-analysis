@@ -231,7 +231,7 @@ class Learner():
     
                 # Only include streaks that meet the duration threshold
                 if streak_duration >= duration_threshold:
-                    jobs.append((id_, start_time, end_time, duration))
+                    jobs.append((id_, start_time, end_time, streak_duration))
     
         # Convert jobs to DataFrame
         df_jobs = pd.DataFrame(jobs, columns=['id', 'start', 'end', 'duration'])
@@ -1376,7 +1376,7 @@ class Learner():
             learned_jobs = {}
             
             with tqdm(total=num_jobs) as pbar:
-                for id, start, end in df_analysis_jobs.index:
+                for id, start, end, duration in df_analysis_jobs.index:
                     # Create df_learn for the current job
                     df_learn = df_data.loc[(df_data.index.get_level_values('id') == id) & 
                                             (df_data.index.get_level_values('timestamp') >= start) & 
@@ -1491,7 +1491,7 @@ class Learner():
             futures = []
             learned_jobs = {}
             
-            for id, start, end in tqdm(df_analysis_jobs.index, desc=f"Submitting learning jobs to {num_workers} processes"):
+            for id, start, end, duration in tqdm(df_analysis_jobs.index, desc=f"Submitting learning jobs to {num_workers} processes"):
                 # Create df_learn for the current job
                 df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
                                             (df_learn_all.index.get_level_values('timestamp') >= start) & 
@@ -1920,7 +1920,7 @@ class Learner():
             futures = []
             learned_jobs = {}
 
-            for id, start, end in tqdm(df_analysis_jobs.index, desc=f"Submitting {mode} learning jobs to {num_workers} processes"):
+            for id, start, end, duration in tqdm(df_analysis_jobs.index, desc=f"Submitting {mode} learning jobs to {num_workers} processes"):
                 # Create df_learn for the current job
                 df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
                                             (df_learn_all.index.get_level_values('timestamp') >= start) & 
