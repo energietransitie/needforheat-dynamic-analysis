@@ -968,9 +968,9 @@ class Learner():
             # Create variable names dynamically
             # Determine the result column name based on whether the property ends with '__bool'
             if prop.endswith('__bool'):
-                result_col = f"calculated_avg_{prop[:-6]}__0"  # Remove '__bool' and add '__0'
+                result_col = f"avg_{prop[:-6]}__0"  # Remove '__bool' and add '__0'
             else:
-                result_col = f"calculated_avg_{prop}"
+                result_col = f"avg_{prop}"
     
             # Use prop directly if it starts with 'calculated_'
             source_col = prop if prop.startswith('calculated_') else property_sources[prop]
@@ -995,18 +995,18 @@ class Learner():
         current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
         for var in sim_arrays_mean:
             # Create variable names dynamically
-            result_col = f"calculated_avg_{var}"
+            result_col = f"avg_{var}"
             mean_value = np.asarray(current_locals[var]).mean()
             df_learned_parameters.loc[0, result_col] = mean_value
 
         # Calculate Carbon Case metrics
-        df_learned_parameters.loc[0, 'calculated_avg_co2_ch__g_s_1'] = (
-            (df_learned_parameters.loc[0, 'calculated_avg_g_use_ch_hhv__W'] 
+        df_learned_parameters.loc[0, 'avg_co2_ch__g_s_1'] = (
+            (df_learned_parameters.loc[0, 'avg_g_use_ch_hhv__W'] 
              * 
              (co2_wtw_groningen_gas_std_nl_avg_2024__g__m_3 / gas_groningen_nl_avg_std_hhv__J_m_3)
             )
             +
-            (df_learned_parameters.loc[0, 'calculated_avg_e_use_ch__W'] 
+            (df_learned_parameters.loc[0, 'avg_e_use_ch__W'] 
              * 
              co2_wtw_e_onbekend_nl_avg_2024__g__kWh_1
             )
