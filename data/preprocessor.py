@@ -267,10 +267,13 @@ class Preprocessor:
 
     
     @staticmethod
-    def filter_streak_start_of_flow_return_temps(df: pd.DataFrame,
-                                                 flow_and_return_cols,
-                                                 remove_first__min=3,
-                                                 inplace=True) -> pd.DataFrame:
+    def filter_streak_of_flow_return_temps(df: pd.DataFrame,
+                                           flow_and_return_cols,
+                                           min_streak_length__min=0,
+                                           remove_first__min=2,
+                                           remove_last__min=1,
+                                           inplace=True
+                                          ) -> pd.DataFrame:
         """
         Filters flow and return temperature columns by excluding the first `remove_first__min`
         minutes of valid streaks in the data.
@@ -280,8 +283,12 @@ class Preprocessor:
             Input dataframe with a MultiIndex containing 'id' and 'timestamp'.
         - flow_and_return_cols: list
             List of flow and return temperature property names.
-        - remove_first__min: int, default=3
+        - min_streak_length__min: int, default=0
+            Minimum streak length to keep; acts as pre-filter: streaks shorter than this will be entirely excluded.            
+        - remove_first__min: int, default=2
             Number of initial valid rows to exclude per streak.
+        - remove_last__min: int, default=1
+            Number of final valid rows to exclude per streak.
         - inplace: bool, default=True
             If True, modifies the input dataframe directly. If False, returns a copy.
     
@@ -321,10 +328,16 @@ class Preprocessor:
     
         # Rank rows within each streak (and id)
         streak_df['rank'] = streak_df.groupby(['id', 'streak_ids']).cumcount()
+        streak_df['streak_length'] = streak_df.groupby(['id', 'streak_ids'])['rank'].transform('max')
     
-        # Identify rows to exclude (rank < remove_first__min)
-        exclude_streak_rows = streak_df['rank'] < remove_first__min
-    
+        # Identify rows to exclude based on rank
+        exclude_first_rows = streak_df['rank'] < remove_first__min
+        exclude_last_rows = streak_df['rank'] > (streak_df['streak_length'] - remove_last__min)
+        exclude_short_streaks = streak_df['streak_length'] < (min_streak_length__min - 1)
+        
+        # Combine exclusions
+        exclude_streak_rows = exclude_first_rows | exclude_last_rows | exclude_short_streaks
+            
         # Build the final valid_indices mask
         valid_indices = ~exclude_streak_rows.reindex(index=np.arange(len(df_result)), fill_value=False).to_numpy()
     
