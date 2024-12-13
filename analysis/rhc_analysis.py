@@ -627,15 +627,18 @@ class Learner():
         temp_flow_ch__degC.STATUS = 0  # No optimization
         temp_flow_ch__degC.FSTATUS = 1 # Use the measured values
 
-        # temp_ret_ch__degC = m.MV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
-        # temp_ret_ch__degC.STATUS = 0  # No optimization
-        # temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
-
-        temp_dstr__degC = m.CV(value=df_learn['temp_dstr__degC'].astype('float32').values)
-        temp_dstr__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
-        temp_dstr__degC.FSTATUS = 1 # Use the measured values
-
-        temp_ret_ch__degC = m.Intermediate(2 * temp_dstr__degC - temp_flow_ch__degC)
+        # # Fit on distribution temperature
+        # temp_dstr__degC = m.CV(value=df_learn[property_sources['temp_dstr__degC']].astype('float32').values)
+        # temp_dstr__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+        # temp_dstr__degC.FSTATUS = 1 # Use the measured values
+        # temp_ret_ch__degC = m.Intermediate(2 * temp_dstr__degC - temp_flow_ch__degC)
+    
+        # Fit on return temperature
+        temp_ret_ch__degC = m.CV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
+        temp_ret_ch__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+        temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
+        temp_dstr__degC = m.Var(value=df_learn[property_sources['temp_dstr__degC']].iloc[0])  # Initial guesss
+        m.Equation(temp_dstr__degC == (temp_ret_ch__degC + temp_flow_ch__degC) /2 )
 
         temp_indoor__degC = m.MV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
         temp_indoor__degC.STATUS = 0  # No optimization
