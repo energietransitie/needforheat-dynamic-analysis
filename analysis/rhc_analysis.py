@@ -587,10 +587,8 @@ class Learner():
         m.time = np.arange(0, duration__s, step__s)
 
         ##################################################################################################################
-        # Heat gains
-        ##################################################################################################################
-    
         # Central heating gains
+        ##################################################################################################################
         g_use_ch_hhv__W = m.MV(value=df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values)
         g_use_ch_hhv__W.STATUS = 0  # No optimization
         g_use_ch_hhv__W.FSTATUS = 1 # Use the measured values
@@ -610,8 +608,10 @@ class Learner():
         
         heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W)
     
-        # Learn heat distribution system parameters
-        heat_tr_dstr__W_K_1 = m.FV(value=param_hints['heat_tr_dstr__W_K_1'], lb=50, ub=500)
+        ##################################################################################################################
+        # Heat distribution system parameters to learn
+        ##################################################################################################################
+        heat_tr_dstr__W_K_1 = m.FV(value=param_hints['heat_tr_dstr__W_K_1'], lb=50, ub=1000)
         heat_tr_dstr__W_K_1.STATUS = 1  # Allow optimization
         heat_tr_dstr__W_K_1.FSTATUS = 1 # Use the initial value as a hint for the solver
 
@@ -619,34 +619,45 @@ class Learner():
         th_mass_dstr__Wh_K_1.STATUS = 1  # Allow optimization
         th_mass_dstr__Wh_K_1.FSTATUS = 1 # Use the initial value as a hint for the solver
     
-        if 'th_inert_dstr__h' in learn_params:
-            th_inert_dstr__h = m.Intermediate(th_mass_dstr__Wh_K_1 / heat_tr_dstr__W_K_1)
-
-        # Temperatures: flow, return, heat distribution system (radiator/floow) and indoor temperature  
+        ##################################################################################################################
+        # Flow and indoor temperature  
+        ##################################################################################################################
         temp_flow_ch__degC = m.MV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values)
         temp_flow_ch__degC.STATUS = 0  # No optimization
         temp_flow_ch__degC.FSTATUS = 1 # Use the measured values
 
-        # # Fit on distribution temperature
-        # temp_dstr__degC = m.CV(value=df_learn[property_sources['temp_dstr__degC']].astype('float32').values)
-        # temp_dstr__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
-        # temp_dstr__degC.FSTATUS = 1 # Use the measured values
-        # temp_ret_ch__degC = m.Intermediate(2 * temp_dstr__degC - temp_flow_ch__degC)
-    
-        # Fit on return temperature
-        temp_ret_ch__degC = m.CV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
-        temp_ret_ch__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
-        temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
-        temp_dstr__degC = m.Var(value=df_learn[property_sources['temp_dstr__degC']].iloc[0])  # Initial guesss
-        m.Equation(temp_dstr__degC == (temp_ret_ch__degC + temp_flow_ch__degC) /2 )
-
         temp_indoor__degC = m.MV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
         temp_indoor__degC.STATUS = 0  # No optimization
         temp_indoor__degC.FSTATUS = 1 # Use the measured values
-    
-        heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
 
-        m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / (th_mass_dstr__Wh_K_1 * s_h_1))
+        # ##################################################################################################################
+        # # Alternative way: fit on distribution temperature
+        # ##################################################################################################################
+        # temp_dstr__degC = m.CV(value=((df_learn[property_sources['temp_flow_ch__degC']] 
+        #                                + df_learn[property_sources['temp_ret_ch__degC']]) / 2).astype('float32').values)
+        # temp_dstr__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+        # temp_dstr__degC.FSTATUS = 1 # Use the measured values
+        # temp_ret_ch__degC = m.Var(value=df_learn[property_sources['temp_ret_ch__degC']].iloc[0])  # Initial guesss
+        
+        ##################################################################################################################
+        # Fit on return temperature
+        ##################################################################################################################
+        temp_ret_ch__degC = m.CV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
+        temp_ret_ch__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+        temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
+        temp_dstr__degC = m.Var(value=(df_learn[property_sources['temp_flow_ch__degC']].iloc[0] 
+                                       + df_learn[property_sources['temp_ret_ch__degC']].iloc[0]) / 2)  # Initial guesss
+
+        ##################################################################################################################
+        # Dynamic model of the heat distribution system
+        ##################################################################################################################
+        m.Equation(temp_dstr__degC == (temp_flow_ch__degC + temp_ret_ch__degC) / 2)
+        heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
+        th_mass_dstr__J_K_1 = m.Intermediate(th_mass_dstr__Wh_K_1 * s_h_1)
+        m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / th_mass_dstr__J_K_1)
+
+        if 'th_inert_dstr__h' in learn_params:
+            th_inert_dstr__h = m.Intermediate(th_mass_dstr__Wh_K_1 / heat_tr_dstr__W_K_1)
         
         ##################################################################################################################
         # Solve the model to start the learning process
@@ -736,7 +747,8 @@ class Learner():
             'comfortable__bool',
             'temp_indoor__degC',
             'temp_outdoor__degC',
-            'temp_flow_ch_max__degC'
+            'temp_flow_ch_max__degC',
+            'heat_ch__W',
         ]
             
         id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
