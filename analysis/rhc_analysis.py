@@ -1693,18 +1693,19 @@ class Learner():
                 # Algorithmic control 
                 ##################################################################################################################
         
-                # Cooldown mode to prevent overheating of flow temperature
-                in_cooldown__bool = m.Var(value=0, integer=True)  # Initially not in cooldown mode
-                
-                # Temperature margins for cooldown hysteresis
-                overheat_upper_margin_temp_flow__K = m.Param(value=5)                                        # Default overheating margin in K
-                overheat_hysteresis__K = m.Param(value=bldng_data['overheat_hysteresis__K'])                 # Hysteresis, which might be boiler-specific
-                cooldown_margin_temp_flow__K = overheat_hysteresis__K - overheat_upper_margin_temp_flow__K   # Default cooldown margin in K
-        
                 # GEKKO constants for better code readability 
                 TRUE = 1
                 FALSE = 0
                 
+                ##################################################################################################################
+                # Cooldown mode definitions 
+                ##################################################################################################################
+
+                # Temperature margins for cooldown hysteresis
+                overheat_upper_margin_temp_flow__K = m.Param(value=5)                                        # Default overheating margin in K
+                overheat_hysteresis__K = m.Param(value=bldng_data['overheat_hysteresis__K'])                 # Hysteresis, which might be boiler-specific
+                cooldown_margin_temp_flow__K = overheat_hysteresis__K - overheat_upper_margin_temp_flow__K   # Default cooldown margin in K
+
                 # Cooldown hysteresis: starts at crossing overheating margin, ends at crossing cooldown margin
                 cooldown_condition = m.Var(value=FALSE)  # Initialize hysteresis state variable
                 
@@ -1724,6 +1725,32 @@ class Learner():
                         )
                     )
                 )
+
+                ##################################################################################################################
+                # Post-pump run definitions 
+                ##################################################################################################################
+
+                # Post-pump run state: initially inactive
+                in_post_pump_run__bool = m.Var(value=FALSE, integer=True)
+                
+                # Parameters for post-pump run 
+                post_pump_run_duration__min = m.Param(value=3)                                              # Post pump run duration (in minutes); default to 3 minutes
+                # Conversion from minutes to seconds
+                post_pump_run_duration__s = (post_pump_run_duration__min + 0.5) * s_min_1                   # Convert duration to seconds (add half a minute to make soure counter does not end at 0)
+
+                post_pump_speed__pct = m.Param(value=bldng_data['post_pump_run__pct'])                      # Post pump run speeds percentage, may be boiler-specific
+                post_pump_run_timer__s = m.Var(value=0)  
+				
+				
+                no_heat_demand_condition = 0.5 - temp_flow_ch_set__degC                     # flow temp setpoint close to zero
+                post_pump_timer_not_expired_condition = post_pump_run_timer__s - s_min_1    # post pump run timer < 60 s
+                post_pump_start_condition = (post_pump_run_timer__s == 0)
+                entering_post_pump_run_condition = (in_post_pump_run__bool == TRUE)	                
+
+                
+                ##################################################################################################################
+                # Fan speed definitions 
+                ##################################################################################################################
                 
                 # Max fan gain in in %
                 fan_scale = bldng_data['fan_max_ch_rotations__min_1'] - bldng_data['fan_min_ch_rotations__min_1']
@@ -1735,7 +1762,7 @@ class Learner():
                                                         )                                # Initialize with value and bounds
                 fan_rotations_max_gain__pct_min_1.STATUS = 1                             # Allow optimization
                 fan_rotations_max_gain__pct_min_1.FSTATUS = 1                            # Use the initial value as a hint for the solver
-                
+
                 # Fan error threshold in K
                 error_threshold_temp_delta_flow_flowset__K = m.FV(value=5,
                                                                   lb=0,
@@ -1746,6 +1773,29 @@ class Learner():
                 error_threshold_temp_delta_flow_flowset__K.STATUS = 1                    # Allow optimization
                 error_threshold_temp_delta_flow_flowset__K.FSTATUS = 1                   # Use the initial value as a hint for the solver
                 
+                # Conditional fan speed gain based on flow error threshold, with an enforced maximum
+                fan_rotations_gain__pct_min_1 = m.Intermediate(
+                    m.min2(
+                        error_temp_delta_flow_flowset__K / error_threshold_temp_delta_flow_flowset__K * fan_rotations_max_gain__pct_min_1, 
+                        fan_rotations_max_gain__pct_min_1  # max gain
+                    )
+                )
+                m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
+                
+                # Conditional fan rotations updates: if in cooldown, set to 0, otherwise, keep the fan speed as calculated
+                m.Equation(
+                    fan_speed__pct == m.if3(
+                        cooldown_condition - 0.5, # Condition: cooldown_condition == True
+                        0,                        # Fan speed is set to 0
+                        fan_speed__pct            # Otherwise, retain the current fan speed
+                    )
+                )
+
+                
+                ##################################################################################################################
+                # Pump speed definitions 
+                ##################################################################################################################
+
                 # Max pump gain in % per minute
                 flow_dstr_pump_speed_max_gain__pct_min_1 = m.FV(value=3,
                                                                 lb=0,
@@ -1766,24 +1816,6 @@ class Learner():
                 error_threshold_temp_delta_flow_ret__K.STATUS = 1                        # Allow optimization
                 error_threshold_temp_delta_flow_ret__K.FSTATUS = 1                       # Use the initial value as a hint for the solver
 
-                # Conditional fan speed gain based on flow error threshold, with an enforced maximum
-                fan_rotations_gain__pct_min_1 = m.Intermediate(
-                    m.min2(
-                        error_temp_delta_flow_flowset__K / error_threshold_temp_delta_flow_flowset__K * fan_rotations_max_gain__pct_min_1, 
-                        fan_rotations_max_gain__pct_min_1  # max gain
-                    )
-                )
-                m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
-                
-                # Conditional fan rotations updates: if in cooldown, set to 0, otherwise, keep the fan speed as calculated
-                m.Equation(
-                    fan_speed__pct == m.if3(
-                        in_cooldown__bool - 0.5,  # Condition (binary): if in_cooldown__bool is 1 (true)
-                        0,                        # Fan speed is set to 0
-                        fan_speed__pct            # Otherwise, retain the current fan speed
-                    )
-                )
-                
                 # Conditional pump speed gain based on error threshold, with en enforced maximum
                 flow_dstr_pump_speed_gain__pct_min_1 = m.Intermediate(
                     m.min2(
@@ -1796,7 +1828,7 @@ class Learner():
                 # Conditional pump speed updates: if in cooldown, set to 100, otherwise, keep the gain as calculated
                 m.Equation(
                     flow_dstr_pump_speed__pct == m.if3(
-                        in_cooldown__bool - 0.5,  # Condition: binary (1 = true, 0 = false)
+                        cooldown_condition - 0.5, # Condition: cooldown_condition == True
                         100,                      # Pump speed set to 100 if in cooldown
                         flow_dstr_pump_speed__pct # Otherwise, retain the current pump speed
                     )
