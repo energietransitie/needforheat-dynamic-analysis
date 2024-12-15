@@ -309,7 +309,7 @@ class Learner():
         Args:
             id: The unique identifier for which to calculate the actual values.
             aperture_inf_avg__cm2: Average aperture for infiltration in cm².
-            heat_tr_dstr_avg__W_K_1: Average heat transfer coefficient of the distribution system in W/K.
+            heat_tr_dstr_avg__W_K_1: Average heat transfer capacity of the distribution system in W/K.
             th_mass_dstr_avg__Wh_K_1: Average thermal mass of the distribution system in Wh/K.
     
         Returns:
@@ -611,13 +611,19 @@ class Learner():
         ##################################################################################################################
         # Heat distribution system parameters to learn
         ##################################################################################################################
+        # Effective heat transfer capacity of the heat distribution system
         heat_tr_dstr__W_K_1 = m.FV(value=param_hints['heat_tr_dstr__W_K_1'], lb=50, ub=1000)
         heat_tr_dstr__W_K_1.STATUS = 1  # Allow optimization
         heat_tr_dstr__W_K_1.FSTATUS = 1 # Use the initial value as a hint for the solver
 
+        # Effective thermal mass of the heat distribution system
         th_mass_dstr__Wh_K_1 = m.FV(value=param_hints['th_mass_dstr__Wh_K_1'], lb=50, ub=5000)
         th_mass_dstr__Wh_K_1.STATUS = 1  # Allow optimization
         th_mass_dstr__Wh_K_1.FSTATUS = 1 # Use the initial value as a hint for the solver
+
+        # Effective thermal inertia (a.k.a. thermal time constant) of the heat distribution system
+        if 'th_inert_dstr__h' in learn_params:
+            th_inert_dstr__h = m.Intermediate(th_mass_dstr__Wh_K_1 / heat_tr_dstr__W_K_1)
     
         ##################################################################################################################
         # Flow and indoor temperature  
@@ -656,8 +662,7 @@ class Learner():
         th_mass_dstr__J_K_1 = m.Intermediate(th_mass_dstr__Wh_K_1 * s_h_1)
         m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / th_mass_dstr__J_K_1)
 
-        if 'th_inert_dstr__h' in learn_params:
-            th_inert_dstr__h = m.Intermediate(th_mass_dstr__Wh_K_1 / heat_tr_dstr__W_K_1)
+
         
         ##################################################################################################################
         # Solve the model to start the learning process
@@ -805,7 +810,7 @@ class Learner():
         # assume immediate and full heat distribution
         heat_dstr__W = heat_ch__W
 
-        # # If possible, use the learned heat transmissivity of the heat distribution system, otherwise use a generic value
+        # # If possible, use the learned heat transfer capacity of the heat distribution system, otherwise use a generic value
         # if pd.notna(bldng_data['learned_heat_tr_dstr__W_K_1']) & pd.notna(bldng_data['learned_th_mass_dstr__Wh_K_1']):
         #     # Heat distribution characteristics were learned; use them:
         #     heat_tr_dstr__W_K_1 =  m.Param(value=bldng_data['learned_heat_tr_dstr__W_K_1'])
@@ -917,7 +922,7 @@ class Learner():
         ## Thermal inertia ##
         ##################################################################################################################
                     
-        # Thermal inertia of the building
+        # Thermal inertia (a.k.a. thermal time constant) of the building
         if 'th_inert_bldng__h' in learn_params:
             # Learn thermal inertia
             th_inert_bldng__h = m.FV(value = param_hints['th_inert_bldng__h'], lb=(10), ub=(1000))
@@ -1300,13 +1305,13 @@ class Learner():
             - 'eta_not_ch_hhv__W0':           superior efficiency of heating the home indirectly using gas
             - 'wind_chill__K_s_m_1':          wind chill factor
             - 'aperture_inf__cm2':            effective infiltration area
-            - 'heat_tr_bldng_cond__W_K_1':    specific heat loss
+            - 'heat_tr_bldng_cond__W_K_1':    heat transfer capacity of the building (a.k.a. specific heat loss of the building)
             - 'eta_dhw_hhv__W0':              domestic hot water efficiency
             - 'frac_remain_dhw__0':           fraction of domestic hot water heat contributing to heating the home
             - 'g_use_cooking_hhv__W':         average gas power (higher heating value) for cooking
             - 'eta_cooking_hhv__W0':          cooking efficiency
             - 'frac_remain_cooking__0':       fraction of cooking heat contributing to heating the home
-            - 'heat_tr_dstr__W_K_1':          heat transmissivity of the heat distribution system
+            - 'heat_tr_dstr__W_K_1':          heat transfer capacity of the heat distribution system
             - 'th_mass_dstr__Wh_K_1':         thermal mass of the heat distribution system
             - 'ventilation_default__dm3_s_1': default ventilation rate for for the learning process for the entire home
             - 'ventilation_max__dm3_s_1_m_2': maximum ventilation rate relative to the total floor area of the home
