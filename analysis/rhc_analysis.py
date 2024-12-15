@@ -1708,10 +1708,12 @@ class Learner():
 
                 # Cooldown hysteresis: starts at crossing overheating margin, ends at crossing cooldown margin
                 cooldown_condition = m.Var(value=FALSE)  # Initialize hysteresis state variable
+
                 
                 # Define the overheating and cooldown conditions
                 overheat_condition = temp_flow_ch__degC - (temp_flow_ch_set__degC + overheat_upper_margin_temp_flow__K)
-                cooldown_exit_condition = (temp_flow_ch__degC - (temp_flow_ch_set__degC + cooldown_margin_temp_flow__K)) * -1
+                cooldown_exit_condition = (temp_flow_ch_set__degC + cooldown_margin_temp_flow__K) - temp_flow_ch__degC
+                no_heat_demand_condition = 0.5 - temp_flow_ch_set__degC
                 
                 # Cooldown state transitions
                 m.Equation(
@@ -1730,22 +1732,45 @@ class Learner():
                 # Post-pump run definitions 
                 ##################################################################################################################
 
-                # Post-pump run state: initially inactive
-                in_post_pump_run__bool = m.Var(value=FALSE, integer=True)
                 
-                # Parameters for post-pump run 
-                post_pump_run_duration__min = m.Param(value=3)                                              # Post pump run duration (in minutes); default to 3 minutes
-                # Conversion from minutes to seconds
-                post_pump_run_duration__s = (post_pump_run_duration__min + 0.5) * s_min_1                   # Convert duration to seconds (add half a minute to make soure counter does not end at 0)
+                # Define variables
+                in_post_pump_run_condition = m.Var(value=0, integer=True)               # Boolean state variable
+                post_pump_run_duration__min = 3                                         # Post pump run duration (in minutes); default to 3 minutes
+                post_pump_run_duration__s = post_pump_run_duration__min * s_min_1       # Convert duration to seconds (add half a minute to make soure counter does not end at 0)
+                post_pump_speed__pct = m.Param(value=bldng_data['post_pump_run__pct'])  # Post pump run speeds percentage, may be boiler-specific
+                post_pump_run_expiration__s = m.Var(value=0)                            # Expiration time
+                
+                # Create a variable to represent the current simulation time
+                current_time = m.Var(value=0)  # Start at time 0
+                m.Equation(current_time.dt() == step__s)  # Increment current_time by step__s seconds
 
-                post_pump_speed__pct = m.Param(value=bldng_data['post_pump_run__pct'])                      # Post pump run speeds percentage, may be boiler-specific
-                post_pump_run_timer__s = m.Var(value=0)  
-				
-				
-                no_heat_demand_condition = 0.5 - temp_flow_ch_set__degC                     # flow temp setpoint close to zero
-                post_pump_timer_not_expired_condition = post_pump_run_timer__s - s_min_1    # post pump run timer < 60 s
-                post_pump_start_condition = (post_pump_run_timer__s == 0)
-                entering_post_pump_run_condition = (in_post_pump_run__bool == TRUE)	                
+                # Define the post-pump run entry condition
+                # Create post_pump_run_entry_condition in a single line using pandas operations
+                post_pump_run_entry_condition = m.MV(value=(
+                    (df_learn[property_sources['temp_flow_ch_set__degC']].shift(1, fill_value=0) > 0.5) &
+                    (df_learn[property_sources['temp_flow_ch_set__degC']] == 0)
+                ).astype(int).values)
+                post_pump_run_entry_condition.STATUS = 0  # No optimization
+                post_pump_run_entry_condition.FSTATUS = 1 # Use the measured values
+
+                # Start post pump run timer (by calculating exporation time) whenever heat demand ends
+                m.Equation(
+                    post_pump_run_expiration__s.dt() == m.if3(
+                        post_pump_run_entry_condition,
+                        current_time + post_pump_run_duration__s,           # Start expiration timer
+                        0                                                   # Else: retain current expiration time
+                    )
+                )
+
+                timer_not_expired_condition = current_time - post_pump_run_expiration__s
+                # Update in_post_pump_run_condition
+                m.Equation(
+                    in_post_pump_run_condition == m.if3(
+                        timer_not_expired_condition,                 # Timer not expired
+                        TRUE,                                        # Active
+                        FALSE                                        # Inactive
+                    )
+                )
 
                 
                 ##################################################################################################################
@@ -1782,15 +1807,18 @@ class Learner():
                 )
                 m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
                 
-                # Conditional fan rotations updates: if in cooldown, set to 0, otherwise, keep the fan speed as calculated
+                # Override calculated fan speeds with 0 if in cooldown or when temp_flow_ch_set__degC is set to 0 
                 m.Equation(
                     fan_speed__pct == m.if3(
-                        cooldown_condition - 0.5, # Condition: cooldown_condition == True
-                        0,                        # Fan speed is set to 0
-                        fan_speed__pct            # Otherwise, retain the current fan speed
+                        no_heat_demand_condition,     # Condition: temp_flow_ch_set__degC == 0 (< 0.5)
+                        0,                            # Action: set fan speed to 0
+                        m.if3(                        # Else:
+                            cooldown_condition,            # Condition: cooldown_condition == True
+                            0,                             # Action: set fan speed also to 0
+                            fan_speed__pct                 # Else: Keep the calculated fan speed
+                        )
                     )
                 )
-
                 
                 ##################################################################################################################
                 # Pump speed definitions 
@@ -1825,15 +1853,24 @@ class Learner():
                 )
                 m.Equation(flow_dstr_pump_speed__pct.dt() == flow_dstr_pump_speed_gain__pct_min_1)
                 
-                # Conditional pump speed updates: if in cooldown, set to 100, otherwise, keep the gain as calculated
                 m.Equation(
                     flow_dstr_pump_speed__pct == m.if3(
-                        cooldown_condition - 0.5, # Condition: cooldown_condition == True
-                        100,                      # Pump speed set to 100 if in cooldown
-                        flow_dstr_pump_speed__pct # Otherwise, retain the current pump speed
+                        cooldown_condition,          # Condition: cooldown_condition == True
+                        100,                         # Action: set pump speed to 100
+                        m.if3(                       # Else:
+                            in_post_pump_run_condition, # Condition: in_post_pump_run_condition == True
+                            post_pump_speed__pct,       # Action:  use building-specific post-pump speed
+                            m.if3(                      # Else:
+                                no_heat_demand_condition,      # Condition: temp_flow_ch_set__degC == 0 (< 0.5)
+                                0,                             # Action: set pump speed set to 0
+                                flow_dstr_pump_speed__pct      # Else: retain the current pump speed
+                            )
+                        )
                     )
-                )      
+                )
 
+
+        
             case Learner.ControlMode.LEARN_PID:
                 ##################################################################################################################
                 # PID control 
