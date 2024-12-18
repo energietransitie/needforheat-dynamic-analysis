@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import List, Tuple, Dict, Set
+from typing import List, Tuple, Dict, Set, Callable
 from enum import Enum
 import pandas as pd
 import numpy as np
@@ -415,6 +415,144 @@ class Learner():
         
         df_data.to_parquet(os.path.join(results_dir, 'results_final.parquet'))
         logging.info(f'Final df_data saved to {results_dir}/results_final.parquet')    
+
+    @staticmethod
+    def learn_system_parameters(
+        df_data: pd.DataFrame,
+        df_bldng_data: pd.DataFrame,
+        system_model_fn: Callable,
+        job_identification_fn: Callable,
+        property_sources: Dict = None,
+        param_hints: Dict = None,
+        learn_params: Dict = None,
+        actual_params: Set[str] = None,
+        req_props: Set[str] = None,
+        predict_props: Set[str] = None,
+        duration_threshold: timedelta = None,
+        max_periods: int = None,
+        **kwargs
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Generalized function to learn system parameters.
+
+        Parameters:
+            df_data (pd.DataFrame): Main data.
+            df_bldng_data (pd.DataFrame): Building-specific data.
+            system_model_fn (Callable): Function to call for learning system parameters.
+            job_identification_fn (Callable): Function to identify learning jobs.
+            property_sources (Dict): Mapping of properties to column names.
+            param_hints (Dict): Parameter hints for the learning function.
+            learn_params (Dict): Learning-specific parameters.
+            actual_params (Set[str]): Set of actual parameters to consider.
+            req_props (Set[str]): Required properties for learning.
+            predict_props (Set[str]): Properties to predict.
+            duration_threshold (timedelta): Minimum duration for jobs.
+            max_periods (int): Maximum periods for learning jobs.
+            **kwargs: Additional arguments passed to the system_model_fn.
+
+        Returns:
+            Tuple[pd.DataFrame, pd.DataFrame]: Learned parameters and updated data.
+        """
+        # Determine required columns
+        req_cols = (
+            set(property_sources.values())
+            if req_props is None
+            else {property_sources[prop] for prop in req_props & property_sources.keys()}
+        )
+
+        # Focus only on the required columns
+        df_learn_all = df_data[list(req_cols)]
+
+        # Identify analysis jobs using the provided function
+        df_analysis_jobs = job_identification_fn(
+            df_data,
+            req_props=req_props,
+            property_sources=property_sources,
+            duration_threshold=duration_threshold,
+            max_len=max_periods,
+        )
+
+        # Initialize result lists
+        all_predicted_job_properties = []
+        all_learned_job_parameters = []
+
+        num_jobs = df_analysis_jobs.shape[0]
+        num_workers = min(num_jobs, os.cpu_count())
+
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = []
+            learned_jobs = {}
+
+            for id, start, end, duration in tqdm(
+                df_analysis_jobs.index,
+                desc=f"Submitting learning jobs to {num_workers} processes",
+            ):
+                # Create df_learn for the current job
+                df_learn = df_learn_all.loc[
+                    (df_learn_all.index.get_level_values("id") == id)
+                    & (df_learn_all.index.get_level_values("timestamp") >= start)
+                    & (df_learn_all.index.get_level_values("timestamp") < end)
+                ]
+
+                # Get building-specific data for each job
+                bldng_data = df_bldng_data.loc[id].to_dict()
+
+                # Submit the system model function to the executor
+                future = executor.submit(
+                    system_model_fn,
+                    df_learn,
+                    bldng_data=bldng_data,
+                    property_sources=property_sources,
+                    param_hints=param_hints,
+                    learn_params=learn_params,
+                    actual_params=actual_params,
+                    predict_props=predict_props,
+                    **kwargs,
+                )
+
+                futures.append(future)
+                learned_jobs[(id, start, end)] = future
+
+            # Collect results as they complete
+            with tqdm(total=len(futures), desc=f"Collecting results from {num_workers} processes") as pbar:
+                for future in as_completed(futures):
+                    try:
+                        df_learned_parameters, df_predicted_properties = future.result()
+                        all_predicted_job_properties.append(df_predicted_properties)
+                        all_learned_job_parameters.append(df_learned_parameters)
+                    except Exception as e:
+                        if "Solution Not Found" in str(e):
+                            for (id, start, end), job_future in learned_jobs.items():
+                                if job_future == future:
+                                    logging.warning(
+                                        f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping."
+                                    )
+                                    break
+                            continue
+                        else:
+                            raise
+                    finally:
+                        pbar.update(1)
+
+        # Combine results into cumulative DataFrames
+        df_predicted_properties = (
+            pd.concat(all_predicted_job_properties, axis=0).drop_duplicates().sort_index()
+            if all_predicted_job_properties
+            else pd.DataFrame()
+        )
+
+        df_learned_parameters = (
+            pd.concat(all_learned_job_parameters, axis=0).drop_duplicates().sort_index()
+            if all_learned_job_parameters
+            else pd.DataFrame()
+        )
+
+        # Merge predicted properties back into the main DataFrame
+        df_data = df_data.drop(columns=df_data.columns.intersection(df_predicted_properties.columns))
+        df_data = df_data.merge(df_predicted_properties, left_index=True, right_index=True, how="left")
+
+        return df_learned_parameters, df_data
+        
 
     def learn_ventilation(
         df_learn: pd.DataFrame,
@@ -1483,114 +1621,6 @@ class Learner():
         Learner.final_save_to_parquet(df_learned_parameters, df_data, results_dir)
         
         return df_learned_parameters.sort_index(), df_data.sort_index()
-
-    @staticmethod
-    def learn_heat_distribution_parameters(
-        df_data: pd.DataFrame,
-        df_bldng_data: pd.DataFrame,
-        property_sources: Dict = None,
-        param_hints: Dict = None,
-        learn_params: Dict = None,
-        actual_params: Set[str] = None,
-        req_props: Set[str] = None,
-        predict_props: Set[str] = None,
-        duration_threshold: timedelta = None,
-        max_periods: int = None
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-
-        req_cols = (
-            set(property_sources.values())
-            if req_props is None
-            else {property_sources[prop] for prop in req_props & property_sources.keys()}
-        )
-
-        # focus only on the required columns
-        df_learn_all = df_data[list(req_cols)]
-        df_analysis_jobs = Learner.valid_learn_list(
-            df_data,
-            req_props=req_props,
-            property_sources=property_sources,
-            duration_threshold=duration_threshold,
-            max_len=max_periods
-            )
-
-        # Initialize result lists
-        all_predicted_job_properties = []
-        all_learned_job_parameters = []
-        
-        num_jobs = df_analysis_jobs.shape[0]  # Get the number of jobs
-        num_workers = min(num_jobs, os.cpu_count())  # Use the lesser of number of jobs or 16 (or any other upper limit)
-        
-        with ProcessPoolExecutor() as executor:
-            # Submit tasks for each job
-        
-            # Create a list to store futures for later result retrieval
-            futures = []
-            learned_jobs = {}
-            
-            for id, start, end, duration in tqdm(df_analysis_jobs.index, desc=f"Submitting learning jobs to {num_workers} processes"):
-                # Create df_learn for the current job
-                df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
-                                            (df_learn_all.index.get_level_values('timestamp') >= start) & 
-                                            (df_learn_all.index.get_level_values('timestamp') < end)]
-            
-                # Get building-specific data for each job
-                bldng_data = df_bldng_data.loc[id].to_dict()
-
-                # Submit the analyze_job function to the executor
-                future = executor.submit(Learner.learn_heat_distribution,
-                                         df_learn,
-                                         bldng_data=bldng_data,
-                                         property_sources=property_sources,
-                                         param_hints=param_hints,
-                                         learn_params=learn_params,
-                                         actual_params=actual_params,
-                                         predict_props=predict_props,
-                                        )
-    
-                futures.append(future)
-                learned_jobs[(id, start, end)] = future
-    
-        
-            # Collect results as they complete
-            with tqdm(total=len(futures), desc=f"Collecting results from {num_workers} processes") as pbar:
-                for future in as_completed(futures):
-                    try:
-                        df_learned_parameters, df_predicted_properties = future.result()
-                        all_predicted_job_properties.append(df_predicted_properties)
-                        all_learned_job_parameters.append(df_learned_parameters)
-                    except Exception as e:
-                        # Handle only the specific "Solution Not Found" error
-                        if "Solution Not Found" in str(e):
-                            # Find which job caused the error
-                            for (id, start, end), job_future in learned_jobs.items():
-                                if job_future == future:
-                                    logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping.")
-                                    break
-                            continue  # Skip this job and move on to the next one
-                        else:
-                            # Reraise other exceptions to stop execution
-                            raise
-                    finally:
-                        pbar.update(1)
-            
-        # Now merge all learned job properties and parameters into cumulative DataFrames
-        if all_predicted_job_properties:
-            df_predicted_properties = pd.concat(all_predicted_job_properties, axis=0).drop_duplicates().sort_index()
-        else: 
-            df_predicted_properties = pd.DataFrame()
-            
-
-        if all_learned_job_parameters:
-            df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates().sort_index()
-        else:
-            df_learned_parameters = pd.DataFrame()
-
-        # Merging all learned time series data into df_data, making sure that columns from df_predicted_properties take precedende
-        df_data = df_data.drop(columns=df_data.columns.intersection(df_predicted_properties.columns))
-        df_data = df_data.merge(df_predicted_properties, left_index=True, right_index=True, how='left')
-
-        return df_learned_parameters, df_data    
 
 
     # Define the modes as an enumeration
