@@ -112,8 +112,8 @@ class Learner():
             df_data: pd.DataFrame,
             req_props: Set[str],
             property_sources: Dict,
-            learn_period__d: int = 7,
             duration_threshold: timedelta = timedelta(hours=24),
+            learn_period__d: int = None,
             max_len: int = None,
             ) -> pd.DataFrame:
         """
@@ -121,9 +121,10 @@ class Learner():
 
         Parameters:
             df_data (pd.DataFrame): Input data with a MultiIndex ('id', 'timestamp').
-            req_props (list): List of required properties to check for non-NaN/NA values.
+            req_props (set): Set of required properties to check for non-NaN/NA values.
             property_sources: Dictionary with mapping of properties to column names in df_data.
             duration_threshold (timedelta): Minimum duration for a streak to be included.
+            learn_period__d (int): period length (in days) to use; hence also the maximum job length.
             max_len: length of list (to reduce calculation time during tests); if needed a random subsample will be taken
     
         Returns:
@@ -147,7 +148,7 @@ class Learner():
         else:
             df_data['sanity'] = True  # No required columns, mark all as sane
         
-        for id in tqdm(ids, desc="Identifying learning jobs"):
+        for id in tqdm(ids, desc=f"Identifying {f'at most {max_len} ' if max_len is not None and max_len > 0 else ''} periodic sane streaks of at least of at least {duration_threshold} and at  most {learn_period__d} days"):
             for learn_period_start in learn_period_starts:
                 learn_period_end = min(learn_period_start + timedelta(days=learn_period__d), end_analysis_period)
     
@@ -177,10 +178,11 @@ class Learner():
     
     def valid_learn_list(
         df_data: pd.DataFrame,
-        req_props: list,
-        property_sources: dict,
+        req_props: Set[str],
+        property_sources: Dict,
         duration_threshold: timedelta = timedelta(minutes=30),
-        max_len=None,
+        learn_period__d: int = None,
+        max_len: int = None,
         ) -> pd.DataFrame:
         """
         Create a list of jobs (id, start, end) based on consecutive streaks of data
@@ -188,9 +190,10 @@ class Learner():
     
         Parameters:
             df_data (pd.DataFrame): Input data with a MultiIndex ('id', 'timestamp').
-            req_props (list): List of required properties to check for non-NaN/NA values.
+            req_props (set): Set of required properties to check for non-NaN/NA values.
             property_sources: Dictionary with mapping of properties to column names in df_data.
             duration_threshold (timedelta): Minimum duration for a streak to be included.
+            learn_period__d (int): not supported, but required to be passed as a Callable
             max_len: length of list (to reduce calculation time during tests); if needed a random subsample will be taken
     
         Returns:
@@ -207,8 +210,7 @@ class Learner():
         jobs = []
         
         # Iterate over each unique id
-        for id_, group in tqdm(df_data.groupby(level='id'), desc=f"Identifying learning jobs of at least {duration_threshold}"):
-            # Filter for rows where all required columns are not NaN
+        for id_, group in tqdm(df_data.groupby(level='id'), desc=f"Identifying {f'at most {max_len} ' if max_len is not None and max_len > 0 else ''} valid streaks of at least {duration_threshold}"):            # Filter for rows where all required columns are not NaN
             group = group.droplevel('id')  # Drop 'id' level for easier handling
             group = group.loc[group[list(req_cols)].notna().all(axis=1)]
     
@@ -429,6 +431,7 @@ class Learner():
         req_props: Set[str] = None,
         predict_props: Set[str] = None,
         duration_threshold: timedelta = None,
+        learn_period__d: int = None,
         max_periods: int = None,
         **kwargs
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
@@ -447,6 +450,7 @@ class Learner():
             req_props (Set[str]): Required properties for learning.
             predict_props (Set[str]): Properties to predict.
             duration_threshold (timedelta): Minimum duration for jobs.
+            learn_period__d (int): Maximum duration for jobs (in days)
             max_periods (int): Maximum periods for learning jobs.
             **kwargs: Additional arguments passed to the system_model_fn.
 
@@ -469,6 +473,7 @@ class Learner():
             req_props=req_props,
             property_sources=property_sources,
             duration_threshold=duration_threshold,
+            learn_period__d=learn_period__d,
             max_len=max_periods,
         )
 
@@ -485,7 +490,7 @@ class Learner():
 
             for id, start, end, duration in tqdm(
                 df_analysis_jobs.index,
-                desc=f"Submitting learning jobs to {num_workers} processes",
+                desc=f"Submitting {system_model_fn.__name__} jobs to {num_workers} processes",
             ):
                 # Create df_learn for the current job
                 df_learn = df_learn_all.loc[
@@ -2300,22 +2305,23 @@ class Learner():
                     df_learn[property_sources[prop]],  # Measured values
                     df_predicted_properties[predicted_prop]  # Predicted values
                 )
-                
-        match mode:
-            case Learner.ControlMode.LEARN_ALGORITHMIC:
-                for param in [param for param in (learn_params or []) and param in current_locals]:
-                    learned_value = current_locals[param].value[0]
-                    df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
-                    # If actual value exists, compute MAE
-                    if actual_params is not None and param in actual_params:
-                        df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
 
-            case Learner.ControlMode.LEARN_PID:
-                for component, params in pid_parameters.items():
-                    for param_name, value in params.items():
-                        df_learned_parameters.loc[0, f'learned_{component}_K{param_name}'] = value[0]
-            case _:
-                raise ValueError(f"Invalid ControlMode: {mode}")
+        if learn_params: 
+            match mode:
+                case Learner.ControlMode.LEARN_ALGORITHMIC:
+                    for param in learn_params & current_locals.keys():
+                        learned_value = current_locals[param].value[0]
+                        df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
+                        # If actual value exists, compute MAE
+                        if actual_params is not None and param in actual_params:
+                            df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
+    
+                case Learner.ControlMode.LEARN_PID:
+                    for component, params in pid_parameters.items():
+                        for param_name, value in params.items():
+                            df_learned_parameters.loc[0, f'learned_{component}_K{param_name}'] = value[0]
+                case _:
+                    raise ValueError(f"Invalid ControlMode: {mode}")
             
 
         # Set MultiIndex on the DataFrame (id, start, end)
