@@ -484,13 +484,15 @@ class Learner():
         num_jobs = df_analysis_jobs.shape[0]
         num_workers = min(num_jobs, os.cpu_count())
 
+        max_iter = kwargs.get('max_iter')
+        
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             futures = []
             learned_jobs = {}
 
             for id, start, end, duration in tqdm(
                 df_analysis_jobs.index,
-                desc=f"Submitting {system_model_fn.__name__} jobs to {num_workers} processes",
+                desc=f"Submitting {system_model_fn.__name__} jobs {f'with at most {max_iter} iterations ' if max_iter is not None else ''}to {num_workers} processes",
             ):
                 # Create df_learn for the current job
                 df_learn = df_learn_all.loc[
@@ -527,11 +529,16 @@ class Learner():
                         all_learned_job_parameters.append(df_learned_parameters)
                     except Exception as e:
                         if "Solution Not Found" in str(e):
-                            for (id, start, end), job_future in learned_jobs.items():
+                            for (id, start, end, duration), job_future in learned_jobs.items():
                                 if job_future == future:
-                                    logging.warning(
-                                        f"Solution Not Found for job (id: {id}, start: {start}, end: {end}). Skipping."
-                                    )
+                                    logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}, duration: {duration}). Skipping.")
+                                    break
+                            continue
+                        elif "Maximum solver iterations" in str(e):
+                            print("")
+                            for (id, start, end, duration), job_future in learned_jobs.items():
+                                if job_future == future:
+                                    logging.warning(f"Solution exceeded maximum iterations for job (id: {id}, start: {start}, end: {end}, duration: {duration}). Skipping.")
                                     break
                             continue
                         else:
@@ -1647,7 +1654,7 @@ class Learner():
             actual_params: Dict = None,
             predict_props: Set[str] = {'fan_speed__pct', 'flow_dstr_pump_speed__pct'},
             mode: ControlMode = ControlMode.LEARN_ALGORITHMIC,
-            max_iter=None,
+            max_iter=10,
         ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         
