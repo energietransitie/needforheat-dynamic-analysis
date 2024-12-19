@@ -518,7 +518,7 @@ class Learner():
                 )
 
                 futures.append(future)
-                learned_jobs[(id, start, end)] = future
+                learned_jobs[(id, start, end, duration)] = future
 
             # Collect results as they complete
             with tqdm(total=len(futures), desc=f"Collecting results from {num_workers} processes") as pbar:
@@ -2037,120 +2037,6 @@ class Learner():
         return df_learned_parameters, df_predicted_properties
         
 
-    @staticmethod
-    def learn_boiler_control_parameters(
-        df_data: pd.DataFrame,
-        df_bldng_data: pd.DataFrame,
-           property_sources: Dict = None,
-        param_hints: Dict = None,
-        learn_params: Set[str] = None,
-        actual_params: Set[str] = None,
-        req_props: Set[str] = None,
-        predict_props: Set[str] = None,
-        duration_threshold: timedelta = None,
-        mode=None, 
-        max_periods=None,
-        max_iter=None,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
-
-        req_cols = (
-            set(property_sources.values())
-            if req_props is None
-            else {property_sources[prop] for prop in req_props & property_sources.keys()}
-        )
-    
-        # Focus only on the required columns
-        df_learn_all = df_data[list(req_cols)]
-        df_analysis_jobs = Learner.valid_learn_list(
-            df_data,
-            req_props=req_props,
-            property_sources=property_sources,
-            duration_threshold=duration_threshold,
-            max_len=max_periods,
-            )
-    
-        # Initialize result lists
-        all_predicted_job_properties = []
-        all_learned_job_parameters = []
-    
-        num_jobs = df_analysis_jobs.shape[0]  # Get the number of jobs
-        num_workers = min(num_jobs, os.cpu_count())  # Use the lesser of number of jobs or CPU count
-        shortest_job = df_analysis_jobs.index.get_level_values('duration').min()
-        longest_job = df_analysis_jobs.index.get_level_values('duration').max()
-        
-
-        with ProcessPoolExecutor() as executor:
-            # Submit tasks for each job
-            futures = []
-            learned_jobs = {}
-
-            for id, start, end, duration in tqdm(df_analysis_jobs.index, desc=f"Submitting {mode} learning jobs [{shortest_job}-{longest_job}] to {num_workers} processes"):
-                # Create df_learn for the current job
-                df_learn = df_learn_all.loc[(df_learn_all.index.get_level_values('id') == id) & 
-                                            (df_learn_all.index.get_level_values('timestamp') >= start) & 
-                                            (df_learn_all.index.get_level_values('timestamp') < end)]
-
-                # Get building-specific data for each job
-                bldng_data = df_bldng_data.loc[id].to_dict()
-
-
-
-                # Submit the learn_boiler_control function to the executor
-                future = executor.submit(Learner.learn_boiler_control,
-                                         df_learn,
-                                         bldng_data=bldng_data,
-                                         property_sources=property_sources,
-                                         learn_params=learn_params,
-                                         param_hints=param_hints,
-                                         mode=mode,
-                                         max_iter=max_iter,
-                                         )
-                futures.append(future)
-                learned_jobs[(id, start, end, duration)] = future
-
-            # Collect results as they complete
-            with tqdm(total=len(futures), desc=f"Collecting {mode} results from {num_workers} processes") as pbar:
-                for future in as_completed(futures):
-                    try:
-                        df_learned_parameters, df_predicted_properties = future.result()
-                        all_predicted_job_properties.append(df_predicted_properties)
-                        all_learned_job_parameters.append(df_learned_parameters)
-                    except Exception as e:
-                        if "Solution Not Found" in str(e):
-                            for (id, start, end, duration), job_future in learned_jobs.items():
-                                if job_future == future:
-                                    logging.warning(f"Solution Not Found for job (id: {id}, start: {start}, end: {end}, duration: {duration}). Skipping.")
-                                    break
-                            continue
-                        elif "Maximum solver iterations" in str(e):
-                            print("")
-                            for (id, start, end, duration), job_future in learned_jobs.items():
-                                if job_future == future:
-                                    logging.warning(f"Solution exceeded maximum iterations for job (id: {id}, start: {start}, end: {end}, duration: {duration}). Skipping.")
-                                    break
-                            continue
-                        else:
-                            raise
-                    finally:
-                        pbar.update(1)                            
-        # Merge all learned job properties and parameters into cumulative DataFrames
-        if all_predicted_job_properties:
-            df_predicted_properties = pd.concat(all_predicted_job_properties, axis=0).drop_duplicates().sort_index()
-        else: 
-            df_predicted_properties = pd.DataFrame()
-
-        if all_learned_job_parameters:
-            df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates().sort_index()
-        else:
-            df_learned_parameters = pd.DataFrame()
-
-        # Merging all learned time series data into df_data, making sure that columns from df_predicted_properties take precedende
-        df_data = df_data.drop(columns=df_data.columns.intersection(df_predicted_properties.columns))
-        df_data = df_data.merge(df_predicted_properties, left_index=True, right_index=True, how='left')
-        
-        return df_learned_parameters, df_data
-
-
     def learn_thermostat_control(
             df_learn,
             bldng_data: Dict = None,
@@ -2160,6 +2046,7 @@ class Learner():
             actual_params: Dict = None,
             predict_props: Set[str] = {'temp_flow_ch_set__degC'},
             mode: ControlMode = ControlMode.LEARN_ALGORITHMIC,
+            max_iter=10,
             ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
@@ -2278,6 +2165,8 @@ class Learner():
         ##################################################################################################################
         m.options.IMODE = 5        # Simultaneous Estimation 
         m.options.EV_TYPE = 2      # RMSE
+        if max_iter is not None:   # retrict if needed to avoid waiting an eternity for unsolvable learning scenarios
+            m.options.MAX_ITER = max_iter
         m.solve(disp=False)
 
         ##################################################################################################################
