@@ -485,6 +485,7 @@ class Learner():
         num_workers = min(num_jobs, os.cpu_count())
 
         max_iter = kwargs.get('max_iter')
+        mode = kwargs.get('mode')
         
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             futures = []
@@ -492,7 +493,7 @@ class Learner():
 
             for id, start, end, duration in tqdm(
                 df_analysis_jobs.index,
-                desc=f"Submitting {system_model_fn.__name__} jobs {f'with at most {max_iter} iterations ' if max_iter is not None else ''}to {num_workers} processes",
+                desc=f"Submitting {system_model_fn.__name__} jobs {f'using mode {mode.value} ' if mode is not None else ''}{f'with at most {max_iter} iterations ' if max_iter is not None else ''}to {num_workers} processes",
             ):
                 # Create df_learn for the current job
                 df_learn = df_learn_all.loc[
@@ -546,22 +547,24 @@ class Learner():
                     finally:
                         pbar.update(1)
 
-        # Combine results into cumulative DataFrames
-        df_predicted_properties = (
-            pd.concat(all_predicted_job_properties, axis=0).drop_duplicates().sort_index()
-            if all_predicted_job_properties
-            else pd.DataFrame()
-        )
-
-        df_learned_parameters = (
-            pd.concat(all_learned_job_parameters, axis=0).drop_duplicates().sort_index()
-            if all_learned_job_parameters
-            else pd.DataFrame()
-        )
-
-        # Merge predicted properties back into the main DataFrame
-        df_data = df_data.drop(columns=df_data.columns.intersection(df_predicted_properties.columns))
-        df_data = df_data.merge(df_predicted_properties, left_index=True, right_index=True, how="left")
+        if all_predicted_job_properties:
+            # Combine results into a cumulative DataFrame for predicted properties
+            df_predicted_properties = (
+                pd.concat(all_predicted_job_properties, axis=0)
+                .drop_duplicates()
+                .sort_index()
+            )
+            # Merge predicted properties back into the main DataFrame
+            df_data = df_data.drop(columns=df_data.columns.intersection(df_predicted_properties.columns))
+            df_data = df_data.merge(df_predicted_properties, left_index=True, right_index=True, how="left")
+        
+        if all_learned_job_parameters:
+            # Combine results into a cumulative DataFrame for learned parameters
+            df_learned_parameters = (
+                pd.concat(all_learned_job_parameters, axis=0)
+                .drop_duplicates()
+                .sort_index()
+            )
 
         return df_learned_parameters, df_data
         
