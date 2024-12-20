@@ -478,7 +478,7 @@ class Learner():
         )
 
         # Initialize result lists
-        predicted_job_properties = []
+        aggregated_predicted_job_properties = []
         aggregated_learned_job_parameters = []
 
         num_jobs = df_analysis_jobs.shape[0]
@@ -529,8 +529,8 @@ class Learner():
                 for future in as_completed(futures):
                     try:
                         df_learned_parameters, df_predicted_properties = future.result()
-                        all_predicted_job_properties.append(df_predicted_properties)
-                        all_learned_job_parameters.append(df_learned_parameters)
+                        aggregated_predicted_job_properties.append(df_predicted_properties)
+                        aggregated_learned_job_parameters.append(df_learned_parameters)
                     except Exception as e:
                         if "Solution Not Found" in str(e):
                             for (id, start, end, duration), job_future in learned_jobs.items():
