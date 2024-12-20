@@ -8,6 +8,8 @@ from gekko import GEKKO
 from tqdm.notebook import tqdm
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
+from multiprocessing import Queue, Process
+import time
 
 import numbers
 import logging
@@ -15,8 +17,6 @@ import logging
 from pythermalcomfort.models import pmv_ppd
 
 from nfh_utils import *
-
-# TEST: this line should only be visible to accounts with explicit access to this private repo
 
 class LearnError(Exception):
     def __init__(self, message):
@@ -302,8 +302,8 @@ class Learner():
         results_dir = os.path.join(base_dir, f'results-{timestamp}')
         os.makedirs(results_dir, exist_ok=True)
         return results_dir
-    
 
+    
     def get_actual_parameter_values(id, aperture_inf_avg__cm2, heat_tr_dstr_avg__W_K_1, th_mass_dstr_avg__Wh_K_1):
         """
         Calculate actual thermal parameter values based on the given 'id' and return them in a dictionary.
@@ -450,7 +450,7 @@ class Learner():
             req_props (Set[str]): Required properties for learning.
             predict_props (Set[str]): Properties to predict.
             duration_threshold (timedelta): Minimum duration for jobs.
-            learn_period__d (int): Maximum duration for jobs (in days)
+            learn_period__d (int): Maximum duration of data for jobs (in days)
             max_periods (int): Maximum periods for learning jobs.
             **kwargs: Additional arguments passed to the system_model_fn.
 
@@ -478,22 +478,25 @@ class Learner():
         )
 
         # Initialize result lists
-        all_predicted_job_properties = []
-        all_learned_job_parameters = []
+        predicted_job_properties = []
+        aggregated_learned_job_parameters = []
 
         num_jobs = df_analysis_jobs.shape[0]
         num_workers = min(num_jobs, os.cpu_count())
 
         max_iter = kwargs.get('max_iter')
-        mode = kwargs.get('mode')
+        max_iter_desc = f"with at most {max_iter} iterations " if max_iter is not None else "without iteration limit "
         
+        mode = kwargs.get('mode')
+        mode_desc = f"using mode {mode.value} " if mode is not None else ""
+
         with ProcessPoolExecutor(max_workers=num_workers) as executor:
             futures = []
             learned_jobs = {}
 
             for id, start, end, duration in tqdm(
                 df_analysis_jobs.index,
-                desc=f"Submitting {system_model_fn.__name__} jobs {f'using mode {mode.value} ' if mode is not None else ''}{f'with at most {max_iter} iterations ' if max_iter is not None else ''}to {num_workers} processes",
+                desc=f"Submitting {system_model_fn.__name__} jobs {mode_desc}{max_iter_desc}to {num_workers} processes",
             ):
                 # Create df_learn for the current job
                 df_learn = df_learn_all.loc[
@@ -547,10 +550,10 @@ class Learner():
                     finally:
                         pbar.update(1)
 
-        if all_predicted_job_properties:
+        if aggregated_predicted_job_properties:
             # Combine results into a cumulative DataFrame for predicted properties
             df_predicted_properties = (
-                pd.concat(all_predicted_job_properties, axis=0)
+                pd.concat(aggregated_predicted_job_properties, axis=0)
                 .drop_duplicates()
                 .sort_index()
             )
@@ -558,13 +561,15 @@ class Learner():
             df_data = df_data.drop(columns=df_data.columns.intersection(df_predicted_properties.columns))
             df_data = df_data.merge(df_predicted_properties, left_index=True, right_index=True, how="left")
         
-        if all_learned_job_parameters:
+        if aggregated_learned_job_parameters:
             # Combine results into a cumulative DataFrame for learned parameters
             df_learned_parameters = (
-                pd.concat(all_learned_job_parameters, axis=0)
+                pd.concat(aggregated_learned_job_parameters, axis=0)
                 .drop_duplicates()
                 .sort_index()
             )
+        else:
+            df_learned_parameters = pd.DataFrame()
 
         return df_learned_parameters, df_data
         
@@ -1547,8 +1552,8 @@ class Learner():
             )
 
         # Initialize lists to store learned properties and parameters
-        all_predicted_job_properties = []
-        all_learned_job_parameters = []
+        aggregated_predicted_job_properties = []
+        aggregated_learned_job_parameters = []
 
         num_jobs = df_analysis_jobs.shape[0]  # Get the number of jobs
         num_workers = min(num_jobs, os.cpu_count())  # Use the lesser of number of jobs or 16 (or any other upper limit)
@@ -1600,8 +1605,8 @@ class Learner():
                 for future in as_completed(futures):
                     try:
                         df_learned_parameters, df_predicted_properties = future.result()
-                        all_predicted_job_properties.append(df_predicted_properties)
-                        all_learned_job_parameters.append(df_learned_parameters)
+                        aggregated_predicted_job_properties.append(df_predicted_properties)
+                        aggregated_learned_job_parameters.append(df_learned_parameters)
                     except Exception as e:
                         # Handle only the specific "Solution Not Found" error
                         if "Solution Not Found" in str(e):
@@ -1618,13 +1623,13 @@ class Learner():
                         pbar.update(1)  # Ensure progress bar updates even if there's an exception
 
         # Now merge all learned job properties and parameters into cumulative DataFrames
-        if all_predicted_job_properties:
-            df_predicted_properties = pd.concat(all_predicted_job_properties, axis=0).drop_duplicates()
+        if aggregated_predicted_job_properties:
+            df_predicted_properties = pd.concat(aggregated_predicted_job_properties, axis=0).drop_duplicates()
         else: 
             df_predicted_properties = pd.DataFrame()
 
-        if all_learned_job_parameters:
-            df_learned_parameters = pd.concat(all_learned_job_parameters, axis=0).drop_duplicates()
+        if aggregated_learned_job_parameters:
+            df_learned_parameters = pd.concat(aggregated_learned_job_parameters, axis=0).drop_duplicates()
         else:
             df_learned_parameters = pd.DataFrame()
             
