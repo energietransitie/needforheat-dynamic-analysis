@@ -883,9 +883,9 @@ class Learner():
             heat_tr_dstr__W_K_1 =  m.Param(value=bldng_data['learned_heat_tr_dstr__W_K_1'])
             th_mass_dstr__Wh_K_1 =  m.Param(value=bldng_data['learned_th_mass_dstr__Wh_K_1'])
 
-            temp_flow__degC = m.MV(value=df_learn[property_sources['temp_flow__degC']].astype('float32').values)
-            temp_flow__degC.STATUS = 0  # No optimization
-            temp_flow__degC.FSTATUS = 1 # Use the measured values
+            temp_flow_ch__degC = m.MV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values)
+            temp_flow_ch__degC.STATUS = 0  # No optimization
+            temp_flow_ch__degC.FSTATUS = 1 # Use the measured values
 
             temp_ret_ch__degC = m.Var(value=df_learn[property_sources['temp_ret_ch__degC']].iloc[0])   # Use initial value
     
