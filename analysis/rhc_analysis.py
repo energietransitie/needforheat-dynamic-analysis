@@ -377,7 +377,7 @@ class Learner():
             **kwargs: Additional arguments passed to the system_model_fn.
 
         Returns:
-            Tuple[pd.DataFrame, pd.DataFrame]: Learned parameters and updated data.
+            Tuple[pd.DataFrame, pd.DataFrame]: Learned parameters and predicted properties.
         """
         # Determine required columns
         req_cols = (
@@ -479,9 +479,8 @@ class Learner():
                 .drop_duplicates()
                 .sort_index()
             )
-            # Merge predicted properties back into the main DataFrame
-            df_data = df_data.drop(columns=df_data.columns.intersection(df_predicted_properties.columns))
-            df_data = df_data.merge(df_predicted_properties, left_index=True, right_index=True, how="left")
+        else:
+            df_predicted_properties = pd.DataFrame()
         
         if aggregated_learned_job_parameters:
             # Combine results into a cumulative DataFrame for learned parameters
@@ -493,7 +492,7 @@ class Learner():
         else:
             df_learned_parameters = pd.DataFrame()
 
-        return df_learned_parameters, df_data
+        return df_learned_parameters, df_predicted_properties
         
 
     def learn_ventilation(
@@ -877,31 +876,31 @@ class Learner():
         temp_indoor__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
         temp_indoor__degC.FSTATUS = 1 # Use the measured values
 
-        # Heat distribution system
-        # #TO DO: determine whether which flow temperatures we use for what-if simulations
-        # temp_flow__degC = m.MV(value=df_learn[property_sources['temp_flow__degC']].astype('float32').values)
-        # temp_flow__degC.STATUS = 0  # No optimization
-        # temp_flow__degC.FSTATUS = 1 # Use the measured values
+            
+        # If possible, use the learned heat transfer capacity of the heat distribution system, otherwise use a generic value
+        if pd.notna(bldng_data['learned_heat_tr_dstr__W_K_1']) & pd.notna(bldng_data['learned_th_mass_dstr__Wh_K_1']):
+            # Heat distribution system parameters were learned; use them:
+            heat_tr_dstr__W_K_1 =  m.Param(value=bldng_data['learned_heat_tr_dstr__W_K_1'])
+            th_mass_dstr__Wh_K_1 =  m.Param(value=bldng_data['learned_th_mass_dstr__Wh_K_1'])
 
-        # #TO DO: calculate return temperatures for what-if simulations
-        # temp_ret__degC = m.MV(value=df_learn[property_sources['temp_ret__degC']].astype('float32').values)
-        # temp_ret__degC.STATUS = 0  # No optimization
-        # temp_ret__degC.FSTATUS = 1 # Use the measured values
-        
-        # assume immediate and full heat distribution
-        heat_dstr__W = heat_ch__W
+            temp_flow__degC = m.MV(value=df_learn[property_sources['temp_flow__degC']].astype('float32').values)
+            temp_flow__degC.STATUS = 0  # No optimization
+            temp_flow__degC.FSTATUS = 1 # Use the measured values
 
-        # # If possible, use the learned heat transfer capacity of the heat distribution system, otherwise use a generic value
-        # if pd.notna(bldng_data['learned_heat_tr_dstr__W_K_1']) & pd.notna(bldng_data['learned_th_mass_dstr__Wh_K_1']):
-        #     # Heat distribution characteristics were learned; use them:
-        #     heat_tr_dstr__W_K_1 =  m.Param(value=bldng_data['learned_heat_tr_dstr__W_K_1'])
-        #     th_mass_dstr__Wh_K_1 =  m.Param(value=bldng_data['learned_th_mass_dstr__Wh_K_1'])
-        #     #TO DO: calculate return temperatures for what-if simulations
-        #     temp_dstr__degC = m.Intermediate((temp_flow__degC + temp_ret__degC) / 2)
-        #     heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
-        # else:
-        #     # If the heat distribution system parameters were not learned, assume immediate and full heat distribution 
-        #     heat_dstr__W = heat_ch__W
+            temp_ret_ch__degC = m.Var(value=df_learn[property_sources['temp_ret_ch__degC']].iloc[0])   # Use initial value
+    
+            temp_dstr__degC = m.Var(value=(df_learn[property_sources['temp_flow_ch__degC']].iloc[0] 
+                                           + df_learn[property_sources['temp_ret_ch__degC']].iloc[0]) / 2)  # Use initial value
+
+            # Dynamic model of the heat distribution system
+            m.Equation(temp_dstr__degC == (temp_flow_ch__degC + temp_ret_ch__degC) / 2)
+            heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
+            th_mass_dstr__J_K_1 = m.Intermediate(th_mass_dstr__Wh_K_1 * s_h_1)
+            m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / th_mass_dstr__J_K_1)
+
+        else:
+            # Heat distribution system parameters were not learned, assume simplistic model: immediate and full heat distribution 
+            heat_dstr__W = heat_ch__W
     
         ##################################################################################################################
         # Solar heat gains
