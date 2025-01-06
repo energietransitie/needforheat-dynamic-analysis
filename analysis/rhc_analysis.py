@@ -495,7 +495,9 @@ class Learner():
         return df_learned_parameters, df_predicted_properties
         
 
-    def learn_ventilation(
+class Model():
+    
+    def ventilation(
         df_learn: pd.DataFrame,
         bldng_data: Dict = None,
         property_sources: Dict = None,
@@ -637,7 +639,7 @@ class Learner():
         return df_learned_parameters, df_predicted_properties
 
     
-    def learn_heat_distribution(
+    def heat_distribution(
         df_learn,
         bldng_data: Dict = None,
         property_sources: Dict = None,
@@ -801,7 +803,7 @@ class Learner():
         
         
         
-    def learn_thermal_parameters(
+    def building(
         df_learn: pd.DataFrame,
         bldng_data: Dict = None,
         property_sources: Dict = None,
@@ -872,10 +874,14 @@ class Learner():
         
         heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W)
     
-        temp_indoor__degC = m.CV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
-        temp_indoor__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
-        temp_indoor__degC.FSTATUS = 1 # Use the measured values
-
+        if learn_params is None:
+            # Simulation mode: use learned parameters passed via bldng_data
+            temp_indoor__degC = m.Param(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
+        else:
+            # Learning mode: optimize indoor temperature
+            temp_indoor__degC = m.CV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
+            temp_indoor__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+            temp_indoor__degC.FSTATUS = 1  # Use the measured values
             
         # If possible, use the learned heat transfer capacity of the heat distribution system, otherwise use a generic value
         if pd.notna(bldng_data['learned_heat_tr_dstr__W_K_1']) & pd.notna(bldng_data['learned_th_mass_dstr__Wh_K_1']):
@@ -906,12 +912,17 @@ class Learner():
         # Solar heat gains
         ##################################################################################################################
     
-        if 'aperture_sol__m2' in learn_params:
-            aperture_sol__m2 = m.FV(value=param_hints['aperture_sol__m2'], lb=1, ub=100)
-            aperture_sol__m2.STATUS = 1  # Allow optimization
-            aperture_sol__m2.FSTATUS = 1 # Use the initial value as a hint for the solver
+        if learn_params is None:
+            # Simulation mode: use the value from bldng_data
+            aperture_sol__m2 = m.Param(value=bldng_data['learned_aperture_sol__m2'])
         else:
-            aperture_sol__m2 = m.Param(value=param_hints['aperture_sol__m2'])
+            # Learning mode: decide based on presence in learn_params
+            if 'aperture_sol__m2' in learn_params:
+                aperture_sol__m2 = m.FV(value=param_hints['aperture_sol__m2'], lb=1, ub=100)
+                aperture_sol__m2.STATUS = 1  # Allow optimization
+                aperture_sol__m2.FSTATUS = 1 # Use the initial value as a hint for the solver
+            else:
+                aperture_sol__m2 = m.Param(value=param_hints['aperture_sol__m2'])
     
         sol_ghi__W_m_2 = m.MV(value=df_learn[property_sources['sol_ghi__W_m_2']].astype('float32').values)
         sol_ghi__W_m_2.STATUS = 0  # No optimization
@@ -952,12 +963,17 @@ class Learner():
         # Conductive heat losses
         ##################################################################################################################
     
-        if 'heat_tr_bldng_cond__W_K_1' in learn_params:
-            heat_tr_bldng_cond__W_K_1 = m.FV(value=param_hints['heat_tr_bldng_cond__W_K_1'], lb=0, ub=1000)
-            heat_tr_bldng_cond__W_K_1.STATUS = 1  # Allow optimization
-            heat_tr_bldng_cond__W_K_1.FSTATUS = 1 # Use the initial value as a hint for the solver
+        if learn_params is None:
+            # Simulation mode: use the value from bldng_data
+            heat_tr_bldng_cond__W_K_1 = m.Param(value=bldng_data['learned_heat_tr_bldng_cond__W_K_1'])
         else:
-            heat_tr_bldng_cond__W_K_1 = param_hints['heat_tr_bldng_cond__W_K_1']
+            # Learning mode: decide based on presence in learn_params
+            if 'heat_tr_bldng_cond__W_K_1' in learn_params:
+                heat_tr_bldng_cond__W_K_1 = m.FV(value=param_hints['heat_tr_bldng_cond__W_K_1'], lb=0, ub=1000)
+                heat_tr_bldng_cond__W_K_1.STATUS = 1  # Allow optimization
+                heat_tr_bldng_cond__W_K_1.FSTATUS = 1 # Use the initial value as a hint for the solver
+            else:
+                heat_tr_bldng_cond__W_K_1 = param_hints['heat_tr_bldng_cond__W_K_1']
     
         temp_outdoor__degC = m.MV(value=df_learn[property_sources['temp_outdoor__degC']].astype('float32').values)
         temp_outdoor__degC.STATUS = 0  # No optimization
@@ -975,12 +991,17 @@ class Learner():
         wind__m_s_1.STATUS = 0  # No optimization
         wind__m_s_1.FSTATUS = 1 # Use the measured values
     
-        if 'aperture_inf__cm2' in learn_params:
-            aperture_inf__cm2 = m.FV(value=param_hints['aperture_inf__cm2'], lb=0, ub=100000.0)
-            aperture_inf__cm2.STATUS = 1  # Allow optimization
-            aperture_inf__cm2.FSTATUS = 1 # Use the initial value as a hint for the solver
+        if learn_params is None:
+            # Simulation mode: use the value from bldng_data
+            aperture_inf__cm2 = m.Param(value=bldng_data['learned_aperture_inf__cm2'])
         else:
-            aperture_inf__cm2 = m.Param(value=param_hints['aperture_inf__cm2'])
+            # Learning mode: decide based on presence in learn_params
+            if 'aperture_inf__cm2' in learn_params:
+                aperture_inf__cm2 = m.FV(value=param_hints['aperture_inf__cm2'], lb=0, ub=100000.0)
+                aperture_inf__cm2.STATUS = 1  # Allow optimization
+                aperture_inf__cm2.FSTATUS = 1 # Use the initial value as a hint for the solver
+            else:
+                aperture_inf__cm2 = m.Param(value=param_hints['aperture_inf__cm2'])
     
         air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2)
         heat_tr_bldng_inf__W_K_1 = m.Intermediate(air_inf__m3_s_1 * air_room__J_m_3_K_1)
@@ -1002,16 +1023,21 @@ class Learner():
         ## Thermal inertia ##
         ##################################################################################################################
                     
-        # Thermal inertia (a.k.a. thermal time constant) of the building
-        if 'th_inert_bldng__h' in learn_params:
-            # Learn thermal inertia
-            th_inert_bldng__h = m.FV(value = param_hints['th_inert_bldng__h'], lb=(10), ub=(1000))
-            th_inert_bldng__h.STATUS = 1  # Allow optimization
-            th_inert_bldng__h.FSTATUS = 1 # Use the initial value as a hint for the solver
+        if learn_params is None:
+            # Simulation mode: use the value from bldng_data
+            th_inert_bldng__h = m.Param(value=bldng_data['learned_th_inert_bldng__h'])
         else:
-            # Do not learn thermal inertia of the building, but use a fixed value based on hint
-            th_inert_bldng__h = m.Param(value = param_hints['th_inert_bldng__h'])
-            learned_th_inert_bldng__h = np.nan
+            # Learning mode: decide based on presence in learn_params
+            if 'th_inert_bldng__h' in learn_params:
+                # Learn thermal inertia
+                th_inert_bldng__h = m.FV(value = param_hints['th_inert_bldng__h'], lb=(10), ub=(1000))
+                th_inert_bldng__h.STATUS = 1  # Allow optimization
+                th_inert_bldng__h.FSTATUS = 1 # Use the initial value as a hint for the solver
+            else:
+                # Do not learn thermal inertia of the building, but use a fixed value based on hint
+                th_inert_bldng__h = m.Param(value = param_hints['th_inert_bldng__h'])
+                # TO DO: check whether we indeed can remove the line below
+                # learned_th_inert_bldng__h = np.nan
         
         ##################################################################################################################
         ### Heat balance ###
@@ -1027,7 +1053,10 @@ class Learner():
         # Solve the model to start the learning process
         ##################################################################################################################
         
-        m.options.IMODE = 5        # Simultaneous Estimation 
+        if learn_params is None:
+            m.options.IMODE = 4    # Do not learn, but only simulate using learned parameters passed via bldng_data
+        else:
+            m.options.IMODE = 5    # Learn one or more parameter values using Simultaneous Estimation 
         m.options.EV_TYPE = 2      # RMSE
         m.solve(disp=False)
     
@@ -1035,22 +1064,23 @@ class Learner():
         # Store results of the learning process
         ##################################################################################################################
 
-        # Initialize a DataFrame for learned thermal parameters (one row with id, start, end)
-        df_learned_parameters = pd.DataFrame({
-            'id': id, 
-            'start': start,
-            'end': end,
-            'duration': timedelta(seconds=duration__s),
-        }, index=[0])
-    
-        # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
-        current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-        for param in [param for param in (learn_params or []) if param in current_locals and param != 'ventilation__dm3_s_1']:
-            learned_value = current_locals[param].value[0]
-            df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
-            # If actual value exists, compute MAE
-            if actual_params is not None and param in actual_params:
-                df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
+        if learn_params is not None:
+            # Initialize DataFrame for learned thermal parameters (only for learning mode)
+            df_learned_parameters = pd.DataFrame({
+                'id': id, 
+                'start': start,
+                'end': end,
+                'duration': timedelta(seconds=duration__s),
+            }, index=[0])
+        
+            # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
+            current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
+            for param in [param for param in (learn_params or []) if param in current_locals and param != 'ventilation__dm3_s_1']:
+                learned_value = current_locals[param].value[0]
+                df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
+                # If actual value exists, compute MAE
+                if actual_params is not None and param in actual_params:
+                    df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
     
         # Initialize a DataFrame for learned time-varying properties
         df_predicted_properties = pd.DataFrame(index=df_learn.index)
@@ -1130,11 +1160,11 @@ class Learner():
 
     # Define the modes as an enumeration
     class ControlMode(Enum):
-        LEARN_ALGORITHMIC = "alg"
-        LEARN_PID = "pid"   
+        ALGORITHMIC = "alg"
+        PID = "pid"   
         
 
-    def learn_boiler_control(
+    def boiler(
             df_learn,
             bldng_data: Dict = None,
             property_sources: Dict = None,
@@ -1146,7 +1176,7 @@ class Learner():
                                      },
             actual_params: Dict = None,
             predict_props: Set[str] = {'fan_speed__pct', 'flow_dstr_pump_speed__pct'},
-            mode: ControlMode = ControlMode.LEARN_ALGORITHMIC,
+            mode: ControlMode = ControlMode.ALGORITHMIC,
             max_iter=10,
         ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
@@ -1215,7 +1245,7 @@ class Learner():
         ##################################################################################################################
 
         match mode:
-            case Learner.ControlMode.LEARN_ALGORITHMIC:
+            case Model.ControlMode.ALGORITHMIC:
 
                 # TO DO: consider accepting param_hints for parameters that don't need do be learned
                 
@@ -1406,7 +1436,7 @@ class Learner():
 
 
         
-            case Learner.ControlMode.LEARN_PID:
+            case Model.ControlMode.PID:
                 ##################################################################################################################
                 # PID control 
                 ##################################################################################################################
@@ -1505,7 +1535,7 @@ class Learner():
                 )
                 
         match mode:
-            case Learner.ControlMode.LEARN_ALGORITHMIC:
+            case Model.ControlMode.ALGORITHMIC:
                 if learn_params: 
                     for param in learn_params & current_locals.keys():
                         learned_value = current_locals[param].value[0]
@@ -1513,7 +1543,7 @@ class Learner():
                         # If actual value exists, compute MAE
                         if actual_params is not None and param in actual_params:
                             df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
-            case Learner.ControlMode.LEARN_PID:
+            case Model.ControlMode.PID:
                 for component, params in pid_parameters.items():
                     for param_name, value in params.items():
                         df_learned_parameters.loc[0, f'learned_{component}_K{param_name}'] = value[0]
@@ -1530,7 +1560,7 @@ class Learner():
         return df_learned_parameters, df_predicted_properties
         
 
-    def learn_thermostat_control(
+    def thermostat(
             df_learn,
             bldng_data: Dict = None,
             property_sources: Dict = None,
@@ -1538,7 +1568,7 @@ class Learner():
             learn_params: Set[str] = {'thermostat_hysteresis__K'},
             actual_params: Dict = None,
             predict_props: Set[str] = {'temp_flow_ch_set__degC'},
-            mode: ControlMode = ControlMode.LEARN_ALGORITHMIC,
+            mode: ControlMode = ControlMode.ALGORITHMIC,
             max_iter=10,
             ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
@@ -1589,7 +1619,7 @@ class Learner():
         ##################################################################################################################
 
         match mode:
-            case Learner.ControlMode.LEARN_ALGORITHMIC:
+            case Model.ControlMode.ALGORITHMIC:
 
                 ##################################################################################################################
                 # Algorithmic control; this implements a simple ON/OFF thermostat with hysteresis
@@ -1617,7 +1647,7 @@ class Learner():
                     )
                 )
 
-            case Learner.ControlMode.LEARN_PID:
+            case Model.ControlMode.PID:
                 ##################################################################################################################
                 # PID control 
                 ##################################################################################################################
@@ -1697,7 +1727,7 @@ class Learner():
 
         if learn_params: 
             match mode:
-                case Learner.ControlMode.LEARN_ALGORITHMIC:
+                case Model.ControlMode.ALGORITHMIC:
                     for param in learn_params & current_locals.keys():
                         learned_value = current_locals[param].value[0]
                         df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
@@ -1705,7 +1735,7 @@ class Learner():
                         if actual_params is not None and param in actual_params:
                             df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
     
-                case Learner.ControlMode.LEARN_PID:
+                case Model.ControlMode.PID:
                     for component, params in pid_parameters.items():
                         for param_name, value in params.items():
                             df_learned_parameters.loc[0, f'learned_{component}_K{param_name}'] = value[0]
