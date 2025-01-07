@@ -607,10 +607,10 @@ class Model():
         if learn_params: 
             for param in learn_params & current_locals.keys():
                 learned_value = current_locals[param].value[0]
-                df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
+                df_learned_parameters.loc[0, f'learned_vent_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
-                    df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
+                    df_learned_parameters.loc[0, f'mae_vent_{param}'] = abs(learned_value - actual_params[param])
 
         # Initialize a DataFrame for learned time-varying properties
         df_predicted_properties = pd.DataFrame(index=df_learn.index)
@@ -729,9 +729,14 @@ class Model():
         ##################################################################################################################
         # Fit on return temperature
         ##################################################################################################################
-        temp_ret_ch__degC = m.CV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
-        temp_ret_ch__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
-        temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
+        if learn_params is None:
+            # Simulation mode: Use initial measured value as the starting point
+            temp_ret_ch__degC = m.Var(value=df_learn[property_sources['temp_ret_ch__degC']].iloc[0])
+        else:
+            temp_ret_ch__degC = m.CV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
+            temp_ret_ch__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
+            temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
+
         temp_dstr__degC = m.Var(value=(df_learn[property_sources['temp_flow_ch__degC']].iloc[0] 
                                        + df_learn[property_sources['temp_ret_ch__degC']].iloc[0]) / 2)  # Initial guesss
 
@@ -748,7 +753,10 @@ class Model():
         ##################################################################################################################
         # Solve the model to start the learning process
         ##################################################################################################################
-        m.options.IMODE = 5        # Simultaneous Estimation 
+        if learn_params is None:
+            m.options.IMODE = 4    # Do not learn, but only simulate using learned parameters passed via bldng_data
+        else:
+            m.options.IMODE = 5    # Learn one or more parameter values using Simultaneous Estimation 
         m.options.EV_TYPE = 2      # RMSE
         m.solve(disp=False)
 
@@ -875,8 +883,8 @@ class Model():
         heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W)
     
         if learn_params is None:
-            # Simulation mode: use learned parameters passed via bldng_data
-            temp_indoor__degC = m.Param(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
+            # Simulation mode: Use initial measured value as the starting point
+            temp_indoor__degC = m.Var(value=df_learn[property_sources['temp_indoor__degC']].iloc[0])
         else:
             # Learning mode: optimize indoor temperature
             temp_indoor__degC = m.CV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
@@ -885,7 +893,8 @@ class Model():
             
         # If possible, use the learned heat transfer capacity of the heat distribution system, otherwise use a generic value
         if pd.notna(bldng_data['learned_heat_tr_dstr__W_K_1']) & pd.notna(bldng_data['learned_th_mass_dstr__Wh_K_1']):
-            # Heat distribution system parameters were learned; use them:
+            
+            # Heat distribution system parameters were learned; use them (TO DO: remove this repeated model building code):
             heat_tr_dstr__W_K_1 =  m.Param(value=bldng_data['learned_heat_tr_dstr__W_K_1'])
             th_mass_dstr__Wh_K_1 =  m.Param(value=bldng_data['learned_th_mass_dstr__Wh_K_1'])
 
@@ -1007,7 +1016,7 @@ class Model():
         heat_tr_bldng_inf__W_K_1 = m.Intermediate(air_inf__m3_s_1 * air_room__J_m_3_K_1)
         heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * indoor_outdoor_delta__K)
     
-        if property_sources['ventilation__dm3_s_1'] in df_learn.columns and df_learn[property_sources['ventilation__dm3_s_1']].notna().all():
+        if learn_params is None or (property_sources['ventilation__dm3_s_1'] in df_learn.columns and df_learn[property_sources['ventilation__dm3_s_1']].notna().all()):
             ventilation__dm3_s_1 = m.MV(value=df_learn[property_sources['ventilation__dm3_s_1']].astype('float32').values)
             ventilation__dm3_s_1.STATUS = 0  # No optimization
             ventilation__dm3_s_1.FSTATUS = 1  # Use the measured values
@@ -1101,18 +1110,15 @@ class Model():
                     df_predicted_properties[predicted_prop]  # Predicted values
                 )
             
-        for prop in properties_mean & set(df_learn.columns):
-            # Create variable names dynamically
-            # Determine the result column name based on whether the property ends with '__bool'
-            if prop.endswith('__bool'):
-                result_col = f"avg_{prop[:-6]}__0"  # Remove '__bool' and add '__0'
-            else:
-                result_col = f"avg_{prop}"
-    
-            # Use prop directly if it starts with 'calculated_'
-            source_col = prop if prop.startswith('calculated_') else property_sources[prop]
-            mean_value = df_learn[source_col].mean()
-            df_learned_parameters.loc[0, result_col] = mean_value
+        for prop in properties_mean:
+            if property_sources[prop] in set(df_learn.columns):
+                # Determine the result column name based on whether the property ends with '__bool'
+                if prop.endswith('__bool'):
+                    result_col = f"avg_{prop[:-6]}__0"  # Remove '__bool' and add '__0'
+                else:
+                    result_col = f"avg_{prop}"
+        
+                df_learned_parameters.loc[0, result_col] = df_learn[property_sources[prop]].mean()
 
         sim_arrays_mean = [
             'g_use_ch_hhv__W',
@@ -1496,7 +1502,10 @@ class Model():
         ##################################################################################################################
         # Solve the model to start the learning process
         ##################################################################################################################
-        m.options.IMODE = 5        # Simultaneous Estimation 
+        if learn_params is None:
+            m.options.IMODE = 4    # Do not learn, but only simulate using learned parameters passed via bldng_data
+        else:
+            m.options.IMODE = 5    # Learn one or more parameter values using Simultaneous Estimation 
         m.options.EV_TYPE = 2      # RMSE
         if max_iter is not None:   # retrict if needed to avoid waiting an eternity for unsolvable learning scenarios
             m.options.MAX_ITER = max_iter
@@ -1686,7 +1695,10 @@ class Model():
         ##################################################################################################################
         # Solve the model to start the learning process
         ##################################################################################################################
-        m.options.IMODE = 5        # Simultaneous Estimation 
+        if learn_params is None:
+            m.options.IMODE = 4    # Do not learn, but only simulate using learned parameters passed via bldng_data
+        else:
+            m.options.IMODE = 5    # Learn one or more parameter values using Simultaneous Estimation 
         m.options.EV_TYPE = 2      # RMSE
         if max_iter is not None:   # retrict if needed to avoid waiting an eternity for unsolvable learning scenarios
             m.options.MAX_ITER = max_iter
