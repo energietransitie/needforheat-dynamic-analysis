@@ -1115,10 +1115,12 @@ class Model():
                 # Determine the result column name based on whether the property ends with '__bool'
                 if prop.endswith('__bool'):
                     result_col = f"avg_{prop[:-6]}__0"  # Remove '__bool' and add '__0'
+                    temp_column = df_learn[property_sources[prop]].fillna(False)  # Handle NA as False
                 else:
                     result_col = f"avg_{prop}"
+                    temp_column = df_learn[property_sources[prop]]  # Use column directly
         
-                df_learned_parameters.loc[0, result_col] = df_learn[property_sources[prop]].mean()
+                df_learned_parameters.loc[0, result_col] = temp_column.mean()
 
         sim_arrays_mean = [
             'g_use_ch_hhv__W',
