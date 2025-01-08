@@ -351,6 +351,7 @@ class Learner():
         learn_params: Dict = None,
         actual_params: Set[str] = None,
         req_props: Set[str] = None,
+        helper_props: Set[str] = None,
         predict_props: Set[str] = None,
         duration_threshold: timedelta = None,
         learn_period__d: int = None,
@@ -370,6 +371,7 @@ class Learner():
             learn_params (Dict): Learning-specific parameters.
             actual_params (Set[str]): Set of actual parameters to consider.
             req_props (Set[str]): Required properties for learning.
+            helper_props (Set[str]): Properties not required all the time, but should be passes on to the model.
             predict_props (Set[str]): Properties to predict.
             duration_threshold (timedelta): Minimum duration for jobs.
             learn_period__d (int): Maximum duration of data for jobs (in days)
@@ -380,14 +382,18 @@ class Learner():
             Tuple[pd.DataFrame, pd.DataFrame]: Learned parameters and predicted properties.
         """
         # Determine required columns
-        req_cols = (
-            set(property_sources.values())
-            if req_props is None
-            else {property_sources[prop] for prop in req_props & property_sources.keys()}
-        )
+        if req_props is None:
+            req_cols = set(property_sources.values())
+        else:
+            req_cols = {property_sources[prop] for prop in req_props & property_sources.keys()}
 
-        # Focus only on the required columns
-        df_learn_all = df_data[list(req_cols)]
+        if helper_props is None:
+            helper_cols = set()
+        else:
+            helper_cols = {property_sources[prop] for prop in helper_props & property_sources.keys()}
+
+        # Focus on the required columns + columns for which an average needs to be calculated
+        df_learn_all = df_data[list(req_cols | helper_cols)]
 
         # Identify analysis jobs using the provided function
         df_analysis_jobs = job_identification_fn(
@@ -891,30 +897,42 @@ class Model():
             temp_indoor__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
             temp_indoor__degC.FSTATUS = 1  # Use the measured values
             
-        # If possible, use the learned heat transfer capacity of the heat distribution system, otherwise use a generic value
-        if pd.notna(bldng_data['learned_heat_tr_dstr__W_K_1']) & pd.notna(bldng_data['learned_th_mass_dstr__Wh_K_1']):
-            
-            # Heat distribution system parameters were learned; use them (TO DO: remove this repeated model building code):
+        ##################################################################################################################
+        # Heat gains from heat distribution system
+        ##################################################################################################################
+        # TO DO: merge code with heat distribution model, making the code usable both in training and testing
+        
+        # If possible, use the learned heat transfer capacity of the heat distribution system
+        if (pd.notna(bldng_data['learned_heat_tr_dstr__W_K_1']) and
+            pd.notna(bldng_data['learned_th_mass_dstr__Wh_K_1'])
+        ):
+            # Use learned parameters
             heat_tr_dstr__W_K_1 =  m.Param(value=bldng_data['learned_heat_tr_dstr__W_K_1'])
             th_mass_dstr__Wh_K_1 =  m.Param(value=bldng_data['learned_th_mass_dstr__Wh_K_1'])
-
-            temp_flow_ch__degC = m.MV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values)
-            temp_flow_ch__degC.STATUS = 0  # No optimization
-            temp_flow_ch__degC.FSTATUS = 1 # Use the measured values
-
-            temp_ret_ch__degC = m.Var(value=df_learn[property_sources['temp_ret_ch__degC']].iloc[0])   # Use initial value
     
-            temp_dstr__degC = m.Var(value=(df_learn[property_sources['temp_flow_ch__degC']].iloc[0] 
-                                           + df_learn[property_sources['temp_ret_ch__degC']].iloc[0]) / 2)  # Use initial value
+            # Estimate initial temperature for the distribution system
+            if (pd.notna(df_learn[property_sources['temp_flow_ch__degC']].iloc[0]) and 
+                pd.notna(df_learn[property_sources['temp_ret_ch__degC']].iloc[0])
+            ):
+                # Estimate based on initial supply and return temperature
+                initial_temp_dstr__degC = (
+                    df_learn[property_sources['temp_flow_ch__degC']].iloc[0]
+                    + df_learn[property_sources['temp_ret_ch__degC']].iloc[0]
+                ) / 2
+            else:
+                # We're not starting in the middle of a heat generation streak, so we estimate based on indoor temperature
+                initial_temp_dstr__degC = df_learn[property_sources['temp_indoor__degC']].iloc[0] 
+                
+            # Define variables for the dynamic model
+            temp_dstr__degC = m.Var(value=initial_temp_dstr__degC)
 
-            # Dynamic model of the heat distribution system
-            m.Equation(temp_dstr__degC == (temp_flow_ch__degC + temp_ret_ch__degC) / 2)
+            # Define equations for the dynamic model
             heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
             th_mass_dstr__J_K_1 = m.Intermediate(th_mass_dstr__Wh_K_1 * s_h_1)
             m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / th_mass_dstr__J_K_1)
 
         else:
-            # Heat distribution system parameters were not learned, assume simplistic model: immediate and full heat distribution 
+            # Simplistic model for heat distribution: immediate and full heat distribution
             heat_dstr__W = heat_ch__W
     
         ##################################################################################################################
