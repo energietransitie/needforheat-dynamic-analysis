@@ -153,43 +153,151 @@ class Plot:
                 print(f'No data for id: {id}')
     
     @staticmethod
-    def dataframe_preprocessed_plot(df_prep: pd.DataFrame, units_to_mathtext = None): 
+    def dataframe_preprocessed_plot(df_prep: pd.DataFrame, units_to_mathtext=None):
         """
-        Plot data in df DataFrame, one plot per id, one subplot for all properties with the same unit
+        Plot data in df DataFrame, one plot per id, one subplot for all properties with the same unit.
         
         - df_prep: DataFrame with preprocessed properties containing the data:
             - index = ['id', 'timestamp']
                 - id: id of e.g. home / utility building / room 
                 - timestamp: timezone-aware timestamp
             - columns = all source_properties in the input column
-                - unit types are encoded as last part of property name, searated by '__'
-        - units_to_mathtext: table tat translates property unit postfixes to mathtext.
+                - unit types are encoded as last part of property name, separated by '__'
+        - units_to_mathtext: table that translates property unit postfixes to mathtext.
         """      
-        
         for id in list(df_prep.index.to_frame(index=False).id.unique()):
             try:
-                df_plot = df_prep.loc[id]
-                props_with_data = [prop for prop in list(df_plot.columns) if df_plot[prop].count()>0] 
+                # Create a lightweight view of the data for the current ID
+                df_plot = df_prep.loc[id].copy()  # Ensure no modifications to the original
+                
+                # Identify properties with non-empty data and filter unsupported types
+                props_with_data = [
+                    prop for prop in df_plot.columns
+                    if df_plot[prop].notna().any() and 
+                       (pd.api.types.is_numeric_dtype(df_plot[prop]) or 
+                        pd.api.types.is_bool_dtype(df_plot[prop]))
+                ]
+    
+                # Temporarily transform boolean columns for plotting
+                plot_data = {}
+                for prop in props_with_data:
+                    if pd.api.types.is_bool_dtype(df_plot[prop]):
+                        plot_data[prop] = df_plot[prop].map({True: 1, False: 0, pd.NA: pd.NA})
+                    else:
+                        plot_data[prop] = df_plot[prop]
+    
+                # Create a DataFrame for plotting from the transformed data
+                plot_df = pd.DataFrame(plot_data, index=df_plot.index)
+    
+                # Group properties by unit
                 units_with_data = np.unique(np.array([prop.split('__')[-1] for prop in props_with_data]))
-                unit_tuples = [tuple([prop.split('__')[0] for prop in props_with_data if prop.split('__')[-1] == unit]) for unit in units_with_data]
-                props_with_data = [prop.split('__')[0] for prop in props_with_data]
-                labels = [col.split('__')[0] for col in df_plot.columns]
-                df_plot.columns = labels
-                axes = df_plot[props_with_data].plot(
-                    subplots = unit_tuples,
+                unit_tuples = [
+                    tuple([prop.split('__')[0] for prop in props_with_data if prop.split('__')[-1] == unit])
+                    for unit in units_with_data
+                ]
+    
+                # Simplify column names for plotting
+                plot_df.columns = [prop.split('__')[0] for prop in props_with_data]
+    
+                # Plot the data
+                axes = plot_df.plot(
+                    subplots=unit_tuples,
                     style='.--',
                     alpha=0.5,  # Set alpha for transparency
-                    title=f'id: {id}'
+                    title=f'id: {id}',
+                    grid=True  # Enable gridlines (both horizontal and vertical)
                 )
-                for unit in enumerate(units_with_data):
-                    if units_to_mathtext is not None:
-                        axes[unit[0]].set_ylabel(units_to_mathtext[unit[1]])
-                    else:
-                        axes[unit[0]].set_ylabel(unit[1])
+    
+                # Set y-axis labels
+                for unit_index, unit in enumerate(units_with_data):
+                    ylabel = units_to_mathtext.get(unit, unit) if units_to_mathtext else unit
+                    axes[unit_index].set_ylabel(ylabel)
+    
                 plt.show()
             except TypeError:
                 print(f'No data for id: {id}')
 
+    
+    @staticmethod
+    def dataframe_preprocessed_plot2(df_prep: pd.DataFrame, units_to_mathtext=None):
+        """
+        Plot data in df DataFrame, one plot per id, one subplot for all properties with the same unit.
+    
+        - df_prep: DataFrame with preprocessed properties containing the data:
+            - index = ['id', 'timestamp']
+                - id: id of e.g. home / utility building / room
+                - timestamp: timezone-aware timestamp
+            - columns = all source_properties in the input column
+                - unit types are encoded as the last part of the property name, separated by '__'
+        - units_to_mathtext: table that translates property unit postfixes to mathtext.
+        """
+        for id in list(df_prep.index.to_frame(index=False).id.unique()):
+            try:
+                # Create a lightweight view of the data for the current ID
+                df_plot = df_prep.loc[id].copy()  # Ensure no modifications to the original
+                
+                # Identify properties with non-empty data and filter unsupported types
+                props_with_data = [
+                    prop for prop in df_plot.columns
+                    if df_plot[prop].notna().any() and 
+                       (pd.api.types.is_numeric_dtype(df_plot[prop]) or 
+                        (prop.split('__')[-1] == 'bool'))
+                ]
+                
+                # Temporarily transform boolean columns for plotting
+                plot_data = {}
+                for prop in props_with_data:
+                    if (prop.split('__')[-1] == 'bool'):
+                        plot_data[prop] = df_plot[prop].astype('Int8')
+                    else:
+                        plot_data[prop] = df_plot[prop]
+                
+                # Create a DataFrame for plotting from the transformed data
+                plot_df = pd.DataFrame(plot_data, index=df_plot.index)
+                
+                # Group properties by unit
+                units_with_data = np.unique([prop.split('__')[-1] for prop in props_with_data])
+                unit_to_columns = {
+                    unit: [col for col in props_with_data if col.endswith(f"__{unit}")]
+                    for unit in units_with_data
+                }
+                
+                # Number of subplots based on unique units
+                n_units = len(units_with_data)
+    
+                # Create the figure and subplots (single-column layout)
+                fig, axes = plt.subplots(
+                    n_units, 1,  # n rows, 1 column
+                    figsize=(12, n_units * 3),
+                    sharex=True  # Share x-axis across all subplots
+                )
+                
+                # Handle cases where there's only one subplot (axes is not an array)
+                if n_units == 1:
+                    axes = [axes]
+    
+                # Plot each group of columns in its respective subplot
+                for idx, (unit, columns) in enumerate(unit_to_columns.items()):
+                    ax = axes[idx]
+                    plot_df[columns].plot(
+                        ax=ax,
+                        style='.--',
+                        alpha=0.5,
+                        legend=True,
+                        title=f'id: {id} | Unit: {unit}',
+                    )
+                    ylabel = units_to_mathtext.get(unit, unit) if units_to_mathtext else unit
+                    ax.set_ylabel(ylabel)
+                    ax.grid(True)
+    
+                # Adjust layout
+                plt.tight_layout()
+                plt.show()
+    
+            except TypeError:
+                print(f'No data for id: {id}')
+    
+    
     @staticmethod
     def plot_data_availability(df_prep, properties_include=None, 
                                properties_exclude=None, 

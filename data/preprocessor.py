@@ -232,6 +232,50 @@ class Preprocessor:
     
     @staticmethod
     @track_metadata
+    def filter_electricity_meter_values_fast(df: pd.DataFrame, min_valid_cum__kWh: float = 10.0) -> pd.DataFrame:
+        """
+        Optimized version of the function to preprocess electricity meter values.
+        """
+        use_meter_cols = ['e_use_hi_cum__kWh', 'e_use_lo_cum__kWh']
+        ret_meter_cols = ['e_ret_hi_cum__kWh', 'e_ret_lo_cum__kWh']
+        all_meter_cols = use_meter_cols + ret_meter_cols
+    
+        # Precompute masks for dsmr_version
+        mask_version = df['dsmr_version__0'] < 3.0
+    
+        # Combine mask: use_meter_cols where version < 3.0 or values < threshold
+        mask_use_values = (df[use_meter_cols] < min_valid_cum__kWh).any(axis=1)
+        mask_use = mask_version | mask_use_values
+        df.loc[mask_use, use_meter_cols] = np.nan
+    
+        # Groupby operation to find ids with no significant return meter values
+        max_ret_values = df.groupby('id')[ret_meter_cols].max()
+        ids_with_no_real_ret = max_ret_values[(max_ret_values < min_valid_cum__kWh).all(axis=1)].index
+    
+        # Precompute masks for ids with/without solar panels
+        ids = df.index.get_level_values('id')
+        mask_with_solar = ~ids.isin(ids_with_no_real_ret)
+        mask_without_solar = ids.isin(ids_with_no_real_ret)
+    
+        # Precompute reusable masks for use_meter_cols
+        mask_valid_use = df[use_meter_cols] >= min_valid_cum__kWh
+        mask_zero_or_valid = (df[ret_meter_cols] >= min_valid_cum__kWh) | (df[ret_meter_cols] == 0)
+    
+        # Apply filtering for use_meter_cols (with and without solar panels)
+        df.loc[mask_with_solar, use_meter_cols] = df.loc[mask_with_solar, use_meter_cols].where(mask_valid_use)
+        df.loc[mask_without_solar, use_meter_cols] = df.loc[mask_without_solar, use_meter_cols].where(mask_valid_use)
+    
+        # Set dsmr_version__0 to NaN where version < 3.0
+        df.loc[mask_version, 'dsmr_version__0'] = np.nan
+    
+        # Apply filtering for ret_meter_cols (with and without solar panels)
+        df.loc[mask_with_solar, ret_meter_cols] = df.loc[mask_with_solar, ret_meter_cols].where(mask_valid_use)
+        df.loc[mask_without_solar, ret_meter_cols] = df.loc[mask_without_solar, ret_meter_cols].where(mask_zero_or_valid)
+    
+        return df
+
+    @staticmethod
+    @track_metadata
     def filter_id_prop_with_std_zero(df: pd.DataFrame, col: str, inplace=True) -> pd.DataFrame:
         """
         Replace measurement values with NaN for an `id` in the `col` column
@@ -267,72 +311,163 @@ class Preprocessor:
 
     
     @staticmethod
-    def filter_streak_start_of_flow_return_temps(df: pd.DataFrame,
-                                                 flow_and_return_cols,
-                                                 remove_first__min=3,
-                                                 inplace=True) -> pd.DataFrame:
+    def add_filtered_flow_ret_ch_temperatures(df_prop: pd.DataFrame) -> pd.DataFrame:
         """
-        Filters flow and return temperature columns by excluding the first `remove_first__min`
-        minutes of valid streaks in the data.
+        Create a valid temperature mask to selectively copy flow and return temperatures while filtering out DHW interference.
+        
+        This function identifies periods where the boiler is burning for DHW and propagates the mask forward until 
+        the boiler resumes burning for CH (central heating). The procedure ensures that DHW masking does not carry 
+        over across 'id' boundaries.
     
         Parameters:
-        - df: pd.DataFrame
-            Input dataframe with a MultiIndex containing 'id' and 'timestamp'.
-        - flow_and_return_cols: list
-            List of flow and return temperature property names.
-        - remove_first__min: int, default=3
-            Number of initial valid rows to exclude per streak.
-        - inplace: bool, default=True
-            If True, modifies the input dataframe directly. If False, returns a copy.
+        -----------
+        df_prop : pd.DataFrame
+            A pandas DataFrame with a multi-index: ['id', 'source_category', 'source_type', 'timestamp'].
+            The DataFrame must contain at least the following columns:
+            - 'boiler_status_burning_ch__bool' (nullable bool): CH burning status.
+            - 'boiler_status_burning_dhw__bool' (nullable bool): DHW burning status.
+            - 'boiler_status_pump_post_run__bool' (nullable bool): Post-pump-run status.
+            - 'flow_dstr_pump_speed__pct' (float): Pump speed percentage.
+            - 'temp_flow__degC' (float): Flow temperature.
+            - 'temp_ret__degC' (float): Return temperature.
     
         Returns:
-        - pd.DataFrame
-            The dataframe with filtered flow and return temperature columns.
+        --------
+        pd.DataFrame
+            A modified DataFrame with two new columns:
+            - 'temp_flow_ch__degC': Flow temperature selectively copied based on the valid mask.
+            - 'temp_ret_ch__degC': Return temperature selectively copied based on the valid mask.
         """
+        # Initialize the new columns as Float32 dtype
+        df_prop['temp_flow_ch__degC'] = pd.Series(np.nan, index=df_prop.index, dtype="Float32")
+        df_prop['temp_ret_ch__degC'] = pd.Series(np.nan, index=df_prop.index, dtype="Float32")
+        
+        # Group by 'id' to ensure masking does not cross boundaries
+        grouped = df_prop.groupby(level='id')
+        
+        # Iterate through each group (unique 'id') and create a valid mask
+        for id_group, group in tqdm(grouped, desc="Processing IDs"):
+            # Step 1: Identify DHW production periods
+            dhw_status_mask = group['boiler_status_burning_dhw__bool']
+            high_pump_mask = (group['flow_dstr_pump_speed__pct'] == 100) & ~group['boiler_status_burning_ch__bool']
+            temp_spike_mask = (group['temp_flow__degC'].diff() > 5) | (group['temp_ret__degC'].diff() > 5)
+            
+            dhw_start_mask = (dhw_status_mask.fillna(False) | high_pump_mask.fillna(False) | temp_spike_mask.fillna(False))
+            
+            # Step 2: Propagate DHW mask forward until CH burning resumes
+            ch_status_mask = group['boiler_status_burning_ch__bool'].fillna(False)
+            
+            mask_active = False
+            valid_mask = []
+    
+            # Create toggle events: +1 for CH activation, -1 for DHW interference
+            # When ch_status_mask is True, it activates the mask (1); 
+            # when dhw_start_mask is True, it deactivates the mask (-1).
+            toggle_events = ch_status_mask.astype(int) - dhw_start_mask.astype(int)
+            
+            # Propagate the latest toggle event forward:
+            # - Replace 0 (no toggle event) with NaN so it doesn't interfere with forward-filling.
+            # - Use forward-fill to carry the most recent activation/deactivation state down the rows.
+            # - Fill any remaining NaN (e.g., at the start of the series) with 0, meaning "inactive."
+            # - A mask is valid (True) if the most recent event was activation (+1, propagated).
+            valid_mask = toggle_events.replace(0, np.nan).ffill().fillna(0) > 0
 
+            # for i in group.index:
+            #     # Activate the mask if CH burning starts
+            #     # if not pd.isna(ch_status_mask.at[i]) and ch_status_mask.at[i]:
+            #     if ch_status_mask.at[i]:
+            #         mask_active = True
+            #     # Deactivate the mask if DHW interference is detected
+            #     # if not pd.isna(dhw_start_mask.at[i]) and dhw_start_mask.at[i]:
+            #     if dhw_start_mask.at[i]:
+            #         mask_active = False
+            #     # Append the current mask status (True = valid, False = invalid)
+            #     valid_mask.append(mask_active)
+                        
+            # Convert valid_mask to a boolean Series
+            valid_mask = pd.Series(valid_mask, index=group.index)
+            
+            # Step 3: Selectively copy flow and return temperatures
+            df_prop.loc[group.index, 'temp_flow_ch__degC'] = group['temp_flow__degC'].where(valid_mask)
+            df_prop.loc[group.index, 'temp_ret_ch__degC'] = group['temp_ret__degC'].where(valid_mask)
+        
+        return df_prop
+    
+    
+    @staticmethod
+    def add_clipped_flow_return_temps(df: pd.DataFrame,
+                                      source_flow_and_return_cols,
+                                      target_flow_and_return_cols,
+                                      min_streak_length__min=5,
+                                      remove_first__min=2,
+                                      remove_last__min=2,
+                                      inplace=True
+                                     ) -> pd.DataFrame:
+        """
+        Filters flow and return temperature columns by excluding the first and last rows of valid streaks.
+        """
         if not len(df):
             return df
-
-        missing_cols = [col for col in flow_and_return_cols if col not in df.columns]
+    
+        # Ensure source and target column lists are of the same length
+        if len(source_flow_and_return_cols) != len(target_flow_and_return_cols):
+            raise ValueError("Source and target columns must have the same length.")
+    
+        missing_cols = [col for col in source_flow_and_return_cols if col not in df.columns]
         if missing_cols:
             raise ValueError(f"Missing columns: {', '.join(missing_cols)}")
-        
-        # If no columns are missing, proceed with the rest of the function
-        df_result = df
-        if not inplace:
-            df_result = df.copy(deep=True)
     
-   
-        # Step 1: Determine the initial mask
-        initial_mask = df_result[flow_and_return_cols].notna().all(axis=1)
+        # Work on a copy of the DataFrame if not inplace
+        df_result = df if inplace else df.copy(deep=True)
     
-        # Step 2: Ensure streaks are calculated per `id`
+        # Step 1: Copy the source columns to the target columns
+        for src_col, tgt_col in zip(source_flow_and_return_cols, target_flow_and_return_cols):
+            df_result[tgt_col] = df_result[src_col]
+    
+        # Step 2: Create initial mask for valid data
+        initial_mask = df_result[target_flow_and_return_cols].notna().all(axis=1)
+    
+        # Step 3: Assign streak identifiers, ensuring they're reset per `id`
         id_array = df_result.index.get_level_values('id').to_numpy()
         streak_ids = (~initial_mask).cumsum() + (id_array != np.roll(id_array, 1)).cumsum()
     
-        # Step 3: Exclude the first `remove_first__min` rows of each streak
+        # Step 4: Construct streak dataframe
         streak_df = pd.DataFrame({
             'streak_ids': streak_ids,
             'mask': initial_mask
-        }, index=df_result.index).reset_index()
+        }, index=df_result.index)
     
-        # Keep only rows where `initial_mask` is True
+        # Preserve the original index and reset to get it as columns
+        streak_df = streak_df.reset_index(names=['id', 'timestamp'])
+    
+        # Filter for valid rows only
         streak_df = streak_df[streak_df['mask']]
     
-        # Rank rows within each streak (and id)
+        # Step 5: Calculate rank and streak length
         streak_df['rank'] = streak_df.groupby(['id', 'streak_ids']).cumcount()
+        streak_df['streak_length'] = streak_df.groupby(['id', 'streak_ids'])['rank'].transform('max') + 1
     
-        # Identify rows to exclude (rank < remove_first__min)
-        exclude_streak_rows = streak_df['rank'] < remove_first__min
+        # Step 6: Exclude first and last rows of streaks
+        exclude_first_rows = streak_df['rank'] < remove_first__min
+        exclude_last_rows = streak_df['rank'] >= (streak_df['streak_length'] - remove_last__min)
     
-        # Build the final valid_indices mask
-        valid_indices = ~exclude_streak_rows.reindex(index=np.arange(len(df_result)), fill_value=False).to_numpy()
+        # Step 7: Exclude short streaks
+        exclude_short_streaks = streak_df['streak_length'] < min_streak_length__min
     
-        # Combine masks
-        learn_heat_dstr_mask = initial_mask & valid_indices
+        # Combine exclusions
+        streak_df['exclude'] = exclude_first_rows | exclude_last_rows | exclude_short_streaks
     
-        # Apply mask to filter flow and return columns
-        df_result.loc[~learn_heat_dstr_mask, flow_and_return_cols] = float('nan')
+        # Debug: Check exclusions
+        print("Rows excluded due to thresholds:", streak_df['exclude'].sum())
+        print("Total rows considered:", len(streak_df))
+    
+        # Create final valid indices
+        valid_indices = streak_df.loc[~streak_df['exclude'], ['id', 'timestamp']]
+        valid_indices = pd.MultiIndex.from_frame(valid_indices)
+    
+        # Step 8: Apply mask to filter flow and return columns
+        for tgt_col in target_flow_and_return_cols:
+            df_result.loc[~df_result.index.isin(valid_indices), tgt_col] = float('nan')
     
         return df_result
 
@@ -1061,7 +1196,67 @@ class Preprocessor:
                     df_result[col] = df_result[col].astype(original_dtype)
 
         return df_result
- 
+
+    
+    @staticmethod
+    def interpolate_with_gap_limit(df_prep, source_cols, target_cols, gap_max_duration__min):
+        """
+        Interpolate specified columns in a DataFrame with a maximum gap duration restriction.
+        All specified columns must have non-NaN values within a gap group for interpolation to be performed.
+    
+        Args:
+            df_prep (pd.DataFrame): Input DataFrame with a MultiIndex ('id', 'timestamp').
+            source_cols (list of str): List of source column names to interpolate.
+            target_cols (list of str): List of target column names where interpolated values will be stored.
+             gap_max_duration__min (int): Maximum gap duration in minutes for interpolation.
+
+        Returns:
+            pd.DataFrame: DataFrame with interpolated columns prefixed by 'interpolated_'.
+        """
+        # Step 1: Ensure source and target columns are aligned
+        if len(source_cols) != len(target_cols):
+            raise ValueError("Source and target column lists must have the same length.")
+        
+        # Step 2: Ensure the DataFrame is sorted by the MultiIndex levels ('id', 'timestamp')
+        df_prep = df_prep.sort_index(level=['id', 'timestamp'])
+        
+        # Step 3: Identify gaps where any column in `source_cols` is NaN
+        nan_mask = df_prep[source_cols].isna().any(axis=1)
+        
+        # Step 4: Group by 'id' and create a gap group identifier
+        df_prep['gap_group'] = (~nan_mask).cumsum()
+        
+        # Step 5: Add 'gap_group' to the MultiIndex & calculate gap sizes
+        df_prep = df_prep.set_index('gap_group', append=True)
+        gap_sizes = (
+            df_prep.loc[nan_mask]
+            .groupby(['id', 'gap_group'])
+            .size()  # Count rows (each row = 1 minute)
+        )
+        
+        # Step 6: Identify large gap groups
+        large_gap_groups = gap_sizes[gap_sizes > gap_max_duration__min]
+        
+        # Step 7: Interpolate columns and store in target columns
+        for src_col, tgt_col in zip(source_cols, target_cols):
+            df_prep[tgt_col] = (
+                df_prep[src_col]
+                .groupby(level='id')
+                .apply(lambda group: group.reset_index(level='id', drop=True)
+                                        .interpolate(method='linear', limit=gap_max_duration__min))
+            )
+        
+        # Step 8: Set interpolated values to NaN for rows belonging to large gaps
+        affected_rows = df_prep.index.droplevel('timestamp').isin(large_gap_groups.index)
+        for tgt_col in target_cols:
+            df_prep.loc[affected_rows, tgt_col] = np.nan
+        
+        # Step 9: Clean up the 'gap_group' index
+        df_prep.index = df_prep.index.droplevel('gap_group')
+        
+        return df_prep
+
+    
     @staticmethod
     def safe_to_timedelta(freq_str):
         try:
