@@ -817,53 +817,30 @@ class Model():
         
         
         
-    def building(
+    def add_building_model(
+        m: GEKKO,
         df_learn: pd.DataFrame,
         bldng_data: Dict = None,
         property_sources: Dict = None,
         param_hints: Dict = None,
         learn_params: Set[str] = None,
-        actual_params: Dict = None,
-        predict_props: Set[str] = None,
-    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    ) -> GEKKO:
         """
-        Learn thermal parameters for a building's heating system using GEKKO.
+        Adds the building submodel to the given GEKKO model.
         
         Parameters:
-        df_learn (pd.DataFrame): DataFrame containing the time series data to be used for learning.
-        property_sources (dict): Dictionary mapping property names to their corresponding columns in df_learn.
-        param_hints (dict): Dictionary containing default values for the various parameters.
-        learn_params (dict): Dictionary of parameters to be learned.
-        actual_params (dict, optional): Dictionary of actual values of the parameters to be learned.
-        bldng_data: dictionary containing at least:
-        - bldng__m3 (float): Volume of the building in m3.
-        """
+        - m (GEKKO): The GEKKO model instance to add variables and equations to.
+        - df_learn (pd.DataFrame): Dataframe with time series data.
+        - bldng_data (dict): Building-specific data (e.g., volume, learned parameters).
+        - property_sources (dict): Mapping of property names to DataFrame columns.
+        - param_hints (dict): Default parameter values.
+        - learn_params (set): Parameters to learn (optional).
         
-        # Periodic averages to calculate, which include Energy Case metrics (as far as available in the df_learn columns)
-        properties_mean = {
-            'temp_set__degC',
-            'temp_flow__degC',
-            'temp_ret__degC',
-            'comfortable__bool',
-            'temp_indoor__degC',
-            'temp_outdoor__degC',
-            'temp_flow_ch_max__degC',
-            'heat_ch__W',
-        }
-            
-        id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
-
+        Returns:
+        - GEKKO: The updated GEKKO model with added submodel.
+        """        
         bldng__m3 = bldng_data['bldng__m3']
         
-        logging.info(f"learn_thermal_parameters for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
-
-        ##################################################################################################################
-        # GEKKO Model - Initialize
-        ##################################################################################################################
-
-        m = GEKKO(remote=False)
-        m.time = np.arange(0, duration__s, step__s)
-
         ##################################################################################################################
         # Heat gains
         ##################################################################################################################
@@ -1075,6 +1052,62 @@ class Model():
         heat_tr_bldng__W_K_1 = m.Intermediate(heat_tr_bldng_cond__W_K_1 + heat_tr_bldng_inf__W_K_1 + heat_tr_bldng_vent__W_K_1)
         th_mass_bldng__Wh_K_1  = m.Intermediate(heat_tr_bldng__W_K_1 * th_inert_bldng__h) 
         m.Equation(temp_indoor__degC.dt() == ((heat_gain_bldng__W - heat_loss_bldng__W)  / (th_mass_bldng__Wh_K_1 * s_h_1)))
+
+        return m
+
+    def building(
+        df_learn: pd.DataFrame,
+        bldng_data: Dict = None,
+        property_sources: Dict = None,
+        param_hints: Dict = None,
+        learn_params: Set[str] = None,
+        actual_params: Dict = None,
+        predict_props: Set[str] = None,
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """
+        Learn thermal parameters for a building's heating system using GEKKO.
+        
+        Parameters:
+        df_learn (pd.DataFrame): DataFrame containing the time series data to be used for learning.
+        property_sources (dict): Dictionary mapping property names to their corresponding columns in df_learn.
+        param_hints (dict): Dictionary containing default values for the various parameters.
+        learn_params (dict): Dictionary of parameters to be learned.
+        actual_params (dict, optional): Dictionary of actual values of the parameters to be learned.
+        bldng_data: dictionary containing at least:
+        - bldng__m3 (float): Volume of the building in m3.
+        """
+        
+        # Periodic averages to calculate, which include Energy Case metrics (as far as available in the df_learn columns)
+        properties_mean = {
+            'temp_set__degC',
+            'temp_flow__degC',
+            'temp_ret__degC',
+            'comfortable__bool',
+            'temp_indoor__degC',
+            'temp_outdoor__degC',
+            'temp_flow_ch_max__degC',
+            'heat_ch__W',
+        }
+            
+        id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
+
+        logging.info(f"learn_thermal_parameters for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
+
+        ##################################################################################################################
+        # GEKKO Model - Initialize
+        ##################################################################################################################
+
+        m = GEKKO(remote=False)
+        m.time = np.arange(0, duration__s, step__s)
+
+        m = add_building_model(
+            m, 
+            df_learn,
+            bldng_data,
+            property_sources,
+            param_hints,
+            learn_params
+        )
 
         ##################################################################################################################
         # Solve the model to start the learning process
@@ -1783,7 +1816,7 @@ class Model():
         return df_learned_parameters, df_predicted_properties
 
 
-class Comfort():
+    class Comfort():
 
     
     # Function to find the comfort zone
@@ -1932,3 +1965,5 @@ class Comfort():
             return result.where(~temp_indoor__degC.isna(), pd.NA)  # Handle NaNs
         
         return pd.Series(pd.NA, index=temp_indoor__degC.index)  # Return <NA> Series if comfort cannot be determined
+
+class Test():
