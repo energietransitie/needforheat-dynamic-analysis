@@ -508,10 +508,10 @@ class Model():
         bldng_data: Dict = None,
         property_sources: Dict = None,
         param_hints: Dict = None,
-        learn_params: Set[str] = {'aperture_inf__cm2'},
+        learn_params: Set[str] = None,
         actual_params: Dict = None,
         predict_props: Set[str] = {'ventilation__dm3_s_1'},
-        learn_change_interval: timedelta = timedelta(minutes=30)
+        learn_change_interval: pd.Timedelta = pd.Timedelta(minutes=30)
      ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
 
@@ -611,7 +611,7 @@ class Model():
         # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
         current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
         if learn_params: 
-            for param in learn_params & current_locals.keys():
+            for param in (learn_params - (predict_props or set())) & current_locals.keys():
                 learned_value = current_locals[param].value[0]
                 df_learned_parameters.loc[0, f'learned_vent_{param}'] = learned_value
                 # If actual value exists, compute MAE
