@@ -6,6 +6,7 @@ import numpy as np
 import math
 from gekko import GEKKO
 from tqdm.notebook import tqdm
+import json
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from multiprocessing import Queue, Process
@@ -516,6 +517,7 @@ class Model():
 
 
         id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
+        duration = timedelta(seconds=duration__s)
         
         bldng__m3 = bldng_data['bldng__m3']
         floors__m2 = bldng_data['floors__m2']
@@ -596,6 +598,7 @@ class Model():
         # Solve the model to start the learning process
         ##################################################################################################################
         m.options.IMODE = 5        # Simultaneous Estimation 
+        m.options.SOLVER = 3       # based on Brains4Building using IPOPT is recommended for ventilation learning
         m.options.EV_TYPE = 2      # RMSE
         m.solve(disp=False)
 
@@ -603,73 +606,84 @@ class Model():
         # Store results of the learning process
         ##################################################################################################################
 
-        
         if m.options.APPSTATUS == 1:
+            
+            print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
+
             # Load results
             try:
                 results = m.load_results()
                 # DEBUG Save results to the local directory
-                filename = 'gekko_results_ventilation.json'
+                filename = 'gekko_results_vent.json'
                 with open(filename, 'w') as f:
                     json.dump(results, f, indent=4)
-                print(f"Loaded results saved to {filename}")
             except AttributeError:
                 print("load_results() not available.")
-
-            # Initialize a DataFrame, even for a single learned parameter (one row with id, start, end), for consistency
-            df_learned_parameters = pd.DataFrame({
-                'id': id, 
-                'start': start,
-                'end': end,
-                'duration': timedelta(seconds=duration__s),
-            }, index=[0])
-            print(f"Solution was found for id {id} from {start} to {end}")
+            
+            if any(item is not None for item in [learn_params, predict_props]):
+                # Initialize DataFrame for learned thermal parameters (only for learning mode)
+                df_learned_parameters = pd.DataFrame({
+                    'id': id, 
+                    'start': start,
+                    'end': end,
+                    'duration': duration,
+                }, index=[0])
+            
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
-                try:
-                    # Attempt to retrieve the learned value
-                    learned_value = float(m.Var(param).value[0])
-                except (AttributeError, IndexError, ValueError) as e:
-                    # Assign pandas-compatible NaN if the value cannot be retrieved
-                    print(f"Warning: Unable to retrieve value for {param}. Assigning NaN. Error: {e}")
-                    learned_value = np.nan
-            
+                learned_value = results.get(param, [np.nan])[0]
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
-                print(f"m.Var('{param}').value[0]={m.Var(param).value[0]}")
-                print(f"aperture_inf__cm2.value[0]={aperture_inf__cm2.value[0]}")
-    
-    
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
-                    df_learned_parameters.loc[0, f'mae_{param}'] = (
-                        abs(learned_value - actual_params[param]) if not pd.isna(learned_value) else np.nan
-                    )                
+                    df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
     
-            # Initialize a DataFrame for learned time-varying properties
-            df_predicted_properties = pd.DataFrame(index=df_learn.index)
-    
-            # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-            for prop in (predict_props or set()):
-                predicted_prop = f'predicted_{prop}'
-                df_predicted_properties.loc[:,predicted_prop] = np.asarray(m.Var(prop).value)
-                
-                # If the property was measured, calculate and store MAE and RMSE
-                if prop in property_sources.keys() and property_sources[prop] in df_learn.columns:
-                    df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
-                        df_learn[property_sources[prop]],  # Measured values
-                        df_predicted_properties[predicted_prop]  # Predicted values
-                    )
-                    df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
-                        df_learn[property_sources[prop]],  # Measured values
-                        df_predicted_properties[predicted_prop]  # Predicted values
-                    )
+            if predict_props is not None:
+                # Initialize a DataFrame for learned time-varying properties
+                df_predicted_properties = pd.DataFrame(index=df_learn.index)
             
-            # Set MultiIndex on the DataFrame (id, start, end)
-            df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
+                # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+                for prop in (predict_props or set()):
+                    predicted_prop = f'predicted_{prop}'
+                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
+                    
+                    # If the property was measured, calculate and store MAE and RMSE
+                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
+                        df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                        df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                    
+                
+                    # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
+                    for param in (learn_params - (predict_props or set())):
+                        learned_value = results.get(param, [np.nan])[0]
+                        df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
+                        # If actual value exists, compute MAE
+                        if actual_params is not None and param in actual_params:
+                            df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
+        
+                    # If the property was measured, calculate and store MAE and RMSE
+                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
+                        df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                        df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+            
+            if any(item is not None for item in [learn_params, predict_props]):
+                # Set MultiIndex on the DataFrame (id, start, end)
+                df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
 
         else:
             df_learned_parameters = pd.DataFrame()
-            print(f"NO Solution was found for id {id} from {start} to {end}")
+            print(f"NO Solution was found for id {id} from {start} to {end} with duration {duration}")
         
         m.cleanup()
 
@@ -697,6 +711,7 @@ class Model():
 
  
         id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
+        duration = timedelta(seconds=duration__s)
 
         ##################################################################################################################
         # GEKKO Model - Initialize
@@ -806,7 +821,7 @@ class Model():
             'id': id, 
             'start': start,
             'end': end,
-            'duration': timedelta(seconds=duration__s),
+            'duration': duration,
         }, index=[0])
         
         # Loop over the learn_params and store learned values and calculate MAE if actual value is available
@@ -1122,6 +1137,7 @@ class Model():
         }
             
         id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
+        duration = timedelta(seconds=duration__s)
 
         logging.info(f"learn_thermal_parameters for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
 
@@ -1153,6 +1169,8 @@ class Model():
         m.solve(disp=False)
 
         if m.options.APPSTATUS == 1:
+            print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
+            
             ##################################################################################################################
             # Store results of the learning process
             ##################################################################################################################
@@ -1168,13 +1186,13 @@ class Model():
             except AttributeError:
                 print("load_results() not available.")
             
-            if learn_params is not None:
+            if any(item is not None for item in [learn_params, predict_props, properties_mean, sim_arrays_mean]):
                 # Initialize DataFrame for learned thermal parameters (only for learning mode)
                 df_learned_parameters = pd.DataFrame({
                     'id': id, 
                     'start': start,
                     'end': end,
-                    'duration': timedelta(seconds=duration__s),
+                    'duration': duration,
                 }, index=[0])
             
                 # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
@@ -1185,24 +1203,25 @@ class Model():
                     if actual_params is not None and param in actual_params:
                         df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
         
-            # Initialize a DataFrame for learned time-varying properties
-            df_predicted_properties = pd.DataFrame(index=df_learn.index)
-        
-            # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-            for prop in (predict_props or set()):
-                predicted_prop = f'predicted_{prop}'
-                df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
-                
-                # If the property was measured, calculate and store MAE and RMSE
-                if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
-                    df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
-                        df_learn[property_sources[prop]],  # Measured values
-                        df_predicted_properties[predicted_prop]  # Predicted values
-                    )
-                    df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
-                        df_learn[property_sources[prop]],  # Measured values
-                        df_predicted_properties[predicted_prop]  # Predicted values
-                    )
+            if predict_props is not None:
+                # Initialize a DataFrame for learned time-varying properties
+                df_predicted_properties = pd.DataFrame(index=df_learn.index)
+            
+                # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+                for prop in (predict_props or set()):
+                    predicted_prop = f'predicted_{prop}'
+                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
+                    
+                    # If the property was measured, calculate and store MAE and RMSE
+                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
+                        df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                        df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
                 
             for prop in properties_mean:
                 if property_sources[prop] in set(df_learn.columns):
@@ -1251,11 +1270,14 @@ class Model():
                 )
             )
             
-            # Set MultiIndex on the DataFrame (id, start, end)
-            df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)    
+            if any(item is not None for item in [learn_params, predict_props, properties_mean, sim_arrays_mean]):
+                # Set MultiIndex on the DataFrame (id, start, end)
+                df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)    
 
         else:
             df_learned_parameters = pd.DataFrame()
+            print(f"NO Solution was found for id {id} from {start} to {end} with duration {duration}")
+
 
         m.cleanup()
     
@@ -1287,6 +1309,7 @@ class Model():
 
         
         id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
+        duration = timedelta(seconds=duration__s)
 
         ##################################################################################################################
         # Initialize GEKKO model
@@ -1622,7 +1645,7 @@ class Model():
             'id': id, 
             'start': start,
             'end': end,
-            'duration': timedelta(seconds=duration__s),
+            'duration': duration,
         }, index=[0])
         
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
@@ -1681,6 +1704,7 @@ class Model():
             ) -> Tuple[pd.DataFrame, pd.DataFrame]:
 
         id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
+        duration = timedelta(seconds=duration__s)
 
         # TO DO: Check whether we need to use something from bldng_data
 
@@ -1816,7 +1840,7 @@ class Model():
             'id': id, 
             'start': start,
             'end': end,
-            'duration': timedelta(seconds=duration__s),
+            'duration': duration,
         }, index=[0])
         
         # Store learned time-varying data in DataFrame and calculate MAE and RMSE
