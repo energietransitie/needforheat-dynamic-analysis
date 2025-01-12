@@ -797,8 +797,8 @@ class Model():
         # Dynamic model of the heat distribution system
         ##################################################################################################################
         m.Equation(temp_dstr__degC == (temp_flow_ch__degC + temp_ret_ch__degC) / 2)
-        heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
-        th_mass_dstr__J_K_1 = m.Intermediate(th_mass_dstr__Wh_K_1 * s_h_1)
+        heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC), name='heat_dstr__W')
+        th_mass_dstr__J_K_1 = m.Intermediate(th_mass_dstr__Wh_K_1 * s_h_1,  name='th_mass_dstr__J_K_1') 
         m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / th_mass_dstr__J_K_1)
 
 
@@ -842,9 +842,10 @@ class Model():
                 }, index=[0])
             
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
+            print(f"looping over params: {(learn_params - (predict_props or set()))}")
             for param in (learn_params - (predict_props or set())):
                 learned_value = results.get(param.lower(), [np.nan])[0]
-                print(f"results.get{param.lower()}, [np.nan])[0]: {learned_value}")
+                print(f"results.get('{param.lower()}'), [np.nan])[0]: {learned_value}")
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
@@ -855,8 +856,10 @@ class Model():
                 df_predicted_properties = pd.DataFrame(index=df_learn.index)
             
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+                print(f"looping over predict_props: {(predict_props or set())}")
                 for prop in (predict_props or set()):
                     predicted_prop = f'predicted_{prop}'
+                    print(f"predicted_{prop}: results.get('{prop}'.lower(), [np.nan] = {results.get(prop.lower(), [np.nan])}")
                     df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
                     
                     # If the property was measured, calculate and store MAE and RMSE
