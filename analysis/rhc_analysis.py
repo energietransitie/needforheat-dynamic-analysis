@@ -1519,7 +1519,8 @@ class Model():
                                                          ub=100,
                                                          # lb=100/fan_scale * 100, 
                                                          # ub=2000/fan_scale * 100
-                                                        , name='fan_rotations_max_gain__pct_min_1')                                # Initialize with value and bounds
+                                                         name='fan_rotations_max_gain__pct_min_1'
+                                                        )                                # Initialize with value and bounds
                 fan_rotations_max_gain__pct_min_1.STATUS = 1                             # Allow optimization
                 fan_rotations_max_gain__pct_min_1.FSTATUS = 1                            # Use the initial value as a hint for the solver
 
@@ -1529,7 +1530,8 @@ class Model():
                                                                   ub=100,
                                                                   # lb=2,
                                                                   # ub=10
-                                                                 , name='error_threshold_temp_delta_flow_flowset__K')                       # Initialize with value and bounds
+                                                                  name='error_threshold_temp_delta_flow_flowset__K'
+                                                                 )                       # Initialize with value and bounds
                 error_threshold_temp_delta_flow_flowset__K.STATUS = 1                    # Allow optimization
                 error_threshold_temp_delta_flow_flowset__K.FSTATUS = 1                   # Use the initial value as a hint for the solver
                 
@@ -1538,8 +1540,8 @@ class Model():
                     m.min2(
                         error_temp_delta_flow_flowset__K / error_threshold_temp_delta_flow_flowset__K * fan_rotations_max_gain__pct_min_1, 
                         fan_rotations_max_gain__pct_min_1  # max gain
-                    )
-                , name='fan_rotations_gain__pct_min_1')
+                    ),
+                    name='fan_rotations_gain__pct_min_1')
                 m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
                 
                 # Override calculated fan speeds with 0 if in cooldown or when temp_flow_ch_set__degC is set to 0 
@@ -1565,7 +1567,8 @@ class Model():
                                                                 ub=100,
                                                                 # lb=1,
                                                                 # ub=5
-                                                               , name='flow_dstr_pump_speed_max_gain__pct_min_1')                         # Initialize with value and bounds
+                                                                name='flow_dstr_pump_speed_max_gain__pct_min_1'
+                                                               )                         # Initialize with value and bounds
                 flow_dstr_pump_speed_max_gain__pct_min_1.STATUS = 1                      # Allow optimization
                 flow_dstr_pump_speed_max_gain__pct_min_1.FSTATUS = 1                     # Use the initial value as a hint for the solver
                 
@@ -1575,7 +1578,8 @@ class Model():
                                                               ub=100,
                                                               # lb=1,
                                                               # ub=5
-                                                             , name='error_threshold_temp_delta_flow_ret__K')                           # Initialize with value and bounds
+                                                              name='error_threshold_temp_delta_flow_ret__K'
+                                                             )                           # Initialize with value and bounds
                 error_threshold_temp_delta_flow_ret__K.STATUS = 1                        # Allow optimization
                 error_threshold_temp_delta_flow_ret__K.FSTATUS = 1                       # Use the initial value as a hint for the solver
 
@@ -1584,8 +1588,8 @@ class Model():
                     m.min2(
                         error_temp_delta_flow_ret__K / error_threshold_temp_delta_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1,
                         flow_dstr_pump_speed_max_gain__pct_min_1 # max gain
-                    )
-                , name='flow_dstr_pump_speed_gain__pct_min_1')
+                    ),
+                    name='flow_dstr_pump_speed_gain__pct_min_1')
                 m.Equation(flow_dstr_pump_speed__pct.dt() == flow_dstr_pump_speed_gain__pct_min_1)
                 
                 m.Equation(
@@ -1631,8 +1635,8 @@ class Model():
                             param = m.FV(
                                 value=component_hints[term]['initial_guess'],
                                 lb=component_hints[term].get('lower_bound', None),
-                                ub=component_hints[term].get('upper_bound', None)
-                            , name='param')
+                                ub=component_hints[term].get('upper_bound', None),
+                                name='param')
                             param.STATUS = 1  # Allow optimization
                             param.FSTATUS = 1  # Use the initial value as a hint for the solver
                         else:
@@ -1870,8 +1874,8 @@ class Model():
                         pid_parameters[component][term] = m.FV(
                             value=bounds.get('initial_guess', default),
                             lb=bounds.get('lower_bound', None),
-                            ub=bounds.get('upper_bound', None)
-                        , name='pid_parameters')
+                            ub=bounds.get('upper_bound', None),
+                            name='pid_parameters')
                         pid_parameters[component][term].STATUS = 1
                         pid_parameters[component][term].FSTATUS = 1
             
