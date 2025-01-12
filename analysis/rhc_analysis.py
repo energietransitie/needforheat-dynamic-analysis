@@ -722,50 +722,50 @@ class Model():
         ##################################################################################################################
         # Central heating gains
         ##################################################################################################################
-        g_use_ch_hhv__W = m.MV(value=df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values)
+        g_use_ch_hhv__W = m.MV(value=df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values, name='g_use_ch_hhv__W')
         g_use_ch_hhv__W.STATUS = 0  # No optimization
         g_use_ch_hhv__W.FSTATUS = 1 # Use the measured values
 
         e_use_ch__W = 0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
         energy_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W)
     
-        eta_ch_hhv__W0 = m.MV(value=df_learn[property_sources['eta_ch_hhv__W0']].astype('float32').values)
+        eta_ch_hhv__W0 = m.MV(value=df_learn[property_sources['eta_ch_hhv__W0']].astype('float32').values, name='eta_ch_hhv__W0')
         eta_ch_hhv__W0.STATUS = 0  # No optimization
         eta_ch_hhv__W0.FSTATUS = 1 # Use the measured values
     
-        heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0)
+        heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0, name='heat_g_ch__W')
 
         # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
         cop_ch__W0 = 1.0
         heat_e_ch__W = e_use_ch__W * cop_ch__W0
         
-        heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W)
+        heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
     
         ##################################################################################################################
         # Heat distribution system parameters to learn
         ##################################################################################################################
         # Effective heat transfer capacity of the heat distribution system
-        heat_tr_dstr__W_K_1 = m.FV(value=param_hints['heat_tr_dstr__W_K_1'], lb=50, ub=1000)
+        heat_tr_dstr__W_K_1 = m.FV(value=param_hints['heat_tr_dstr__W_K_1'], lb=50, ub=1000, name='heat_tr_dstr__W_K_1')
         heat_tr_dstr__W_K_1.STATUS = 1  # Allow optimization
         heat_tr_dstr__W_K_1.FSTATUS = 1 # Use the initial value as a hint for the solver
 
         # Effective thermal mass of the heat distribution system
-        th_mass_dstr__Wh_K_1 = m.FV(value=param_hints['th_mass_dstr__Wh_K_1'], lb=50, ub=5000)
+        th_mass_dstr__Wh_K_1 = m.FV(value=param_hints['th_mass_dstr__Wh_K_1'], lb=50, ub=5000, name='th_mass_dstr__Wh_K_1')
         th_mass_dstr__Wh_K_1.STATUS = 1  # Allow optimization
         th_mass_dstr__Wh_K_1.FSTATUS = 1 # Use the initial value as a hint for the solver
 
         # Effective thermal inertia (a.k.a. thermal time constant) of the heat distribution system
         if 'th_inert_dstr__h' in learn_params:
-            th_inert_dstr__h = m.Intermediate(th_mass_dstr__Wh_K_1 / heat_tr_dstr__W_K_1)
+            th_inert_dstr__h = m.Intermediate(th_mass_dstr__Wh_K_1 / heat_tr_dstr__W_K_1, name='th_inert_dstr__h')
     
         ##################################################################################################################
         # Flow and indoor temperature  
         ##################################################################################################################
-        temp_flow_ch__degC = m.MV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values)
+        temp_flow_ch__degC = m.MV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values, name='temp_flow_ch__degC')
         temp_flow_ch__degC.STATUS = 0  # No optimization
         temp_flow_ch__degC.FSTATUS = 1 # Use the measured values
 
-        temp_indoor__degC = m.MV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
+        temp_indoor__degC = m.MV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values, name='temp_indoor__degC')
         temp_indoor__degC.STATUS = 0  # No optimization
         temp_indoor__degC.FSTATUS = 1 # Use the measured values
 
@@ -773,24 +773,24 @@ class Model():
         # # Alternative way: fit on distribution temperature
         # ##################################################################################################################
         # temp_dstr__degC = m.CV(value=((df_learn[property_sources['temp_flow_ch__degC']] 
-        #                                + df_learn[property_sources['temp_ret_ch__degC']]) / 2).astype('float32').values)
+        #                                + df_learn[property_sources['temp_ret_ch__degC']]) / 2).astype('float32').values, name='temp_dstr__degC')
         # temp_dstr__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
         # temp_dstr__degC.FSTATUS = 1 # Use the measured values
-        # temp_ret_ch__degC = m.Var(value=df_learn[property_sources['temp_ret_ch__degC']].iloc[0])  # Initial guesss
+        # temp_ret_ch__degC = m.Var(value=df_learn[property_sources['temp_ret_ch__degC']].iloc[0], name='temp_ret_ch__degC')  # Initial guesss
         
         ##################################################################################################################
         # Fit on return temperature
         ##################################################################################################################
         if learn_params is None:
             # Simulation mode: Use initial measured value as the starting point
-            temp_ret_ch__degC = m.Var(value=df_learn[property_sources['temp_ret_ch__degC']].iloc[0])
+            temp_ret_ch__degC = m.Var(value=df_learn[property_sources['temp_ret_ch__degC']].iloc[0], name='temp_ret_ch__degC')
         else:
-            temp_ret_ch__degC = m.CV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
+            temp_ret_ch__degC = m.CV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values, name='temp_ret_ch__degC')
             temp_ret_ch__degC.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
             temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
 
         temp_dstr__degC = m.Var(value=(df_learn[property_sources['temp_flow_ch__degC']].iloc[0] 
-                                       + df_learn[property_sources['temp_ret_ch__degC']].iloc[0]) / 2)  # Initial guesss
+                                       + df_learn[property_sources['temp_ret_ch__degC']].iloc[0]) / 2, name='temp_dstr__degC')  # Initial guesss
 
         ##################################################################################################################
         # Dynamic model of the heat distribution system
@@ -816,53 +816,90 @@ class Model():
         # Store results of the learning process
         ##################################################################################################################
         
-        # Initialize a DataFrame for learned parameters (single row for metadata)
-        df_learned_parameters = pd.DataFrame({
-            'id': id, 
-            'start': start,
-            'end': end,
-            'duration': duration,
-        }, index=[0])
-        
-        # Loop over the learn_params and store learned values and calculate MAE if actual value is available
-        current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-        if learn_params: 
-            for param in learn_params & current_locals.keys():
-                learned_value = current_locals[param].value[0]
+        if m.options.APPSTATUS == 1:
+            
+            print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
+
+            # Load results
+            try:
+                results = m.load_results()
+                # DEBUG Save results to the local directory
+                filename = 'gekko_results_dstr.json'
+                with open(filename, 'w') as f:
+                    json.dump(results, f, indent=4)
+            except AttributeError:
+                print("load_results() not available.")
+            
+            if any(item is not None for item in [learn_params, predict_props]):
+                # Initialize DataFrame for learned thermal parameters (only for learning mode)
+                df_learned_parameters = pd.DataFrame({
+                    'id': id, 
+                    'start': start,
+                    'end': end,
+                    'duration': duration,
+                }, index=[0])
+            
+            # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
+            for param in (learn_params - (predict_props or set())):
+                learned_value = results.get(param, [np.nan])[0]
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
                     df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
-       
-        # Initialize a DataFrame for learned time-varying properties
-        df_predicted_properties = pd.DataFrame(index=df_learn.index)
-        
-        # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-        predicted_props = (predict_props or set()) & set(current_locals.keys())
-        for prop in predicted_props:
-            predicted_prop = f'predicted_{prop}'
-            df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
+    
+            if predict_props is not None:
+                # Initialize a DataFrame for learned time-varying properties
+                df_predicted_properties = pd.DataFrame(index=df_learn.index)
             
-            # If the property was measured, calculate and store MAE and RMSE
-            if prop in property_sources.keys() and property_sources[prop] in df_learn.columns:
-                df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_predicted_properties[predicted_prop]  # Predicted values
-                )
-                df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_predicted_properties[predicted_prop]  # Predicted values
-                )
+                # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+                for prop in (predict_props or set()):
+                    predicted_prop = f'predicted_{prop}'
+                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
+                    
+                    # If the property was measured, calculate and store MAE and RMSE
+                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
+                        df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                        df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                    
+                
+                    # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
+                    for param in (learn_params - (predict_props or set())):
+                        learned_value = results.get(param, [np.nan])[0]
+                        df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
+                        # If actual value exists, compute MAE
+                        if actual_params is not None and param in actual_params:
+                            df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
+        
+                    # If the property was measured, calculate and store MAE and RMSE
+                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
+                        df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                        df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+            
+            if any(item is not None for item in [learn_params, predict_props]):
+                # Set MultiIndex on the DataFrame (id, start, end)
+                df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
 
-        # Set MultiIndex on the DataFrame (id, start, end)
-        df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
-
+        else:
+            df_learned_parameters = pd.DataFrame()
+            print(f"NO Solution was found for id {id} from {start} to {end} with duration {duration}")
+        
         m.cleanup()
 
         return df_learned_parameters, df_predicted_properties
-        
-        
-        
+
+    
     def add_building_model(
         m: GEKKO,
         df_learn: pd.DataFrame,
@@ -870,6 +907,7 @@ class Model():
         property_sources: Dict = None,
         param_hints: Dict = None,
         learn_params: Set[str] = None,
+        
     ) -> GEKKO:
         """
         Adds the building submodel to the given GEKKO model.
@@ -1110,6 +1148,7 @@ class Model():
         learn_params: Set[str] = None,
         actual_params: Dict = None,
         predict_props: Set[str] = None,
+        max_iter=None,
     ) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """
         Learn thermal parameters for a building's heating system using GEKKO.
@@ -1166,6 +1205,9 @@ class Model():
         else:
             m.options.IMODE = 5    # Learn one or more parameter values using Simultaneous Estimation 
         m.options.EV_TYPE = 2      # RMSE
+        if max_iter is not None:   # retrict if needed to avoid waiting an eternity for unsolvable learning scenarios
+            m.options.MAX_ITER = max_iter
+            print(f"Solving restricted to at most {max_iter} iterations")
         m.solve(disp=False)
 
         if m.options.APPSTATUS == 1:
@@ -1321,23 +1363,23 @@ class Model():
         # Flow setpoint
         ##################################################################################################################
 
-        temp_flow_ch_max__degC  = m.MV(value=df_learn[property_sources['temp_flow_ch_max__degC']].astype('float32').values)
+        temp_flow_ch_max__degC  = m.MV(value=df_learn[property_sources['temp_flow_ch_max__degC']].astype('float32').values, name='temp_flow_ch_max__degC')
         temp_flow_ch_max__degC .STATUS = 0  # No optimization
         temp_flow_ch_max__degC .FSTATUS = 1 # Use the measured values
         
         # Initial assumption: fixed setpoint; will be relaxed later
-        temp_flow_ch_set__degC = m.MV(value=df_learn[property_sources['temp_flow_ch_set__degC']].astype('float32').values)
+        temp_flow_ch_set__degC = m.MV(value=df_learn[property_sources['temp_flow_ch_set__degC']].astype('float32').values, name='temp_flow_ch_set__degC')
         temp_flow_ch_set__degC.lower = 0  # Minimum value
         m.Equation(temp_flow_ch_set__degC <= temp_flow_ch_max__degC) # constraint to enforce the maximum limit dynamically
 
         ##################################################################################################################
         # Flow and return temperature
         ##################################################################################################################
-        temp_flow_ch__degC = m.MV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values)
+        temp_flow_ch__degC = m.MV(value=df_learn[property_sources['temp_flow_ch__degC']].astype('float32').values, name='temp_flow_ch__degC')
         temp_flow_ch__degC.STATUS = 0  # No optimization
         temp_flow_ch__degC.FSTATUS = 1 # Use the measured values
         
-        temp_ret_ch__degC = m.MV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values)
+        temp_ret_ch__degC = m.MV(value=df_learn[property_sources['temp_ret_ch__degC']].astype('float32').values, name='temp_ret_ch__degC')
         temp_ret_ch__degC.STATUS = 0  # No optimization
         temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
 
@@ -1346,12 +1388,12 @@ class Model():
         ##################################################################################################################
 
         # calculated fan speed percentage between min (0 %) and max (100 %)
-        fan_speed__pct = m.CV(value=df_learn[property_sources['fan_speed__pct']].astype('float32').values)
+        fan_speed__pct = m.CV(value=df_learn[property_sources['fan_speed__pct']].astype('float32').values, name='fan_speed__pct')
         fan_speed__pct.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
         fan_speed__pct.FSTATUS = 1 # Use the measured values
 						
         # hydronic pump speed in % of maximum pump speed         
-        flow_dstr_pump_speed__pct = m.CV(value=df_learn[property_sources['flow_dstr_pump_speed__pct']].astype('float32').values) 
+        flow_dstr_pump_speed__pct = m.CV(value=df_learn[property_sources['flow_dstr_pump_speed__pct']].astype('float32').values, name='flow_dstr_pump_speed__pct') 
         flow_dstr_pump_speed__pct.STATUS = 1  # Include this variable in the optimization (enabled for fitting)
         flow_dstr_pump_speed__pct.FSTATUS = 1 # Use the measured values
 
@@ -1360,12 +1402,12 @@ class Model():
         ##################################################################################################################
 
         # Error between supply temperature and setpoint fo the supply temperature
-        error_temp_delta_flow_flowset__K = m.Var(value=0.0)  # Initialize with a default value
+        error_temp_delta_flow_flowset__K = m.Var(value=0.0, name='error_temp_delta_flow_flowset__K')  # Initialize with a default value
         m.Equation(error_temp_delta_flow_flowset__K == temp_flow_ch_set__degC - temp_flow_ch__degC)
 
         # Error in 'delta-T' (difference between supply and return temperature)
-        desired_temp_delta_flow_ret__K = m.Param(value=bldng_data['desired_temp_delta_flow_ret__K']) 
-        error_temp_delta_flow_ret__K = m.Var(value=0.0)  # Initialize with a default value
+        desired_temp_delta_flow_ret__K = m.Param(value=bldng_data['desired_temp_delta_flow_ret__K'], name='desired_temp_delta_flow_ret__K') 
+        error_temp_delta_flow_ret__K = m.Var(value=0.0, name='error_temp_delta_flow_ret__K')  # Initialize with a default value
         m.Equation(error_temp_delta_flow_ret__K == desired_temp_delta_flow_ret__K - (temp_flow_ch__degC - temp_ret_ch__degC))
     
         ##################################################################################################################
@@ -1378,9 +1420,9 @@ class Model():
                 # TO DO: consider accepting param_hints for parameters that don't need do be learned
                 
                 # Define variables to hold the rate of fan and pump speed changes
-                # fan_rotations_gain__min_1 = m.Var(value=0)    # Rate of change for fan speed
-                fan_rotations_gain__pct_min_1 = m.Var(value=0)    # Rate of change for fan speed
-                flow_dstr_pump_speed_gain__pct_min_1 = m.Var(value=0)  # Rate of change for pump speed
+                # fan_rotations_gain__min_1 = m.Var(value=0, name='fan_rotations_gain__min_1')    # Rate of change for fan speed
+                fan_rotations_gain__pct_min_1 = m.Var(value=0, name='fan_rotations_gain__pct_min_1')    # Rate of change for fan speed
+                flow_dstr_pump_speed_gain__pct_min_1 = m.Var(value=0, name='flow_dstr_pump_speed_gain__pct_min_1')  # Rate of change for pump speed
 
                 ##################################################################################################################
                 # Algorithmic control 
@@ -1395,12 +1437,12 @@ class Model():
                 ##################################################################################################################
 
                 # Temperature margins for cooldown hysteresis
-                overheat_upper_margin_temp_flow__K = m.Param(value=5)                                        # Default overheating margin in K
-                overheat_hysteresis__K = m.Param(value=bldng_data['overheat_hysteresis__K'])                 # Hysteresis, which might be boiler-specific
+                overheat_upper_margin_temp_flow__K = m.Param(value=5, name='overheat_upper_margin_temp_flow__K')                                        # Default overheating margin in K
+                overheat_hysteresis__K = m.Param(value=bldng_data['overheat_hysteresis__K'], name='overheat_hysteresis__K')                 # Hysteresis, which might be boiler-specific
                 cooldown_margin_temp_flow__K = overheat_hysteresis__K - overheat_upper_margin_temp_flow__K   # Default cooldown margin in K
 
                 # Cooldown hysteresis: starts at crossing overheating margin, ends at crossing cooldown margin
-                cooldown_condition = m.Var(value=FALSE)  # Initialize hysteresis state variable
+                cooldown_condition = m.Var(value=FALSE, name='cooldown_condition')  # Initialize hysteresis state variable
 
                 
                 # Define the overheating and cooldown conditions
@@ -1427,14 +1469,14 @@ class Model():
 
                 
                 # Define variables
-                in_post_pump_run_condition = m.Var(value=0, integer=True)               # Boolean state variable
+                in_post_pump_run_condition = m.Var(value=0, integer=True, name='in_post_pump_run_condition')               # Boolean state variable
                 post_pump_run_duration__min = 3                                         # Post pump run duration (in minutes); default to 3 minutes
                 post_pump_run_duration__s = post_pump_run_duration__min * s_min_1       # Convert duration to seconds (add half a minute to make soure counter does not end at 0)
-                post_pump_speed__pct = m.Param(value=bldng_data['post_pump_run__pct'])  # Post pump run speeds percentage, may be boiler-specific
-                post_pump_run_expiration__s = m.Var(value=0)                            # Expiration time
+                post_pump_speed__pct = m.Param(value=bldng_data['post_pump_run__pct'], name='post_pump_speed__pct')  # Post pump run speeds percentage, may be boiler-specific
+                post_pump_run_expiration__s = m.Var(value=0, name='post_pump_run_expiration__s')                            # Expiration time
                 
                 # Create a variable to represent the current simulation time
-                current_time = m.Var(value=0)  # Start at time 0
+                current_time = m.Var(value=0, name='current_time')  # Start at time 0
                 m.Equation(current_time.dt() == step__s)  # Increment current_time by step__s seconds
 
                 # Define the post-pump run entry condition
@@ -1442,7 +1484,7 @@ class Model():
                 post_pump_run_entry_condition = m.MV(value=(
                     (df_learn[property_sources['temp_flow_ch_set__degC']].shift(1, fill_value=0) > 0.5) &
                     (df_learn[property_sources['temp_flow_ch_set__degC']] == 0)
-                ).astype(int).values)
+                ).astype(int).values, name='post_pump_run_entry_condition')
                 post_pump_run_entry_condition.STATUS = 0  # No optimization
                 post_pump_run_entry_condition.FSTATUS = 1 # Use the measured values
 
@@ -1477,7 +1519,7 @@ class Model():
                                                          ub=100,
                                                          # lb=100/fan_scale * 100, 
                                                          # ub=2000/fan_scale * 100
-                                                        )                                # Initialize with value and bounds
+                                                        , name='fan_rotations_max_gain__pct_min_1')                                # Initialize with value and bounds
                 fan_rotations_max_gain__pct_min_1.STATUS = 1                             # Allow optimization
                 fan_rotations_max_gain__pct_min_1.FSTATUS = 1                            # Use the initial value as a hint for the solver
 
@@ -1487,7 +1529,7 @@ class Model():
                                                                   ub=100,
                                                                   # lb=2,
                                                                   # ub=10
-                                                                 )                       # Initialize with value and bounds
+                                                                 , name='error_threshold_temp_delta_flow_flowset__K')                       # Initialize with value and bounds
                 error_threshold_temp_delta_flow_flowset__K.STATUS = 1                    # Allow optimization
                 error_threshold_temp_delta_flow_flowset__K.FSTATUS = 1                   # Use the initial value as a hint for the solver
                 
@@ -1497,7 +1539,7 @@ class Model():
                         error_temp_delta_flow_flowset__K / error_threshold_temp_delta_flow_flowset__K * fan_rotations_max_gain__pct_min_1, 
                         fan_rotations_max_gain__pct_min_1  # max gain
                     )
-                )
+                , name='fan_rotations_gain__pct_min_1')
                 m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
                 
                 # Override calculated fan speeds with 0 if in cooldown or when temp_flow_ch_set__degC is set to 0 
@@ -1523,7 +1565,7 @@ class Model():
                                                                 ub=100,
                                                                 # lb=1,
                                                                 # ub=5
-                                                               )                         # Initialize with value and bounds
+                                                               , name='flow_dstr_pump_speed_max_gain__pct_min_1')                         # Initialize with value and bounds
                 flow_dstr_pump_speed_max_gain__pct_min_1.STATUS = 1                      # Allow optimization
                 flow_dstr_pump_speed_max_gain__pct_min_1.FSTATUS = 1                     # Use the initial value as a hint for the solver
                 
@@ -1533,7 +1575,7 @@ class Model():
                                                               ub=100,
                                                               # lb=1,
                                                               # ub=5
-                                                             )                           # Initialize with value and bounds
+                                                             , name='error_threshold_temp_delta_flow_ret__K')                           # Initialize with value and bounds
                 error_threshold_temp_delta_flow_ret__K.STATUS = 1                        # Allow optimization
                 error_threshold_temp_delta_flow_ret__K.FSTATUS = 1                       # Use the initial value as a hint for the solver
 
@@ -1543,7 +1585,7 @@ class Model():
                         error_temp_delta_flow_ret__K / error_threshold_temp_delta_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1,
                         flow_dstr_pump_speed_max_gain__pct_min_1 # max gain
                     )
-                )
+                , name='flow_dstr_pump_speed_gain__pct_min_1')
                 m.Equation(flow_dstr_pump_speed__pct.dt() == flow_dstr_pump_speed_gain__pct_min_1)
                 
                 m.Equation(
@@ -1590,12 +1632,12 @@ class Model():
                                 value=component_hints[term]['initial_guess'],
                                 lb=component_hints[term].get('lower_bound', None),
                                 ub=component_hints[term].get('upper_bound', None)
-                            )
+                            , name='param')
                             param.STATUS = 1  # Allow optimization
                             param.FSTATUS = 1  # Use the initial value as a hint for the solver
                         else:
                             # Create a fixed parameter for this term
-                            param = m.Param(value=default)
+                            param = m.Param(value=default, name='param')
             
                         # Store the parameter in the structured dictionary
                         pid_parameters[component][term] = param
@@ -1637,55 +1679,85 @@ class Model():
         # Store results of the learning process
         ##################################################################################################################
         
-        # Initialize a DataFrame for learned time-varying properties
-        df_predicted_properties = pd.DataFrame(index=df_learn.index)
-        
-        # Initialize a DataFrame for learned parameters (single row for metadata)
-        df_learned_parameters = pd.DataFrame({
-            'id': id, 
-            'start': start,
-            'end': end,
-            'duration': duration,
-        }, index=[0])
-        
-        # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-        current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-        for prop in (predict_props or set()) & set(current_locals.keys()):
-            predicted_prop = f'predicted_{mode.value}_{prop}'
-            df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
+        if m.options.APPSTATUS == 1:
             
-            # If the property was measured, calculate and store MAE and RMSE
-            if prop in property_sources.keys() and property_sources[prop] in df_learn.columns:
-                df_learned_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_predicted_properties[predicted_prop]  # Predicted values
-                )
-                df_learned_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_predicted_properties[predicted_prop]  # Predicted values
-                )
+            print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
+
+            # Load results
+            try:
+                results = m.load_results()
+                # DEBUG Save results to the local directory
+                filename = 'gekko_results_boiler.json'
+                with open(filename, 'w') as f:
+                    json.dump(results, f, indent=4)
+            except AttributeError:
+                print("load_results() not available.")
+            
+            if any(item is not None for item in [learn_params, predict_props]):
+                # Initialize DataFrame for learned thermal parameters (only for learning mode)
+                df_learned_parameters = pd.DataFrame({
+                    'id': id, 
+                    'start': start,
+                    'end': end,
+                    'duration': duration,
+                }, index=[0])
+            
+            # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
+            for param in (learn_params - (predict_props or set())):
+                learned_value = results.get(param, [np.nan])[0]
+                df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
+                # If actual value exists, compute MAE
+                if actual_params is not None and param in actual_params:
+                    df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
+    
+            if predict_props is not None:
+                # Initialize a DataFrame for learned time-varying properties
+                df_predicted_properties = pd.DataFrame(index=df_learn.index)
+            
+                # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+                for prop in (predict_props or set()):
+                    predicted_prop = f'predicted_{mode.value}_{prop}'
+                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
+                    
+                    # If the property was measured, calculate and store MAE and RMSE
+                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
+                        df_learned_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                        df_learned_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                    
                 
-        match mode:
-            case Model.ControlMode.ALGORITHMIC:
-                if learn_params: 
-                    for param in learn_params & current_locals.keys():
-                        learned_value = current_locals[param].value[0]
+                    # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
+                    for param in (learn_params - (predict_props or set())):
+                        learned_value = results.get(param, [np.nan])[0]
                         df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                         # If actual value exists, compute MAE
                         if actual_params is not None and param in actual_params:
                             df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
-            case Model.ControlMode.PID:
-                for component, params in pid_parameters.items():
-                    for param_name, value in params.items():
-                        df_learned_parameters.loc[0, f'learned_{component}_K{param_name}'] = value[0]
-                        #TO DO: support actual_params?
-            case _:
-                raise ValueError(f"Invalid ControlMode: {mode}")
+        
+                    # If the property was measured, calculate and store MAE and RMSE
+                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
+                        df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                        df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
             
+            if any(item is not None for item in [learn_params, predict_props]):
+                # Set MultiIndex on the DataFrame (id, start, end)
+                df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
 
-        # Set MultiIndex on the DataFrame (id, start, end)
-        df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
-
+        else:
+            df_learned_parameters = pd.DataFrame()
+            print(f"NO Solution was found for id {id} from {start} to {end} with duration {duration}")
+        
         m.cleanup()
 
         return df_learned_parameters, df_predicted_properties
@@ -1718,23 +1790,23 @@ class Model():
         # Flow setpoint
         ##################################################################################################################
 
-        temp_flow_ch_max__degC  = m.MV(value=df_learn[property_sources['temp_flow_ch_max__degC']].astype('float32').values)
+        temp_flow_ch_max__degC  = m.MV(value=df_learn[property_sources['temp_flow_ch_max__degC']].astype('float32').values, name='temp_flow_ch_max__degC')
         temp_flow_ch_max__degC .STATUS = 0  # No optimization
         temp_flow_ch_max__degC .FSTATUS = 1 # Use the measured values
         
         # Initial assumption: fixed setpoint; will be relaxed later
-        temp_flow_ch_set__degC = m.Var(value=0)
+        temp_flow_ch_set__degC = m.Var(value=0, name='temp_flow_ch_set__degC')
         temp_flow_ch_set__degC.lower = 0  # Minimum value
         m.Equation(temp_flow_ch_set__degC <= temp_flow_ch_max__degC) # constraint to enforce the maximum limit dynamically
 
         ##################################################################################################################
         # Setpoint and indoor temperature
         ##################################################################################################################
-        temp_set__degC = m.MV(value=df_learn[property_sources['temp_set__degC']].astype('float32').values)
+        temp_set__degC = m.MV(value=df_learn[property_sources['temp_set__degC']].astype('float32').values, name='temp_set__degC')
         temp_set__degC.STATUS = 0  # No optimization
         temp_set__degC.FSTATUS = 1 # Use the measured values
         
-        temp_indoor__degC = m.MV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values)
+        temp_indoor__degC = m.MV(value=df_learn[property_sources['temp_indoor__degC']].astype('float32').values, name='temp_indoor__degC')
         temp_indoor__degC.STATUS = 0  # No optimization
         temp_indoor__degC.FSTATUS = 1 # Use the measured values
 
@@ -1743,7 +1815,7 @@ class Model():
         ##################################################################################################################
 
         # Error between thermostat setpoint and indoor temperature
-        error_temp_delta_indoor_set__K  = m.Var(value=0.0)  # Initialize with a default value
+        error_temp_delta_indoor_set__K  = m.Var(value=0.0, name='error_temp_delta_indoor_set__K')  # Initialize with a default value
         m.Equation(error_temp_delta_indoor_set__K == temp_set__degC - temp_indoor__degC)
 
         ##################################################################################################################
@@ -1760,12 +1832,12 @@ class Model():
                 # Thermostat hysteresis
                 thermostat_hysteresis__K = m.FV(value=0.1,
                                                lb=0.0,
-                                               ub=2.0)         # Thermostat hysteresis, which might be boiler-specific
+                                               ub=2.0, name='thermostat_hysteresis__K')         # Thermostat hysteresis, which might be boiler-specific
                 thermostat_hysteresis__K.STATUS = 1            # Allow optimization
                 thermostat_hysteresis__K.FSTATUS = 1           # Use the initial value as a hint for the solver
                 
-                hysteresis_upper_margin__K = m.Intermediate(temp_set__degC + thermostat_hysteresis__K/2)
-                hysteresis_lower_margin__K = m.Intermediate(temp_set__degC - thermostat_hysteresis__K/2)
+                hysteresis_upper_margin__K = m.Intermediate(temp_set__degC + thermostat_hysteresis__K/2, name='hysteresis_upper_margin__K')
+                hysteresis_lower_margin__K = m.Intermediate(temp_set__degC - thermostat_hysteresis__K/2, name='hysteresis_lower_margin__K')
         
                 m.Equation(
                     temp_flow_ch_set__degC == m.if3(
@@ -1799,7 +1871,7 @@ class Model():
                             value=bounds.get('initial_guess', default),
                             lb=bounds.get('lower_bound', None),
                             ub=bounds.get('upper_bound', None)
-                        )
+                        , name='pid_parameters')
                         pid_parameters[component][term].STATUS = 1
                         pid_parameters[component][term].FSTATUS = 1
             
@@ -1831,59 +1903,89 @@ class Model():
         # Store results of the learning process
         ##################################################################################################################
         
-
-        # Initialize a DataFrame for learned time-varying properties
-        df_predicted_properties = pd.DataFrame(index=df_learn.index)
-        
-        # Initialize a DataFrame for learned parameters (single row for metadata)
-        df_learned_parameters = pd.DataFrame({
-            'id': id, 
-            'start': start,
-            'end': end,
-            'duration': duration,
-        }, index=[0])
-        
-        # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-        current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-        for prop in (predict_props or set()) & set(current_locals.keys()):
-            predicted_prop = f'predicted_{mode.value}_{prop}'
-            df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
+        if m.options.APPSTATUS == 1:
             
-            # If the property was measured, calculate and store MAE and RMSE
-            if prop in property_sources.keys() and property_sources[prop] in df_learn.columns:
-                df_learned_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_predicted_properties[predicted_prop]  # Predicted values
-                )
-                df_learned_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_predicted_properties[predicted_prop]  # Predicted values
-                )
+            print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
 
-        if learn_params: 
-            match mode:
-                case Model.ControlMode.ALGORITHMIC:
-                    for param in learn_params & current_locals.keys():
-                        learned_value = current_locals[param].value[0]
+            # Load results
+            try:
+                results = m.load_results()
+                # DEBUG Save results to the local directory
+                filename = 'gekko_results_therm.json'
+                with open(filename, 'w') as f:
+                    json.dump(results, f, indent=4)
+            except AttributeError:
+                print("load_results() not available.")
+            
+            if any(item is not None for item in [learn_params, predict_props]):
+                # Initialize DataFrame for learned thermal parameters (only for learning mode)
+                df_learned_parameters = pd.DataFrame({
+                    'id': id, 
+                    'start': start,
+                    'end': end,
+                    'duration': duration,
+                }, index=[0])
+            
+            # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
+            for param in (learn_params - (predict_props or set())):
+                learned_value = results.get(param, [np.nan])[0]
+                df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
+                # If actual value exists, compute MAE
+                if actual_params is not None and param in actual_params:
+                    df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
+    
+            if predict_props is not None:
+                # Initialize a DataFrame for learned time-varying properties
+                df_predicted_properties = pd.DataFrame(index=df_learn.index)
+            
+                # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+                for prop in (predict_props or set()):
+                    predicted_prop = f'predicted_{mode.value}_{prop}'
+                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
+                    
+                    # If the property was measured, calculate and store MAE and RMSE
+                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
+                        df_learned_parameters.loc[0, f'mae_{mode.value}_{prop}'] = mae(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                        df_learned_parameters.loc[0, f'rmse_{mode.value}_{prop}'] = rmse(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                    
+                
+                    # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
+                    for param in (learn_params - (predict_props or set())):
+                        learned_value = results.get(param, [np.nan])[0]
                         df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                         # If actual value exists, compute MAE
                         if actual_params is not None and param in actual_params:
                             df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
-    
-                case Model.ControlMode.PID:
-                    for component, params in pid_parameters.items():
-                        for param_name, value in params.items():
-                            df_learned_parameters.loc[0, f'learned_{component}_K{param_name}'] = value[0]
-                case _:
-                    raise ValueError(f"Invalid ControlMode: {mode}")
+        
+                    # If the property was measured, calculate and store MAE and RMSE
+                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
+                        df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                        df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
             
+            if any(item is not None for item in [learn_params, predict_props]):
+                # Set MultiIndex on the DataFrame (id, start, end)
+                df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
 
-        # Set MultiIndex on the DataFrame (id, start, end)
-        df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
-
+        else:
+            df_learned_parameters = pd.DataFrame()
+            print(f"NO Solution was found for id {id} from {start} to {end} with duration {duration}")
+        
         m.cleanup()
 
         return df_learned_parameters, df_predicted_properties
+
 
 
 class Comfort():
