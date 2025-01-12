@@ -631,7 +631,7 @@ class Model():
             
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
-                learned_value = results.get(param, [np.nan])[0]
+                learned_value = results.get(param.lower(), [np.nan])[0]
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
@@ -644,7 +644,7 @@ class Model():
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
                 for prop in (predict_props or set()):
                     predicted_prop = f'predicted_{prop}'
-                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
+                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
                     
                     # If the property was measured, calculate and store MAE and RMSE
                     if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
@@ -660,7 +660,7 @@ class Model():
                 
                     # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
                     for param in (learn_params - (predict_props or set())):
-                        learned_value = results.get(param, [np.nan])[0]
+                        learned_value = results.get(param.lower(), [np.nan])[0]
                         df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                         # If actual value exists, compute MAE
                         if actual_params is not None and param in actual_params:
@@ -841,7 +841,7 @@ class Model():
             
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
-                learned_value = results.get(param, [np.nan])[0]
+                learned_value = results.get(param.lower(), [np.nan])[0]
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
@@ -854,7 +854,7 @@ class Model():
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
                 for prop in (predict_props or set()):
                     predicted_prop = f'predicted_{prop}'
-                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
+                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
                     
                     # If the property was measured, calculate and store MAE and RMSE
                     if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
@@ -870,7 +870,7 @@ class Model():
                 
                     # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
                     for param in (learn_params - (predict_props or set())):
-                        learned_value = results.get(param, [np.nan])[0]
+                        learned_value = results.get(param.lower(), [np.nan])[0]
                         df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                         # If actual value exists, compute MAE
                         if actual_params is not None and param in actual_params:
@@ -1239,7 +1239,7 @@ class Model():
             
                 # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
                 for param in (learn_params - (predict_props or set())):
-                    learned_value = results.get(param, [np.nan])[0]
+                    learned_value = results.get(param.lower(), [np.nan])[0]
                     df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                     # If actual value exists, compute MAE
                     if actual_params is not None and param in actual_params:
@@ -1252,7 +1252,7 @@ class Model():
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
                 for prop in (predict_props or set()):
                     predicted_prop = f'predicted_{prop}'
-                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
+                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
                     
                     # If the property was measured, calculate and store MAE and RMSE
                     if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
@@ -1296,7 +1296,7 @@ class Model():
             for var in sim_arrays_mean:
                 # Create variable names dynamically
                 result_col = f"avg_{var}"
-                mean_value = np.asarray(results.get(prop, [np.nan])).mean()
+                mean_value = np.asarray(results.get(prop.lower(), [np.nan])).mean()
                 df_learned_parameters.loc[0, result_col] = mean_value
     
             # Calculate Carbon Case metrics
@@ -1708,7 +1708,7 @@ class Model():
             
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
-                learned_value = results.get(param, [np.nan])[0]
+                learned_value = results.get(param.lower(), [np.nan])[0]
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
@@ -1721,7 +1721,7 @@ class Model():
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
                 for prop in (predict_props or set()):
                     predicted_prop = f'predicted_{mode.value}_{prop}'
-                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
+                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
                     
                     # If the property was measured, calculate and store MAE and RMSE
                     if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
@@ -1737,7 +1737,7 @@ class Model():
                 
                     # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
                     for param in (learn_params - (predict_props or set())):
-                        learned_value = results.get(param, [np.nan])[0]
+                        learned_value = results.get(param.lower(), [np.nan])[0]
                         df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                         # If actual value exists, compute MAE
                         if actual_params is not None and param in actual_params:
@@ -1932,7 +1932,8 @@ class Model():
             
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
-                learned_value = results.get(param, [np.nan])[0]
+                learned_value = results.get(param.lower(), [np.nan])[0]
+                print(f"results.get{param.lower()}, [np.nan])[0]: learned_value")
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
@@ -1945,7 +1946,9 @@ class Model():
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
                 for prop in (predict_props or set()):
                     predicted_prop = f'predicted_{mode.value}_{prop}'
-                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop, [np.nan])
+                    print(f"for {predicted_prop}: results.get({prop.lower()}, [np.nan]) = {results.get(prop.lower(), [np.nan])}")
+
+                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
                     
                     # If the property was measured, calculate and store MAE and RMSE
                     if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
@@ -1961,7 +1964,7 @@ class Model():
                 
                     # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
                     for param in (learn_params - (predict_props or set())):
-                        learned_value = results.get(param, [np.nan])[0]
+                        learned_value = results.get(param.lower(), [np.nan])[0]
                         df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                         # If actual value exists, compute MAE
                         if actual_params is not None and param in actual_params:
