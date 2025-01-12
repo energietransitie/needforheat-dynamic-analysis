@@ -618,6 +618,7 @@ class Model():
                 with open(filename, 'w') as f:
                     json.dump(results, f, indent=4)
             except AttributeError:
+                results = None
                 print("load_results() not available.")
             
             if any(item is not None for item in [learn_params, predict_props]):
@@ -828,6 +829,7 @@ class Model():
                 with open(filename, 'w') as f:
                     json.dump(results, f, indent=4)
             except AttributeError:
+                results = None
                 print("load_results() not available.")
             
             if any(item is not None for item in [learn_params, predict_props]):
@@ -842,6 +844,7 @@ class Model():
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
                 learned_value = results.get(param.lower(), [np.nan])[0]
+                print(f"results.get{param.lower()}, [np.nan])[0]: {learned_value}")
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
@@ -1226,6 +1229,7 @@ class Model():
                     json.dump(results, f, indent=4)
                 print(f"Loaded results saved to {filename}")
             except AttributeError:
+                results = None
                 print("load_results() not available.")
             
             if any(item is not None for item in [learn_params, predict_props, properties_mean, sim_arrays_mean]):
@@ -1636,12 +1640,12 @@ class Model():
                                 value=component_hints[term]['initial_guess'],
                                 lb=component_hints[term].get('lower_bound', None),
                                 ub=component_hints[term].get('upper_bound', None),
-                                name='param')
+                                name=param_name)
                             param.STATUS = 1  # Allow optimization
                             param.FSTATUS = 1  # Use the initial value as a hint for the solver
                         else:
                             # Create a fixed parameter for this term
-                            param = m.Param(value=default, name='param')
+                            param = m.Param(value=default, name=param_name)
             
                         # Store the parameter in the structured dictionary
                         pid_parameters[component][term] = param
@@ -1695,6 +1699,7 @@ class Model():
                 with open(filename, 'w') as f:
                     json.dump(results, f, indent=4)
             except AttributeError:
+                results = None
                 print("load_results() not available.")
             
             if any(item is not None for item in [learn_params, predict_props]):
@@ -1709,6 +1714,7 @@ class Model():
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
                 learned_value = results.get(param.lower(), [np.nan])[0]
+                print(f"results.get{param.lower()}, [np.nan])[0]: {learned_value}")
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
@@ -1919,6 +1925,7 @@ class Model():
                 with open(filename, 'w') as f:
                     json.dump(results, f, indent=4)
             except AttributeError:
+                results = None
                 print("load_results() not available.")
             
             if any(item is not None for item in [learn_params, predict_props]):
@@ -1933,7 +1940,7 @@ class Model():
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
                 learned_value = results.get(param.lower(), [np.nan])[0]
-                print(f"results.get{param.lower()}, [np.nan])[0]: learned_value")
+                print(f"results.get{param.lower()}, [np.nan])[0]: {learned_value}")
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
