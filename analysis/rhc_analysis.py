@@ -574,14 +574,14 @@ class Model():
         wind__m_s_1.STATUS = 0  # No optimization
         wind__m_s_1.FSTATUS = 1 # Use the measured values
     
-        if 'aperture_inf__cm2' in learn_params:
-            aperture_inf__cm2 = m.FV(value=param_hints['aperture_inf__cm2'], lb=0, ub=100000.0, name='aperture_inf__cm2')
-            aperture_inf__cm2.STATUS = 1  # Allow optimization
-            aperture_inf__cm2.FSTATUS = 1 # Use the initial value as a hint for the solver
+        if 'aperture_inf_vent__cm2' in learn_params:
+            aperture_inf_vent__cm2 = m.FV(value=param_hints['aperture_inf_vent__cm2'], lb=0, ub=100000.0, name='aperture_inf_vent__cm2')
+            aperture_inf_vent__cm2.STATUS = 1  # Allow optimization
+            aperture_inf_vent__cm2.FSTATUS = 1 # Use the initial value as a hint for the solver
         else:
-            aperture_inf__cm2 = m.Param(value=param_hints['aperture_inf__cm2'], name='aperture_inf__cm2')
+            aperture_inf_vent__cm2 = m.Param(value=param_hints['aperture_inf_vent__cm2'], name='aperture_inf_vent__cm2')
 
-        air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2, name='air_inf__m3_s_1')        
+        air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf_vent__cm2 / cm2_m_2, name='air_inf__m3_s_1')        
         air_changes_inf__s_1 = m.Intermediate(air_inf__m3_s_1 / bldng__m3, name='air_changes_inf__s_1')
 
         # Total losses of CO₂ concentration indoors
@@ -1956,7 +1956,7 @@ class Model():
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
                 for prop in (predict_props or set()):
                     predicted_prop = f'predicted_{mode.value}_{prop}'
-                    print(f"for {predicted_prop}: results.get({prop.lower()}, [np.nan]) = {results.get(prop.lower(), [np.nan])}")
+                    # print(f"for {predicted_prop}: results.get({prop.lower()}, [np.nan]) = {results.get(prop.lower(), [np.nan])}")
 
                     df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
                     
