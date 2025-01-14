@@ -2269,18 +2269,19 @@ class Simulator():
         floors__m2 = bldng_data['floors__m2']
 
         # retrieve boiler-specific constants
+        thermostat_hysteresis__K = bldng_data['thermostat_hysteresis__K']
         fan_min_ch_rotations__min_1 = bldng_data['fan_min_ch_rotations__min_1']
         fan_max_ch_rotations__min_1 = bldng_data['fan_max_ch_rotations__min_1']
         fan_rotations_max_gain__pct_min_1 = 100 * 1500 / (fan_max_ch_rotations__min_1 - fan_min_ch_rotations__min_1)
-        post_pump_speed__pct = bldng_data['post_pump_run__pct']
+        Qnh_min_lhv__kW = bldng_data['Qnh_min_lhv__kW']
+        Qnh_max_lhv__kW = bldng_data['Qnh_max_lhv__kW']
         overheat_hysteresis__K = bldng_data['overheat_hysteresis__K']
         desired_temp_delta_flow_ret__K = bldng_data['desired_temp_delta_flow_ret__K']
-        thermostat_hysteresis__K = bldng_data['thermostat_hysteresis__K']
+        
+        post_pump_speed__pct = bldng_data['post_pump_run__pct']
         error_threshold_temp_delta_flow_flowset__K = bldng_data['error_threshold_temp_delta_flow_flowset__K']
         flow_dstr_pump_speed_max_gain__pct_min_1 = bldng_data['flow_dstr_pump_speed_max_gain__pct_min_1']
         error_threshold_temp_delta_flow_ret__K = bldng_data['error_threshold_temp_delta_flow_ret__K']
-        Qnh_min_lhv__kW = bldng_data['Qnh_min_lhv__kW']
-        Qnh_max_lhv__kW = bldng_data['Qnh_max_lhv__kW']
 
         ##################################################################################################################
         # Initialize GEKKO model
@@ -2635,17 +2636,7 @@ class Simulator():
         # Solar heat gains
         ##################################################################################################################
     
-        if learn_params is None:
-            # Simulation mode: use the value from bldng_data
-            aperture_sol__m2 = m.Param(value=bldng_data['learned_aperture_sol__m2'])
-        else:
-            # Learning mode: decide based on presence in learn_params
-            if 'aperture_sol__m2' in learn_params:
-                aperture_sol__m2 = m.FV(value=param_hints['aperture_sol__m2'], lb=1, ub=100)
-                aperture_sol__m2.STATUS = 1  # Allow optimization
-                aperture_sol__m2.FSTATUS = 1 # Use the initial value as a hint for the solver
-            else:
-                aperture_sol__m2 = m.Param(value=param_hints['aperture_sol__m2'])
+        aperture_sol__m2 = m.Param(value=bldng_data['learned_aperture_sol__m2'])
     
         sol_ghi__W_m_2 = m.MV(value=df_learn[property_sources['sol_ghi__W_m_2']].astype('float32').values)
         sol_ghi__W_m_2.STATUS = 0  # No optimization
@@ -2686,17 +2677,7 @@ class Simulator():
         # Conductive heat losses
         ##################################################################################################################
     
-        if learn_params is None:
-            # Simulation mode: use the value from bldng_data
-            heat_tr_bldng_cond__W_K_1 = m.Param(value=bldng_data['learned_heat_tr_bldng_cond__W_K_1'])
-        else:
-            # Learning mode: decide based on presence in learn_params
-            if 'heat_tr_bldng_cond__W_K_1' in learn_params:
-                heat_tr_bldng_cond__W_K_1 = m.FV(value=param_hints['heat_tr_bldng_cond__W_K_1'], lb=0, ub=1000)
-                heat_tr_bldng_cond__W_K_1.STATUS = 1  # Allow optimization
-                heat_tr_bldng_cond__W_K_1.FSTATUS = 1 # Use the initial value as a hint for the solver
-            else:
-                heat_tr_bldng_cond__W_K_1 = param_hints['heat_tr_bldng_cond__W_K_1']
+        heat_tr_bldng_cond__W_K_1 = m.Param(value=bldng_data['learned_heat_tr_bldng_cond__W_K_1'])
     
         temp_outdoor__degC = m.MV(value=df_learn[property_sources['temp_outdoor__degC']].astype('float32').values)
         temp_outdoor__degC.STATUS = 0  # No optimization
@@ -2714,53 +2695,25 @@ class Simulator():
         wind__m_s_1.STATUS = 0  # No optimization
         wind__m_s_1.FSTATUS = 1 # Use the measured values
     
-        if learn_params is None:
-            # Simulation mode: use the value from bldng_data
-            aperture_inf__cm2 = m.Param(value=bldng_data['learned_aperture_inf__cm2'])
-        else:
-            # Learning mode: decide based on presence in learn_params
-            if 'aperture_inf__cm2' in learn_params:
-                aperture_inf__cm2 = m.FV(value=param_hints['aperture_inf__cm2'], lb=0, ub=100000.0)
-                aperture_inf__cm2.STATUS = 1  # Allow optimization
-                aperture_inf__cm2.FSTATUS = 1 # Use the initial value as a hint for the solver
-            else:
-                aperture_inf__cm2 = m.Param(value=param_hints['aperture_inf__cm2'])
+        aperture_inf__cm2 = m.Param(value=bldng_data['learned_aperture_inf__cm2'])
     
         air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2)
         heat_tr_bldng_inf__W_K_1 = m.Intermediate(air_inf__m3_s_1 * air_room__J_m_3_K_1)
         heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * indoor_outdoor_delta__K)
     
-        if learn_params is None or (property_sources['ventilation__dm3_s_1'] in df_learn.columns and df_learn[property_sources['ventilation__dm3_s_1']].notna().all()):
-            ventilation__dm3_s_1 = m.MV(value=df_learn[property_sources['ventilation__dm3_s_1']].astype('float32').values)
-            ventilation__dm3_s_1.STATUS = 0  # No optimization
-            ventilation__dm3_s_1.FSTATUS = 1  # Use the measured values
+        ventilation__dm3_s_1 = m.MV(value=df_learn[property_sources['ventilation__dm3_s_1']].astype('float32').values)
+        ventilation__dm3_s_1.STATUS = 0  # No optimization
+        ventilation__dm3_s_1.FSTATUS = 1  # Use the measured values
             
-            air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3))
-            heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1)
-            heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * indoor_outdoor_delta__K)
-        else:
-            heat_tr_bldng_vent__W_K_1 = 0
-            heat_loss_bldng_vent__W = 0
+        air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3))
+        heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1)
+        heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * indoor_outdoor_delta__K)
 
         ##################################################################################################################
         ## Thermal inertia ##
         ##################################################################################################################
                     
-        if learn_params is None:
-            # Simulation mode: use the value from bldng_data
-            th_inert_bldng__h = m.Param(value=bldng_data['learned_th_inert_bldng__h'])
-        else:
-            # Learning mode: decide based on presence in learn_params
-            if 'th_inert_bldng__h' in learn_params:
-                # Learn thermal inertia
-                th_inert_bldng__h = m.FV(value = param_hints['th_inert_bldng__h'], lb=(10), ub=(1000))
-                th_inert_bldng__h.STATUS = 1  # Allow optimization
-                th_inert_bldng__h.FSTATUS = 1 # Use the initial value as a hint for the solver
-            else:
-                # Do not learn thermal inertia of the building, but use a fixed value based on hint
-                th_inert_bldng__h = m.Param(value = param_hints['th_inert_bldng__h'])
-                # TO DO: check whether we indeed can remove the line below
-                # learned_th_inert_bldng__h = np.nan
+        th_inert_bldng__h = m.Param(value=bldng_data['learned_th_inert_bldng__h'])
         
         ##################################################################################################################
         ### Heat balance ###
