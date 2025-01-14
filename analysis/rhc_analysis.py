@@ -3,6 +3,7 @@ from typing import List, Tuple, Dict, Set, Callable
 from enum import Enum
 import pandas as pd
 import numpy as np
+from scipy.interpolate import RectBivariateSpline
 import math
 from gekko import GEKKO
 from tqdm.notebook import tqdm
@@ -18,6 +19,97 @@ import logging
 from pythermalcomfort.models import pmv_ppd
 
 from nfh_utils import *
+
+
+class BoilerEfficiency:
+    def __init__(self, file_path):
+        """
+        Initializes the BoilerEfficiency class with a path to the boiler efficiency data file.
+
+        Parameters:
+            file_path (str): Path to the Parquet file containing boiler efficiency data.
+        """
+        self.file_path = file_path
+        self.df_boiler_efficiency = None
+        self.efficiency_hhv_interpolators = {}
+
+    def load_boiler_hhv_efficiency(self):
+        """
+        Lazy loading of the boiler HHV efficiency data from a Parquet file.
+
+        Returns:
+            DataFrame: Loaded DataFrame containing boiler HHV efficiency data.
+        """
+        if self.df_boiler_efficiency is None:
+            try:
+                self.df_boiler_efficiency = pd.read_parquet(
+                    self.file_path,
+                    engine='pyarrow',
+                    dtype_backend='numpy_nullable'
+                )
+            except Exception as e:
+                raise IOError(f"Error reading Parquet file: {e}")
+        return self.df_boiler_efficiency
+
+    def get_efficiency_hhv_interpolator(self, brand_model):
+        """
+        Retrieves or creates an efficiency HHV interpolator for the specified brand_model,
+        with strict range enforcement based on valid ranges in the dataset.
+
+        Parameters:
+            brand_model (str): The specific boiler brand_model.
+
+        Returns:
+            function: A callable function for interpolating efficiency HHV with strict range checks.
+        """
+        df = self.load_boiler_hhv_efficiency()
+
+        # Check if interpolator for this brand_model already exists
+        if brand_model not in self.efficiency_hhv_interpolators:
+            group = df.loc[brand_model]
+            load_points = group.index.get_level_values('rounded_load__pct').unique()
+            temp_points = group.index.get_level_values('rounded_temp_ret__degC').unique()
+            efficiency_values = group.unstack(level='rounded_temp_ret__degC').values
+
+            # Create interpolator
+            interpolator = RectBivariateSpline(load_points, temp_points, efficiency_values)
+
+            # Determine valid ranges
+            min_load__pct = load_points.min()
+            max_load__pct = load_points.max()
+            min_temp_ret__degC = temp_points.min()
+            max_temp_ret__degC = temp_points.max()
+
+            # Store interpolator and ranges
+            self.efficiency_hhv_interpolators[brand_model] = {
+                "interpolator": interpolator,
+                "min_load__pct": min_load__pct,
+                "max_load__pct": max_load__pct,
+                "min_temp_ret__degC": min_temp_ret__degC,
+                "max_temp_ret__degC": max_temp_ret__degC,
+            }
+
+        # Retrieve stored data
+        data = self.efficiency_hhv_interpolators[brand_model]
+        interpolator = data["interpolator"]
+        min_load__pct = data["min_load__pct"]
+        max_load__pct = data["max_load__pct"]
+        min_temp_ret__degC = data["min_temp_ret__degC"]
+        max_temp_ret__degC = data["max_temp_ret__degC"]
+
+        # Define strict interpolator
+        def boiler_efficiency_hhv(
+            load__pct = None, 
+            temp_ret__degC = None,
+        ):
+            if (load__pct is None or load__pct < min_load__pct or load__pct > max_load__pct or
+                temp_ret__degC is None or temp_ret__degC < min_temp_ret__degC or temp_ret__degC > max_temp_ret__degC):
+                return np.nan
+            # return interpolator(load__pct, temp_ret__degC, grid=False)[0, 0]
+            return interpolator(load__pct, temp_ret__degC, grid=False).item()
+
+        return boiler_efficiency_hhv
+
 
 class LearnError(Exception):
     def __init__(self, message):
@@ -2154,3 +2246,583 @@ class Comfort():
             return result.where(~temp_indoor__degC.isna(), pd.NA)  # Handle NaNs
         
         return pd.Series(pd.NA, index=temp_indoor__degC.index)  # Return <NA> Series if comfort cannot be determined
+
+    
+class Simulator():
+    def integrated_model(
+            df_learn,
+            bldng_data: Dict = None,
+            boiler_efficiency_hhv: Callable[[float, float], float] = None, 
+            property_sources: Dict = None,
+            param_hints: Dict = None,
+            learn_params: Set[str] = {                 #TO DO: change to use_params later if working
+                'thermostat_hysteresis__K',
+                },
+            actual_params: Dict = None,
+            predict_props: Set[str] = {
+                'temp_flow_ch_set__degC',
+                },
+            ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        
+        # retrieve building-specific constants
+        bldng__m3 = bldng_data['bldng__m3']
+        floors__m2 = bldng_data['floors__m2']
+
+        # retrieve boiler-specific constants
+        fan_min_ch_rotations__min_1 = bldng_data['fan_min_ch_rotations__min_1']
+        fan_max_ch_rotations__min_1 = bldng_data['fan_max_ch_rotations__min_1']
+        fan_rotations_max_gain__pct_min_1 = 100 * 1500 / (fan_max_ch_rotations__min_1 - fan_min_ch_rotations__min_1)
+        post_pump_speed__pct = bldng_data['post_pump_run__pct']
+        overheat_hysteresis__K = bldng_data['overheat_hysteresis__K']
+        desired_temp_delta_flow_ret__K = bldng_data['desired_temp_delta_flow_ret__K']
+        thermostat_hysteresis__K = bldng_data['thermostat_hysteresis__K']
+        error_threshold_temp_delta_flow_flowset__K = bldng_data['error_threshold_temp_delta_flow_flowset__K']
+        flow_dstr_pump_speed_max_gain__pct_min_1 = bldng_data['flow_dstr_pump_speed_max_gain__pct_min_1']
+        error_threshold_temp_delta_flow_ret__K = bldng_data['error_threshold_temp_delta_flow_ret__K']
+        Qnh_min_lhv__kW = bldng_data['Qnh_min_lhv__kW']
+        Qnh_max_lhv__kW = bldng_data['Qnh_max_lhv__kW']
+
+        ##################################################################################################################
+        # Initialize GEKKO model
+        ##################################################################################################################
+        m = GEKKO(remote=False)
+        id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
+        m.time = np.arange(0, duration__s, step__s)
+
+        ##################################################################################################################
+        # Indoor Temperature
+        ##################################################################################################################
+
+        # Initial temperature equal to measured temperature
+        temp_indoor__degC = m.Var(value=np.float32(df_learn[property_sources['temp_indoor__degC']].iloc[0]))
+
+        ##################################################################################################################
+        # Indoor Temperature Setpoint
+        ##################################################################################################################
+        temp_set__degC = m.MV(value=df_learn[property_sources['temp_set__degC']].astype('float32').values)
+        temp_set__degC.STATUS = 0  # No optimization
+        temp_set__degC.FSTATUS = 1 # Use the measured values
+
+        ##################################################################################################################
+        # Flow Temperature Setpoint
+        ##################################################################################################################
+
+        temp_flow_ch_max__degC  = m.MV(value=df_learn[property_sources['temp_flow_ch_max__degC']].astype('float32').values)
+        temp_flow_ch_max__degC.STATUS = 0  # No optimization
+        temp_flow_ch_max__degC.FSTATUS = 1 # Use the measured values
+        
+        temp_flow_ch_set__degC = m.Var(value=np.float32(0.0)) 
+        temp_flow_ch_set__degC.lower = 0  # Minimum value
+        m.Equation(temp_flow_ch_set__degC <= temp_flow_ch_max__degC) # constraint to enforce the maximum limit dynamically
+
+        ##################################################################################################################
+        # Control targets: 'delta-T': difference between indoor setpoint and indoor temperature
+        ##################################################################################################################
+
+        # Error between thermostat setpoint and indoor temperature
+        error_temp_delta_indoor_set__K  = value=np.float32(0.0)  # Initialize with a default value
+        m.Equation(error_temp_delta_indoor_set__K == temp_set__degC - temp_indoor__degC)
+
+        ##################################################################################################################
+        # Algorithmic control; this implements a simple ON/OFF thermostat with hysteresis
+        ##################################################################################################################
+
+        hysteresis_upper_margin__K = m.Intermediate(temp_set__degC + thermostat_hysteresis__K/2)
+        hysteresis_lower_margin__K = m.Intermediate(temp_set__degC - thermostat_hysteresis__K/2)
+
+        m.Equation(
+            temp_flow_ch_set__degC == m.if3(
+                temp_indoor__degC - hysteresis_upper_margin__K,     # Positive if above upper margin (OFF)
+                0,                                                  # turn heating OFF
+                m.if3(
+                    hysteresis_lower_margin__K - temp_indoor__degC, # Positive if below lower margin (ON)
+                    temp_flow_ch_max__degC,                         # turn heating ON
+                    temp_flow_ch_set__degC                          # Maintain current state
+                )
+            )
+        )
+
+        ##################################################################################################################
+        # Fan speed and pump speed
+        ##################################################################################################################
+
+        # calculated fan speed percentage between min (0 %) and max (100 %); use initial value during simulations
+        fan_speed__pct = m.Var(value=np.float32(df_learn[property_sources['fan_speed__pct']].iloc[0]))
+
+        # hydronic pump speed in % of maximum pump speed; use initial value during simulations         
+        flow_dstr_pump_speed__pct = m.Var(value=np.float32(df_learn[property_sources['flow_dstr_pump_speed__pct']].iloc[0])) 
+
+        ##################################################################################################################
+        # Flow and return temperature
+        ##################################################################################################################
+        if (pd.notna(df_learn[property_sources['temp_flow_ch__degC']].iloc[0]) and 
+            pd.notna(df_learn[property_sources['temp_ret_ch__degC']].iloc[0])
+        ):
+            # Estimate based on initial supply and return temperature
+            initial_temp_flow__degC = np.float32(df_learn[property_sources['temp_flow_ch__degC']].iloc[0])
+            initial_temp_ret__degC = np.float32(df_learn[property_sources['temp_ret_ch__degC']].iloc[0])
+        else:
+            # We're not in the middle of a heat generation streak, so we estimate based on indoor temperature
+            initial_temp_flow__degC = np.float32(df_learn[property_sources['temp_indoor__degC']].iloc[0])
+            initial_temp_ret__degC = initial_temp_flow__degC
+
+        initial_temp_dstr__degC = (initial_temp_flow__degC + initial_temp_ret__degC) / 2
+            
+        # Define variables for the dynamic heat distribution model
+        temp_flow_ch__degC = m.Var(value=initial_temp_flow__degC, name='temp_flow__degC')
+        temp_ret_ch__degC = m.Var(value=initial_temp_ret__degC, name='temp_ret__degC')
+        temp_dstr__degC = m.Var(value=initial_temp_dstr__degC, name='temp_dstr__degC')
+
+        ##################################################################################################################
+        # Control targets: flow temperature and 'delta-T': difference between flow and return temperature
+        ##################################################################################################################
+
+        # Error between supply temperature and setpoint fo the supply temperature
+        error_temp_delta_flow_flowset__K = m.Var(
+            value=np.float32(0.0), 
+            name='error_temp_delta_flow_flowset__K'
+            )  # Initialize with a default value
+        m.Equation(error_temp_delta_flow_flowset__K == temp_flow_ch_set__degC - temp_flow_ch__degC)
+
+        # Error in 'delta-T' (difference between supply and return temperature)
+        error_temp_delta_flow_ret__K = m.Var(
+            value=np.float32(0.0), 
+            name='error_temp_delta_flow_ret__K'
+            )  # Initialize with a default value
+        m.Equation(error_temp_delta_flow_ret__K == desired_temp_delta_flow_ret__K - (temp_flow_ch__degC - temp_ret_ch__degC))
+    
+        ##################################################################################################################
+        # Boiler Control algorithm 
+        ##################################################################################################################
+
+        # Define variables to hold the rate of fan and pump speed changes
+        # fan_rotations_gain__min_1 = m.Var(value=0)    # Rate of change for fan speed
+        fan_rotations_gain__pct_min_1 = m.Var(
+            value=np.float32(0.0),
+            name='fan_rotations_gain__pct_min_1'
+            )    # Rate of change for fan speed
+        flow_dstr_pump_speed_gain__pct_min_1 = m.Var(
+            value=np.float32(0.0),
+            name='flow_dstr_pump_speed_gain__pct_min_1'
+            )  # Rate of change for pump speed
+
+        # GEKKO constants for better code readability 
+        TRUE = 1
+        FALSE = 0
+        
+        ##################################################################################################################
+        # Cooldown mode definitions 
+        ##################################################################################################################
+
+        # Temperature margins for cooldown hysteresis
+        overheat_upper_margin_temp_flow__K = np.float32(5.0)                                         # Overheating margin in K
+        cooldown_margin_temp_flow__K = overheat_hysteresis__K - overheat_upper_margin_temp_flow__K   # Default cooldown margin in K
+
+        # Cooldown hysteresis: starts at crossing overheating margin, ends at crossing cooldown margin
+        cooldown_condition = m.Var(value=FALSE, name='cooldown_condition')  # Initialize hysteresis state variable
+
+        
+        # Define the overheating and cooldown conditions
+        overheat_condition = temp_flow_ch__degC - (temp_flow_ch_set__degC + overheat_upper_margin_temp_flow__K)
+        cooldown_exit_condition = (temp_flow_ch_set__degC + cooldown_margin_temp_flow__K) - temp_flow_ch__degC
+        no_heat_demand_condition = 0.5 - temp_flow_ch_set__degC
+        
+        # Cooldown state transitions
+        m.Equation(
+            cooldown_condition == m.if3(
+                overheat_condition,  # Enter cooldown mode if overheat condition is positive
+                TRUE,                # Cooldown mode active
+                m.if3(
+                    cooldown_exit_condition,  # Exit cooldown mode if this condition is positive
+                    FALSE,                   # Cooldown mode inactive
+                    cooldown_condition       # Maintain current state (hysteresis)
+                )
+            )
+        )
+
+        ##################################################################################################################
+        # Post-pump run definitions 
+        ##################################################################################################################
+        
+        # Define variables
+        in_post_pump_run_condition = m.Var(
+            value=0,
+            integer=True,
+            name='in_post_pump_run_condition'
+            )               # Boolean state variable
+        post_pump_run_duration__min = 3                                                  # Post pump run duration (in minutes); default to 3 minutes
+        post_pump_run_duration__s = post_pump_run_duration__min * s_min_1                # Convert duration to seconds (add half a minute to make soure counter does not end at 0)
+        post_pump_run_expiration__s = m.Var(value=0, name='post_pump_run_expiration__s') # Expiration time
+        
+        # Create a variable to represent the current simulation time
+        current_time = m.Var(value=0, name='current_time')  # Start at time 0
+        m.Equation(current_time.dt() == step__s)            # Increment current_time by step__s seconds
+
+        # Define the post-pump run entry condition
+        # Create post_pump_run_entry_condition in a single line using pandas operations
+        #TODO: convert this to simulation code
+        post_pump_run_entry_condition = m.MV(
+            value=(
+                (df_learn[property_sources['temp_flow_ch_set__degC']].shift(1, fill_value=0) > 0.5) &
+                (df_learn[property_sources['temp_flow_ch_set__degC']] == 0)
+            ).astype(int).values,
+            name='post_pump_run_entry_condition'
+            )
+        post_pump_run_entry_condition.STATUS = 0  # No optimization
+        post_pump_run_entry_condition.FSTATUS = 1 # Use the measured values
+
+        # Start post pump run timer (by calculating exporation time) whenever heat demand ends
+        m.Equation(
+            post_pump_run_expiration__s.dt() == m.if3(
+                post_pump_run_entry_condition,
+                current_time + post_pump_run_duration__s,           # Start expiration timer
+                0                                                   # Else: retain current expiration time
+            )
+        )
+
+        timer_not_expired_condition = current_time - post_pump_run_expiration__s
+        # Update in_post_pump_run_condition
+        m.Equation(
+            in_post_pump_run_condition == m.if3(
+                timer_not_expired_condition,                 # Timer not expired
+                TRUE,                                        # Active
+                FALSE                                        # Inactive
+            )
+        )
+        
+        ##################################################################################################################
+        # Fan speed definitions 
+        ##################################################################################################################
+        
+        # Conditional fan speed gain based on flow error threshold, with an enforced maximum
+        fan_rotations_gain__pct_min_1 = m.Intermediate(
+            m.min2(
+                error_temp_delta_flow_flowset__K / error_threshold_temp_delta_flow_flowset__K * fan_rotations_max_gain__pct_min_1, 
+                fan_rotations_max_gain__pct_min_1  # max gain
+            ),
+            name='fan_rotations_gain__pct_min_1'
+        )
+        m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
+        
+        # Override calculated fan speeds with 0 if in cooldown or when temp_flow_ch_set__degC is set to 0 
+        m.Equation(
+            fan_speed__pct == m.if3(
+                no_heat_demand_condition,     # Condition: temp_flow_ch_set__degC == 0 (< 0.5)
+                0,                            # Action: set fan speed to 0
+                m.if3(                        # Else:
+                    cooldown_condition,            # Condition: cooldown_condition == True
+                    0,                             # Action: set fan speed also to 0
+                    fan_speed__pct                 # Else: Keep the calculated fan speed
+                )
+            )
+        )
+        
+        ##################################################################################################################
+        # Pump speed definitions 
+        ##################################################################################################################
+
+        # Conditional pump speed gain based on error threshold, with en enforced maximum
+        flow_dstr_pump_speed_gain__pct_min_1 = m.Intermediate(
+            m.min2(
+                error_temp_delta_flow_ret__K / error_threshold_temp_delta_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1,
+                flow_dstr_pump_speed_max_gain__pct_min_1 # max gain
+            ),
+            name='flow_dstr_pump_speed_gain__pct_min_1'
+        )
+        m.Equation(flow_dstr_pump_speed__pct.dt() == flow_dstr_pump_speed_gain__pct_min_1)
+        
+        m.Equation(
+            flow_dstr_pump_speed__pct == m.if3(
+                cooldown_condition,          # Condition: cooldown_condition == True
+                100,                         # Action: set pump speed to 100
+                m.if3(                       # Else:
+                    in_post_pump_run_condition, # Condition: in_post_pump_run_condition == True
+                    post_pump_speed__pct,       # Action:  use building-specific post-pump speed
+                    m.if3(                      # Else:
+                        no_heat_demand_condition,      # Condition: temp_flow_ch_set__degC == 0 (< 0.5)
+                        0,                             # Action: set pump speed set to 0
+                        flow_dstr_pump_speed__pct      # Else: retain the current pump speed
+                    )
+                )
+            )
+        )
+
+        ##################################################################################################################
+        # Heat gains from the heat generation syste(s)
+        ##################################################################################################################
+    
+        # Calculate g25_3_use_boiler_lhv__kW based on fan_speed__pct
+        g25_3_use_boiler_lhv__kW = m.Var(value=0, name='g25_3_use_boiler_lhv__kW')
+        m.Equation(g25_3_use_boiler_lhv__kW == 
+                   Qnh_min_lhv__kW +
+                   fan_speed__pct / 100 * (Qnh_max_lhv__kW - Qnh_min_lhv__kW))
+
+        # Calculate gas_load__pct
+        gas_load__pct = m.Var(value=0, name='gas_load__pct')
+        m.Equation(gas_load__pct == 
+                100 * g25_3_use_boiler_lhv__kW / Qnh_max_lhv__kW)
+
+        # Gas calorific conversion factor
+        gas_std_hhv__J_m_3 = m.MV(
+            value=df_learn[property_sources['gas_std_hhv__J_m_3']].astype('float32').values,
+            name='gas_std_hhv__J_m_3'
+            )
+        gas_std_hhv__J_m_3.STATUS = 0  # No optimization
+        gas_std_hhv__J_m_3.FSTATUS = 1 # Use the measured values
+
+        gas_calorific_factor_g25_3_lhv_to_actual_hhv__J0 = m.Intermediate(
+            gas_std_hhv__J_m_3 / gas_g25_3_ref_lhv__J_m_3,
+            name='gas_calorific_factor_g25_3_lhv_to_actual_hhv__J0'
+        )
+
+        # Gas pressure conversion factor
+        air_outdoor__Pa = m.MV(
+            value=df_learn[property_sources['air_outdoor__Pa']].astype('float32').values,
+            name='air_outdoor__Pa'
+            )
+        air_outdoor__Pa.STATUS = 0  # No optimization
+        air_outdoor__Pa.FSTATUS = 1 # Use the measured values
+
+        gas_pressure_factor_ref_to_actual__J0 = m.Intermediate(
+            (air_outdoor__Pa + overpressure_gas_nl_avg__Pa) / 
+            (P_std__Pa + overpressure_gas_nl_avg__Pa),
+            name='gas_pressure_factor_ref_to_actual__J0'
+        )
+
+        # Gas temperature conversion factor
+        gas_temp_factor_ref_to_actual__J0 = m.Intermediate(
+            temp_gas_ref__K / temp_gas_nl_avg__K,
+            name='gas_temp_factor_ref_to_actual__J0'
+        )
+
+        # Boiler gas input power at actual conditions
+        g_use_ch_hhv__W = m.Var(value=0, name='g_use_ch_hhv__W')
+        m.Equation(g_use_ch_hhv__W == g25_3_use_boiler_lhv__kW * 1e3 * 
+                gas_calorific_factor_g25_3_lhv_to_actual_hhv__J0 * 
+                gas_pressure_factor_ref_to_actual__J0 * 
+                gas_temp_factor_ref_to_actual__J0)
+
+        # Boiler efficiency central heating
+        eta_ch_hhv__W0 = m.Var(value=0, name='eta_ch_hhv__W0')
+        m.Equation(eta_ch_hhv__W0 == boiler_efficiency_hhv(gas_load__pct, temp_ret_ch__degC))
+
+        heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0, name='heat_g_ch__W')
+
+        # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
+        e_use_ch__W = 0
+        cop_ch__W0 = 1.0
+        heat_e_ch__W = e_use_ch__W * cop_ch__W0
+        
+        # Final heat gain from central heating
+        heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
+
+        energy_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='energy_ch__W')
+            
+        ##################################################################################################################
+        # Heat gains from heat distribution system
+        ##################################################################################################################
+        
+        # Use learned parameters
+        heat_tr_dstr__W_K_1 =  m.Param(value=bldng_data['learned_heat_tr_dstr__W_K_1'])
+        th_mass_dstr__Wh_K_1 =  m.Param(value=bldng_data['learned_th_mass_dstr__Wh_K_1'])
+
+        # Define equations for the dynamic heat distribution model
+        heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC))
+        th_mass_dstr__J_K_1 = m.Intermediate(th_mass_dstr__Wh_K_1 * s_h_1)
+        m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / th_mass_dstr__J_K_1)
+    
+        ##################################################################################################################
+        # Solar heat gains
+        ##################################################################################################################
+    
+        if learn_params is None:
+            # Simulation mode: use the value from bldng_data
+            aperture_sol__m2 = m.Param(value=bldng_data['learned_aperture_sol__m2'])
+        else:
+            # Learning mode: decide based on presence in learn_params
+            if 'aperture_sol__m2' in learn_params:
+                aperture_sol__m2 = m.FV(value=param_hints['aperture_sol__m2'], lb=1, ub=100)
+                aperture_sol__m2.STATUS = 1  # Allow optimization
+                aperture_sol__m2.FSTATUS = 1 # Use the initial value as a hint for the solver
+            else:
+                aperture_sol__m2 = m.Param(value=param_hints['aperture_sol__m2'])
+    
+        sol_ghi__W_m_2 = m.MV(value=df_learn[property_sources['sol_ghi__W_m_2']].astype('float32').values)
+        sol_ghi__W_m_2.STATUS = 0  # No optimization
+        sol_ghi__W_m_2.FSTATUS = 1 # Use the measured values
+    
+        heat_sol__W = m.Intermediate(sol_ghi__W_m_2 * aperture_sol__m2)
+    
+        ##################################################################################################################
+        ## Internal heat gains ##
+        ##################################################################################################################
+
+        # Heat gains from domestic hot water
+
+        g_use_dhw_hhv__W = m.MV(value = df_learn[property_sources['g_use_dhw_hhv__W']].astype('float32').values)
+        g_use_dhw_hhv__W.STATUS = 0  # No optimization 
+        g_use_dhw_hhv__W.FSTATUS = 1 # Use the measured values
+        heat_g_dhw__W = m.Intermediate(g_use_dhw_hhv__W * param_hints['eta_dhw_hhv__W0'] * param_hints['frac_remain_dhw__0'])
+
+        # Heat gains from cooking
+        heat_g_cooking__W = m.Param(param_hints['g_use_cooking_hhv__W'] * param_hints['eta_cooking_hhv__W0'] * param_hints['frac_remain_cooking__0'])
+
+        # Heat gains from electricity
+        # we assume all electricity is used indoors and turned into heat
+        heat_e__W = m.MV(value = df_learn[property_sources['e__W']].astype('float32').values)
+        heat_e__W.STATUS = 0  # No optimization
+        heat_e__W.FSTATUS = 1 # Use the measured values
+
+        # Heat gains from occupants
+        occupancy__p = m.MV(value = df_learn[property_sources['occupancy__p']].astype('float32').values)
+        occupancy__p.STATUS = 0  # No optimization
+        occupancy__p.FSTATUS = 1 # Use the measured values
+        heat_int_occupancy__W = m.Intermediate(occupancy__p * param_hints['heat_int__W_p_1'])
+
+        # Sum of all 'internal' heat gains 
+        heat_int__W = m.Intermediate(heat_g_dhw__W + heat_g_cooking__W + heat_e__W + heat_int_occupancy__W)
+        
+        ##################################################################################################################
+        # Conductive heat losses
+        ##################################################################################################################
+    
+        if learn_params is None:
+            # Simulation mode: use the value from bldng_data
+            heat_tr_bldng_cond__W_K_1 = m.Param(value=bldng_data['learned_heat_tr_bldng_cond__W_K_1'])
+        else:
+            # Learning mode: decide based on presence in learn_params
+            if 'heat_tr_bldng_cond__W_K_1' in learn_params:
+                heat_tr_bldng_cond__W_K_1 = m.FV(value=param_hints['heat_tr_bldng_cond__W_K_1'], lb=0, ub=1000)
+                heat_tr_bldng_cond__W_K_1.STATUS = 1  # Allow optimization
+                heat_tr_bldng_cond__W_K_1.FSTATUS = 1 # Use the initial value as a hint for the solver
+            else:
+                heat_tr_bldng_cond__W_K_1 = param_hints['heat_tr_bldng_cond__W_K_1']
+    
+        temp_outdoor__degC = m.MV(value=df_learn[property_sources['temp_outdoor__degC']].astype('float32').values)
+        temp_outdoor__degC.STATUS = 0  # No optimization
+        temp_outdoor__degC.FSTATUS = 1 # Use the measured values
+    
+        indoor_outdoor_delta__K = m.Intermediate(temp_indoor__degC - temp_outdoor__degC)
+    
+        heat_loss_bldng_cond__W = m.Intermediate(heat_tr_bldng_cond__W_K_1 * indoor_outdoor_delta__K)
+    
+        ##################################################################################################################
+        # Infiltration and ventilation heat losses
+        ##################################################################################################################
+    
+        wind__m_s_1 = m.MV(value=df_learn[property_sources['wind__m_s_1']].astype('float32').values)
+        wind__m_s_1.STATUS = 0  # No optimization
+        wind__m_s_1.FSTATUS = 1 # Use the measured values
+    
+        if learn_params is None:
+            # Simulation mode: use the value from bldng_data
+            aperture_inf__cm2 = m.Param(value=bldng_data['learned_aperture_inf__cm2'])
+        else:
+            # Learning mode: decide based on presence in learn_params
+            if 'aperture_inf__cm2' in learn_params:
+                aperture_inf__cm2 = m.FV(value=param_hints['aperture_inf__cm2'], lb=0, ub=100000.0)
+                aperture_inf__cm2.STATUS = 1  # Allow optimization
+                aperture_inf__cm2.FSTATUS = 1 # Use the initial value as a hint for the solver
+            else:
+                aperture_inf__cm2 = m.Param(value=param_hints['aperture_inf__cm2'])
+    
+        air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2)
+        heat_tr_bldng_inf__W_K_1 = m.Intermediate(air_inf__m3_s_1 * air_room__J_m_3_K_1)
+        heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * indoor_outdoor_delta__K)
+    
+        if learn_params is None or (property_sources['ventilation__dm3_s_1'] in df_learn.columns and df_learn[property_sources['ventilation__dm3_s_1']].notna().all()):
+            ventilation__dm3_s_1 = m.MV(value=df_learn[property_sources['ventilation__dm3_s_1']].astype('float32').values)
+            ventilation__dm3_s_1.STATUS = 0  # No optimization
+            ventilation__dm3_s_1.FSTATUS = 1  # Use the measured values
+            
+            air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3))
+            heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1)
+            heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * indoor_outdoor_delta__K)
+        else:
+            heat_tr_bldng_vent__W_K_1 = 0
+            heat_loss_bldng_vent__W = 0
+
+        ##################################################################################################################
+        ## Thermal inertia ##
+        ##################################################################################################################
+                    
+        if learn_params is None:
+            # Simulation mode: use the value from bldng_data
+            th_inert_bldng__h = m.Param(value=bldng_data['learned_th_inert_bldng__h'])
+        else:
+            # Learning mode: decide based on presence in learn_params
+            if 'th_inert_bldng__h' in learn_params:
+                # Learn thermal inertia
+                th_inert_bldng__h = m.FV(value = param_hints['th_inert_bldng__h'], lb=(10), ub=(1000))
+                th_inert_bldng__h.STATUS = 1  # Allow optimization
+                th_inert_bldng__h.FSTATUS = 1 # Use the initial value as a hint for the solver
+            else:
+                # Do not learn thermal inertia of the building, but use a fixed value based on hint
+                th_inert_bldng__h = m.Param(value = param_hints['th_inert_bldng__h'])
+                # TO DO: check whether we indeed can remove the line below
+                # learned_th_inert_bldng__h = np.nan
+        
+        ##################################################################################################################
+        ### Heat balance ###
+        ##################################################################################################################
+
+        heat_gain_bldng__W = m.Intermediate(heat_dstr__W + heat_sol__W + heat_int__W)
+        heat_loss_bldng__W = m.Intermediate(heat_loss_bldng_cond__W + heat_loss_bldng_inf__W + heat_loss_bldng_vent__W)
+        heat_tr_bldng__W_K_1 = m.Intermediate(heat_tr_bldng_cond__W_K_1 + heat_tr_bldng_inf__W_K_1 + heat_tr_bldng_vent__W_K_1)
+        th_mass_bldng__Wh_K_1  = m.Intermediate(heat_tr_bldng__W_K_1 * th_inert_bldng__h) 
+        m.Equation(temp_indoor__degC.dt() == ((heat_gain_bldng__W - heat_loss_bldng__W)  / (th_mass_bldng__Wh_K_1 * s_h_1)))
+
+    
+        ##################################################################################################################
+        # Solve the model to start the simulation process
+        ##################################################################################################################
+        m.options.IMODE = 4        # Do not learn, but only simulate using learned parameters passed via bldng_data
+        m.options.EV_TYPE = 2      # RMSE
+        m.solve(disp=False)
+
+        ##################################################################################################################
+        # Store results of the simulation process
+        ##################################################################################################################
+        
+
+        # Initialize a DataFrame for learned time-varying properties
+        df_predicted_properties = pd.DataFrame(index=df_learn.index)
+        
+        # Initialize a DataFrame for used parameters (single row for metadata)
+        df_learned_parameters = pd.DataFrame({         #TO DO: change to df_learned_parameters later if working
+            'id': id, 
+            'start': start,
+            'end': end,
+            'duration': timedelta(seconds=duration__s),
+        }, index=[0])
+
+        for param in learn_params & current_locals.keys():
+            learned_value = current_locals[param].value[0]
+            df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
+            # If actual value exists, compute MAE
+            if actual_params is not None and param in actual_params:
+                df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
+        
+        # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+        current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
+        for prop in (predict_props or set()) & set(current_locals.keys()):
+            predicted_prop = f'predicted_{prop}'
+            df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
+            
+            # If the property was measured, calculate and store MAE and RMSE
+            if prop in property_sources.keys() and property_sources[prop] in df_learn.columns:
+                df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
+                    df_learn[property_sources[prop]],  # Measured values
+                    df_predicted_properties[predicted_prop]  # Predicted values
+                )
+                df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                    df_learn[property_sources[prop]],  # Measured values
+                    df_predicted_properties[predicted_prop]  # Predicted values
+                )
+
+        # Set MultiIndex on the DataFrame (id, start, end)
+        df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
+
+        m.cleanup()
+
+        return df_learned_parameters, df_predicted_properties        
