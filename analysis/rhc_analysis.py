@@ -819,7 +819,7 @@ class Model():
         g_use_ch_hhv__W.STATUS = 0  # No optimization
         g_use_ch_hhv__W.FSTATUS = 1 # Use the measured values
 
-        e_use_ch__W = 0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
+        e_use_ch__W = 0.0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
         energy_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W)
     
         eta_ch_hhv__W0 = m.MV(value=df_learn[property_sources['eta_ch_hhv__W0']].astype('float32').values, name='eta_ch_hhv__W0')
@@ -1033,7 +1033,7 @@ class Model():
         g_use_ch_hhv__W.STATUS = 0  # No optimization
         g_use_ch_hhv__W.FSTATUS = 1 # Use the measured values
 
-        e_use_ch__W = 0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
+        e_use_ch__W = 0.0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
         energy_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='energy_ch__W')
     
         eta_ch_hhv__W0 = m.MV(value=df_learn[property_sources['eta_ch_hhv__W0']].astype('float32').values, name='eta_ch_hhv__W0')
@@ -2460,17 +2460,14 @@ class Simulator():
         m.Equation(current_time.dt() == step__s)            # Increment current_time by step__s seconds
 
         # Define the post-pump run entry condition
-        # Create post_pump_run_entry_condition in a single line using pandas operations
-        #TODO: convert this to simulation code
-        post_pump_run_entry_condition = m.MV(
-            value=(
-                (df_learn[property_sources['temp_flow_ch_set__degC']].shift(1, fill_value=0) > 0.5) &
-                (df_learn[property_sources['temp_flow_ch_set__degC']] == 0)
-            ).astype(int).values,
+        post_pump_run_entry_condition = m.Var(
+            value=0,  # Initial condition
             name='post_pump_run_entry_condition'
-            )
-        post_pump_run_entry_condition.STATUS = 0  # No optimization
-        post_pump_run_entry_condition.FSTATUS = 1 # Use the measured values
+        )
+        temp_flow_ch_set_delayed = m.delay(temp_flow_ch_set__degC, 1)
+        
+        # Logical condition: (delayed > 0.5) & (current == 0)
+        m.Equation(post_pump_run_entry_condition == ( (temp_flow_ch_set_delayed > 0.5) & (temp_flow_ch_set__degC == 0) ))
 
         # Start post pump run timer (by calculating exporation time) whenever heat demand ends
         m.Equation(
@@ -2610,7 +2607,7 @@ class Simulator():
         heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0, name='heat_g_ch__W')
 
         # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
-        e_use_ch__W = 0
+        e_use_ch__W = 0.0
         cop_ch__W0 = 1.0
         heat_e_ch__W = e_use_ch__W * cop_ch__W0
         
