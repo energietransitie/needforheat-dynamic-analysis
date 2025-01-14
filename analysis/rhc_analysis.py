@@ -1526,10 +1526,6 @@ class Model():
                 ##################################################################################################################
                 # Algorithmic control 
                 ##################################################################################################################
-        
-                # GEKKO constants for better code readability 
-                TRUE = 1
-                FALSE = 0
                 
                 ##################################################################################################################
                 # Cooldown mode definitions 
@@ -1541,7 +1537,7 @@ class Model():
                 cooldown_margin_temp_flow__K = overheat_hysteresis__K - overheat_upper_margin_temp_flow__K   # Default cooldown margin in K
 
                 # Cooldown hysteresis: starts at crossing overheating margin, ends at crossing cooldown margin
-                cooldown_condition = m.Var(value=FALSE, name='cooldown_condition')  # Initialize hysteresis state variable
+                cooldown_condition = m.Var(value=0, name='cooldown_condition')  # Initialize hysteresis state variable
 
                 
                 # Define the overheating and cooldown conditions
@@ -1553,10 +1549,10 @@ class Model():
                 m.Equation(
                     cooldown_condition == m.if3(
                         overheat_condition,  # Enter cooldown mode if overheat condition is positive
-                        TRUE,                # Cooldown mode active
+                        1,                   # Cooldown mode active
                         m.if3(
-                            cooldown_exit_condition,  # Exit cooldown mode if this condition is positive
-                            FALSE,                   # Cooldown mode inactive
+                            cooldown_exit_condition, # Exit cooldown mode if this condition is positive
+                            0,                       # Cooldown mode inactive
                             cooldown_condition       # Maintain current state (hysteresis)
                         )
                     )
@@ -1566,43 +1562,47 @@ class Model():
                 # Post-pump run definitions 
                 ##################################################################################################################
 
-                
-                # Define variables
-                in_post_pump_run_condition = m.Var(value=0, integer=True, name='in_post_pump_run_condition')               # Boolean state variable
-                post_pump_run_duration__min = 3                                         # Post pump run duration (in minutes); default to 3 minutes
-                post_pump_run_duration__s = post_pump_run_duration__min * s_min_1       # Convert duration to seconds (add half a minute to make soure counter does not end at 0)
-                post_pump_speed__pct = m.Param(value=bldng_data['post_pump_run__pct'], name='post_pump_speed__pct')  # Post pump run speeds percentage, may be boiler-specific
-                post_pump_run_expiration__s = m.Var(value=0, name='post_pump_run_expiration__s')                            # Expiration time
-                
-                # Create a variable to represent the current simulation time
-                current_time = m.Var(value=0, name='current_time')  # Start at time 0
-                m.Equation(current_time.dt() == step__s)  # Increment current_time by step__s seconds
-
+                # Define post-pump run duration default: 3 minutes
+                post_pump_run_duration__s = 3 * s_min_1
+        
+                # Boolean state for post-pump run condition
+                in_post_pump_run_condition = m.Var(value=0, integer=True, name='in_post_pump_run_condition') 
+        
                 # Define the post-pump run entry condition
-                # Create post_pump_run_entry_condition in a single line using pandas operations
-                post_pump_run_entry_condition = m.MV(value=(
-                    (df_learn[property_sources['temp_flow_ch_set__degC']].shift(1, fill_value=0) > 0.5) &
-                    (df_learn[property_sources['temp_flow_ch_set__degC']] == 0)
-                ).astype(int).values, name='post_pump_run_entry_condition')
-                post_pump_run_entry_condition.STATUS = 0  # No optimization
-                post_pump_run_entry_condition.FSTATUS = 1 # Use the measured values
+                temp_flow_ch_set_delayed = m.delay(temp_flow_ch_set__degC, 1)
+                post_pump_run_entry_condition = m.Var(value=0, name='post_pump_run_entry_condition')
+
+                # Logical condition: (delayed > 0.5) & (current == 0)
+                m.Equation(
+                    post_pump_run_entry_condition == ((temp_flow_ch_set_delayed >= 0.5) & (temp_flow_ch_set__degC == 0))
+                )
+
+                # Create a post-pump run timer
+                post_pump_run_timer = m.Var(value=0, name='post_pump_run_timer')  # Start at time 0
+                m.Equation(post_pump_run_timer.dt() == in_post_pump_run_condition * step__s)  # Increment post_pump_run_timer by step__s seconds
 
                 # Start post pump run timer (by calculating exporation time) whenever heat demand ends
+                post_pump_run_expiration__s = m.Var(value=0, name='post_pump_run_expiration__s') # Expiration time
+                
                 m.Equation(
                     post_pump_run_expiration__s.dt() == m.if3(
                         post_pump_run_entry_condition,
-                        current_time + post_pump_run_duration__s,           # Start expiration timer
+                        post_pump_run_timer + post_pump_run_duration__s,    # Start expiration timer
                         0                                                   # Else: retain current expiration time
                     )
                 )
 
-                timer_not_expired_condition = current_time - post_pump_run_expiration__s
+                timer_not_expired_condition = m.Intermediate(
+                    post_pump_run_timer - post_pump_run_expiration__s,
+                    name='timer_not_expired_condition'
+                )
+                
                 # Update in_post_pump_run_condition
                 m.Equation(
                     in_post_pump_run_condition == m.if3(
-                        timer_not_expired_condition,                 # Timer not expired
-                        TRUE,                                        # Active
-                        FALSE                                        # Inactive
+                        timer_not_expired_condition,             # Timer not expired
+                        1,                                       # Active
+                        0                                        # Inactive
                     )
                 )
 
@@ -2445,46 +2445,48 @@ class Simulator():
         # Post-pump run definitions 
         ##################################################################################################################
         
-        # Define variables
-        in_post_pump_run_condition = m.Var(
-            value=0,
-            integer=True,
-            name='in_post_pump_run_condition'
-            )               # Boolean state variable
-        post_pump_run_duration__min = 3                                                  # Post pump run duration (in minutes); default to 3 minutes
-        post_pump_run_duration__s = post_pump_run_duration__min * s_min_1                # Convert duration to seconds (add half a minute to make soure counter does not end at 0)
-        post_pump_run_expiration__s = m.Var(value=0, name='post_pump_run_expiration__s') # Expiration time
-        
-        # Create a variable to represent the current simulation time
-        current_time = m.Var(value=0, name='current_time')  # Start at time 0
-        m.Equation(current_time.dt() == step__s)            # Increment current_time by step__s seconds
+        # Define post-pump run duration
+        post_pump_run_duration__s = 3 * s_min_1                # Post pump run duration (in minutes); default to 3 minutes
+
+        # Boolean state for post-pump run condition
+        in_post_pump_run_condition = m.Var(value=0, integer=True, name='in_post_pump_run_condition') 
 
         # Define the post-pump run entry condition
-        post_pump_run_entry_condition = m.Var(
-            value=0,  # Initial condition
-            name='post_pump_run_entry_condition'
-        )
         temp_flow_ch_set_delayed = m.delay(temp_flow_ch_set__degC, 1)
-        
+        post_pump_run_entry_condition = m.Var(value=0, name='post_pump_run_entry_condition')
+
         # Logical condition: (delayed > 0.5) & (current == 0)
-        m.Equation(post_pump_run_entry_condition == ( (temp_flow_ch_set_delayed > 0.5) & (temp_flow_ch_set__degC == 0) ))
+        m.Equation(
+            post_pump_run_entry_condition == ((temp_flow_ch_set_delayed >= 0.5) & (temp_flow_ch_set__degC == 0))
+        )
+
+        # Timer variable to track post-pump run duration
+        post_pump_run_timer = m.Var(value=0, name='post_pump_run_timer')
+        
+        # Scale the timer increment by step__s to match the custom time steps
+        m.Equation(post_pump_run_timer.dt() == in_post_pump_run_condition * step__s)
 
         # Start post pump run timer (by calculating exporation time) whenever heat demand ends
+        post_pump_run_expiration__s = m.Var(value=0, name='post_pump_run_expiration__s') # Expiration time
         m.Equation(
             post_pump_run_expiration__s.dt() == m.if3(
                 post_pump_run_entry_condition,
-                current_time + post_pump_run_duration__s,           # Start expiration timer
+                post_pump_run_timer + post_pump_run_duration__s,    # Start expiration timer
                 0                                                   # Else: retain current expiration time
             )
         )
 
-        timer_not_expired_condition = current_time - post_pump_run_expiration__s
+        timer_not_expired_condition = m.Intermediate(
+            post_pump_run_timer - post_pump_run_expiration__s,
+            name='timer_not_expired_condition'
+        )
+        
         # Update in_post_pump_run_condition
         m.Equation(
             in_post_pump_run_condition == m.if3(
-                timer_not_expired_condition,                 # Timer not expired
-                TRUE,                                        # Active
-                FALSE                                        # Inactive
+                timer_not_expired_condition,        # Timer not expired
+                1,                                  # Active
+                0                                   # Inactive
             )
         )
         
