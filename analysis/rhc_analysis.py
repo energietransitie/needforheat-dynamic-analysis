@@ -20,7 +20,6 @@ from pythermalcomfort.models import pmv_ppd
 
 from nfh_utils import *
 
-
 class BoilerEfficiency:
     def __init__(self, file_path):
         """
@@ -886,13 +885,43 @@ class Model():
                                        + df_learn[property_sources['temp_ret_ch__degC']].iloc[0]) / 2, name='temp_dstr__degC')  # Initial guesss
 
         ##################################################################################################################
+        # Pump speed flow ratio (and heat distribution flow resistance if pump head is known)
+        ##################################################################################################################
+
+        # Combined parameter (learned in all cases)
+        pump_speed_flow_ratio__kg_s_1_pct_1 = m.FV(value=0.1, name='pump_speed_flow_ratio__kg_s_1_pct_1')
+        pump_speed_flow_ratio__kg_s_1_pct_1.STATUS = 1  # Allow optimization
+        pump_speed_flow_ratio__kg_s_1_pct_1.FSTATUS = 1 # Use the initial value as a hint for the solver
+        
+        # Optional Calculation of Flow Resistance
+        
+        if not pd.isna(bldng_data['pump_head__m']):
+            # Define pump head as fixed parameter
+            pump_head__m = m.Param(value=bldng_data['pump_head__m'], name='pump_head__m')
+            
+            # Dynamic water density based on return temperature
+            water__kg_dm3 = m.Intermediate(water_density__kg_dm_3(temp_ret_ch__degC, heat_dstr_nl_avg_abs__Pa), name='water_density__kg_dm3')
+            
+            # Compute flow resistance: pump head loss [m] per volumetric flow rate squared [(dm³/s)²] 
+            flow_resistance_dstr__m_dm_6_s2 = m.Intermediate(
+                (water__kg_dm3 * g__m_s_2 * pump_head__m) / (pump_speed_flow_ratio__kg_s_1_pct_1**2),
+                name='flow_resistance_dstr__m_dm_6_s2'
+            )
+
+        # Flow distribution (dynamic state variable)
+        flow_dstr__dm3_s_1 = m.Var(value=1e-3, name='flow_dstr__dm3_s_1', lb=0) # Small nonzero initial value
+        flow_dstr__dm3_s_1.STATUS = 1  # Allow dynamic changes
+        
+        # Dynamic flow rate equation
+        m.Equation(flow_dstr__dm3_s_1.dt() == pump_speed_flow_ratio__kg_s_1_pct_1 * flow_dstr_pump_speed__pct)
+
+        ##################################################################################################################
         # Dynamic model of the heat distribution system
         ##################################################################################################################
         m.Equation(temp_dstr__degC == (temp_flow_ch__degC + temp_ret_ch__degC) / 2)
         heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC), name='heat_dstr__W')
         th_mass_dstr__J_K_1 = m.Intermediate(th_mass_dstr__Wh_K_1 * s_h_1,  name='th_mass_dstr__J_K_1') 
         m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / th_mass_dstr__J_K_1)
-
 
         
         ##################################################################################################################
