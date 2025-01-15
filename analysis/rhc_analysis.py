@@ -814,24 +814,9 @@ class Model():
         ##################################################################################################################
         # Central heating gains
         ##################################################################################################################
-        g_use_ch_hhv__W = m.MV(value=df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values, name='g_use_ch_hhv__W')
-        g_use_ch_hhv__W.STATUS = 0  # No optimization
-        g_use_ch_hhv__W.FSTATUS = 1 # Use the measured values
-
-        e_use_ch__W = 0.0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
-        energy_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W)
-    
-        eta_ch_hhv__W0 = m.MV(value=df_learn[property_sources['eta_ch_hhv__W0']].astype('float32').values, name='eta_ch_hhv__W0')
-        eta_ch_hhv__W0.STATUS = 0  # No optimization
-        eta_ch_hhv__W0.FSTATUS = 1 # Use the measured values
-    
-        heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0, name='heat_g_ch__W')
-
-        # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
-        cop_ch__W0 = 1.0
-        heat_e_ch__W = e_use_ch__W * cop_ch__W0
-        
-        heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
+        heat_ch__W = m.MV(value=df_learn[property_sources['heat_ch__W']].astype('float32').values, name='heat_ch__W')
+        heat_ch__W.STATUS = 0  # No optimization
+        heat_ch__W.FSTATUS = 1 # Use the measured values
     
         ##################################################################################################################
         # Heat distribution system parameters to learn
@@ -888,25 +873,31 @@ class Model():
         # Pump speed flow ratio (and heat distribution flow resistance if pump head is known)
         ##################################################################################################################
 
-        # Combined parameter (learned in all cases)
-        pump_speed_flow_ratio__kg_s_1_pct_1 = m.FV(value=0.1, name='pump_speed_flow_ratio__kg_s_1_pct_1')
-        pump_speed_flow_ratio__kg_s_1_pct_1.STATUS = 1  # Allow optimization
-        pump_speed_flow_ratio__kg_s_1_pct_1.FSTATUS = 1 # Use the initial value as a hint for the solver
-        
-        # Optional Calculation of Flow Resistance
-        
-        if not pd.isna(bldng_data['pump_head__m']):
-            # Define pump head as fixed parameter
-            pump_head__m = m.Param(value=bldng_data['pump_head__m'], name='pump_head__m')
-            
-            # Dynamic water density based on return temperature
-            water__kg_dm3 = m.Intermediate(water_density__kg_dm_3(temp_ret_ch__degC, heat_dstr_nl_avg_abs__Pa), name='water_density__kg_dm3')
-            
-            # Compute flow resistance: pump head loss [m] per volumetric flow rate squared [(dm³/s)²] 
-            flow_resistance_dstr__m_dm_6_s2 = m.Intermediate(
-                (water__kg_dm3 * g__m_s_2 * pump_head__m) / (pump_speed_flow_ratio__kg_s_1_pct_1**2),
-                name='flow_resistance_dstr__m_dm_6_s2'
-            )
+        if learn_params is None:
+            pump_speed_flow_ratio__kg_s_1_pct_1 = m.Param(value=bldng_data['pump_speed_flow_ratio__kg_s_1_pct_1'], name='pump_speed_flow_ratio__kg_s_1_pct_1')
+        else:
+            if 'pump_speed_flow_ratio__kg_s_1_pct_1' in learn_params:
+                # Combined parameter (learned in all cases)
+                pump_speed_flow_ratio__kg_s_1_pct_1 = m.FV(value=param_hints['pump_speed_flow_ratio__kg_s_1_pct_1'], name='pump_speed_flow_ratio__kg_s_1_pct_1')
+                pump_speed_flow_ratio__kg_s_1_pct_1.STATUS = 1  # Allow optimization
+                pump_speed_flow_ratio__kg_s_1_pct_1.FSTATUS = 1 # Use the initial value as a hint for the solver
+                
+                # Optional Calculation of Flow Resistance
+                
+                if not pd.isna(bldng_data['pump_head__m']):
+                    # Define pump head as fixed parameter
+                    pump_head__m = m.Param(value=bldng_data['pump_head__m'], name='pump_head__m')
+                    
+                    # Dynamic water density based on return temperature
+                    water__kg_dm3 = m.Intermediate(water_density__kg_dm_3(temp_ret_ch__degC, heat_dstr_nl_avg_abs__Pa), name='water_density__kg_dm3')
+                    
+                    # Compute flow resistance: pump head loss [m] per volumetric flow rate squared [(dm³/s)²] 
+                    flow_resistance_dstr__m_dm_6_s2 = m.Intermediate(
+                        (water__kg_dm3 * g__m_s_2 * pump_head__m) / (pump_speed_flow_ratio__kg_s_1_pct_1**2),
+                        name='flow_resistance_dstr__m_dm_6_s2'
+                    )
+            else:
+                pump_speed_flow_ratio__kg_s_1_pct_1 = m.Param(value=param_hints['pump_speed_flow_ratio__kg_s_1_pct_1'], name='pump_speed_flow_ratio__kg_s_1_pct_1')
 
         # Flow distribution (dynamic state variable)
         flow_dstr__dm3_s_1 = m.Var(value=1e-3, name='flow_dstr__dm3_s_1', lb=0) # Small nonzero initial value

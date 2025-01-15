@@ -251,6 +251,14 @@ th_mass_dstr_nl_avg__Wh_K_1 = (
     / s_h_1
 )                                                             # thermal mass of the heat distribution system
 
+max_dstr_flow_nl_avg__m3_h_1 = 6.5                            # typical max flow rate at 100% [m³/h]
+
+pump_speed_flow_ratio_nl_avg__kg_s_1_pct_1 = (
+    (max_dstr_flow_nl_avg__m3_h_1 * dm3_m_3 / s_h_1) 
+    * water_density__kg_dm_3(40, heat_dstr_nl_avg_abs__Pa) 
+    / 100
+)                                                             # convert to reasonable initial hint for pump speed ratio
+
 
 # Dutch household related averages
 g_use_cooking_nl_avg__m3_a_1 = 65                             # derived from ISSO 82.3, kookgas aannames, for household_nl_avg__p = 2.2  
