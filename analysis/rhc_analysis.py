@@ -100,14 +100,34 @@ class BoilerEfficiency:
 
         # Define strict interpolator
         def boiler_efficiency_hhv(
-            load__pct = None, 
-            temp_ret__degC = None,
+            load__pct=None,
+            temp_ret__degC=None,
         ):
-            if (load__pct is None or load__pct < min_load__pct or load__pct > max_load__pct or
-                temp_ret__degC is None or temp_ret__degC < min_temp_ret__degC or temp_ret__degC > max_temp_ret__degC):
+            """
+            Calculate the boiler efficiency on a higher heating value (HHV) basis 
+            using an interpolator. 
+            
+            If `load__pct` or `temp_ret__degC` is None, the function returns NaN. 
+            If `load__pct` or `temp_ret__degC` falls outside the defined min and max ranges, 
+            the values are clipped to the nearest bound, and a result is still calculated.
+        
+            Parameters:
+            - load__pct (float): Boiler load as a percentage. Expected range: [min_load__pct, max_load__pct].
+            - temp_ret__degC (float): Return temperature in degrees Celsius. 
+                                      Expected range: [min_temp_ret__degC, max_temp_ret__degC].
+        
+            Returns:
+            - float: The interpolated boiler efficiency (HHV basis) or NaN if inputs are invalid.
+            """
+            if load__pct is None or temp_ret__degC is None:
                 return np.nan
-            # return interpolator(load__pct, temp_ret__degC, grid=False)[0, 0]
-            return interpolator(load__pct, temp_ret__degC, grid=False).item()
+        
+            # Clip values to their respective ranges
+            load__pct_clipped = np.clip(load__pct, min_load__pct, max_load__pct)
+            temp_ret__degC_clipped = np.clip(temp_ret__degC, min_temp_ret__degC, max_temp_ret__degC)
+        
+            # Perform interpolation with clipped values
+            return interpolator(load__pct_clipped, temp_ret__degC_clipped, grid=False).item()
 
         return boiler_efficiency_hhv
 
@@ -701,7 +721,7 @@ class Model():
 
         if m.options.APPSTATUS == 1:
             
-            print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
+            # print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
 
             # Load results
             try:
@@ -712,7 +732,7 @@ class Model():
                     json.dump(results, f, indent=4)
             except AttributeError:
                 results = None
-                print("load_results() not available.")
+                # print("load_results() not available.")
             
             if any(item is not None for item in [learn_params, predict_props]):
                 # Initialize DataFrame for learned thermal parameters (only for learning mode)
@@ -750,26 +770,6 @@ class Model():
                             df_learn[property_sources[prop]],  # Measured values
                             df_predicted_properties[predicted_prop]  # Predicted values
                         )
-                    
-                
-                    # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
-                    for param in (learn_params - (predict_props or set())):
-                        learned_value = results.get(param.lower(), [np.nan])[0]
-                        df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
-                        # If actual value exists, compute MAE
-                        if actual_params is not None and param in actual_params:
-                            df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
-        
-                    # If the property was measured, calculate and store MAE and RMSE
-                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
-                        df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
-                            df_learn[property_sources[prop]],  # Measured values
-                            df_predicted_properties[predicted_prop]  # Predicted values
-                        )
-                        df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
-                            df_learn[property_sources[prop]],  # Measured values
-                            df_predicted_properties[predicted_prop]  # Predicted values
-                        )
             
             if any(item is not None for item in [learn_params, predict_props]):
                 # Set MultiIndex on the DataFrame (id, start, end)
@@ -777,7 +777,7 @@ class Model():
 
         else:
             df_learned_parameters = pd.DataFrame()
-            print(f"NO Solution was found for id {id} from {start} to {end} with duration {duration}")
+            # print(f"NO Solution was found for id {id} from {start} to {end} with duration {duration}")
         
         m.cleanup()
 
