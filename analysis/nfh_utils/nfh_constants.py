@@ -254,13 +254,8 @@ th_mass_dstr_nl_avg__Wh_K_1 = (
     / s_h_1
 )                                                             # thermal mass of the heat distribution system
 
-max_dstr_flow_nl_avg__m3_h_1 = 6.5                            # typical max flow rate at 100% [m³/h]
-
-pump_speed_flow_ratio_nl_avg__kg_s_1_pct_1 = (
-    (max_dstr_flow_nl_avg__m3_h_1 * dm3_m_3 / s_h_1) 
-    * water_density__kg_dm_3(40, heat_dstr_nl_avg_abs__Pa) 
-    / 100
-)                                                             # convert to reasonable initial hint for pump speed ratio
+flow_ch_max__dm3_s_1 = 6.5 * dm3_m_3 / s_h_1                  # maximum flow of 6.5 [m³/h] (Grundfos UPM4 15-75 & 15-60; Wilo Yonos Para MS/6B-PWM1 & MS/78-PWM1)
+flow_dstr_capacity_nl_avg__dm3_s_1 = 0.40                     # typical flow capacity [L/s]
 
 # Global variable for lazy initialization
 poly3_coeffs_dstr_water_density__kg_dm_3 = None

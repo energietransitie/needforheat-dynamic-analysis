@@ -792,6 +792,7 @@ class Model():
         learn_params: Set[str] = {'heat_tr_dstr__W_K_1',
                                   'th_mass_dstr__Wh_K_1',
                                   'th_inert_dstr__h',
+                                  'flow_dstr_capacity__dm3_s_1', 
                                  },
         actual_params: Dict = None,
         predict_props: Set[str] = {'temp_ret_ch__degC',
@@ -876,25 +877,30 @@ class Model():
         ##################################################################################################################
 
         if learn_params is None:
-            pump_speed_flow_ratio__kg_s_1_pct_1 = m.Param(value=bldng_data['pump_speed_flow_ratio__kg_s_1_pct_1'], name='pump_speed_flow_ratio__kg_s_1_pct_1')
+            flow_dstr_capacity__dm3_s_1 = m.Param(value=bldng_data['flow_dstr_capacity__dm3_s_1'], name='flow_dstr_capacity__dm3_s_1')
         else:
-            if 'pump_speed_flow_ratio__kg_s_1_pct_1' in learn_params:
-                # Combined parameter (learned in all cases)
-                pump_speed_flow_ratio__kg_s_1_pct_1 = m.FV(value=param_hints['pump_speed_flow_ratio__kg_s_1_pct_1'], name='pump_speed_flow_ratio__kg_s_1_pct_1')
-                pump_speed_flow_ratio__kg_s_1_pct_1.STATUS = 1  # Allow optimization
-                pump_speed_flow_ratio__kg_s_1_pct_1.FSTATUS = 1 # Use the initial value as a hint for the solver
+            if 'flow_dstr_capacity__dm3_s_1' in learn_params:
+                # Flow distribution capacity
+                flow_dstr_capacity__dm3_s_1 = m.FV(value=param_hints['flow_dstr_capacity__dm3_s_1'], name='flow_dstr_capacity__dm3_s_1')
+                flow_dstr_capacity__dm3_s_1.STATUS = 1  # Allow optimization
+                flow_dstr_capacity__dm3_s_1.FSTATUS = 1 # Use the initial value as a hint for the solver
 
-                flow_dstr_pump_speed__pct = m.MV(value=df_learn[property_sources['flow_dstr_pump_speed__pct']].astype('float32').values, name='flow_dstr_pump_speed__pct')
-                flow_dstr_pump_speed__pct.STATUS = 0  # No optimization
-                flow_dstr_pump_speed__pct.FSTATUS = 1 # Use the measured values
+                # Flow rate in the distribution system
+                flow_dstr__dm3_s_1 = m.MV(value=df_learn[property_sources['flow_dstr__dm3_s_1']].astype('float32').values, name='flow_dstr__dm3_s_1')
+                flow_dstr__dm3_s_1.STATUS = 0  # No optimization
+                flow_dstr__dm3_s_1.FSTATUS = 1 # Use the measured values
+
             else:
-                pump_speed_flow_ratio__kg_s_1_pct_1 = m.Param(value=param_hints['pump_speed_flow_ratio__kg_s_1_pct_1'], name='pump_speed_flow_ratio__kg_s_1_pct_1')
+                flow_dstr_capacity__dm3_s_1 = m.Param(value=param_hints['flow_dstr_capacity__dm3_s_1'], name='flow_dstr_capacity__dm3_s_1')
 
-        # Flow distribution (dynamic state variable)
-        flow_dstr__dm3_s_1 = m.Var(value=1e-3, name='flow_dstr__dm3_s_1', lb=0) # Small nonzero initial value
-        
-        # Dynamic flow rate equation
-        m.Equation(flow_dstr__dm3_s_1.dt() == pump_speed_flow_ratio__kg_s_1_pct_1 * flow_dstr_pump_speed__pct)
+        # Pump speed that drives the flow in the heat distribution system
+        flow_dstr_pump_speed__pct = m.MV(value=df_learn[property_sources['flow_dstr_pump_speed__pct']].astype('float32').values, name='flow_dstr_pump_speed__pct')
+        flow_dstr_pump_speed__pct.STATUS = 0  # No optimization
+        flow_dstr_pump_speed__pct.FSTATUS = 1 # Use the measured values
+
+        # Flow equation
+        m.Equation(flow_dstr__dm3_s_1 == flow_dstr_capacity__dm3_s_1 * flow_dstr_pump_speed__pct/100)
+
 
         ##################################################################################################################
         # Dynamic model of the heat distribution system
@@ -943,12 +949,12 @@ class Model():
             
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
-                if (param == 'flow_dstr_resistance__m_dm_6_s2') and not pd.isna(bldng_data.get('pump_head__m', None)):
+                if (param == 'flow_dstr_resistance__Pa_dm_6_s2') and not pd.isna(bldng_data.get('pump_head__m', None)):
                     # Calculation of Flow Resistance
                     pump_head__m = bldng_data['pump_head__m']
                     avg_water__kg_dm_3 = water_density__kg_dm_3(np.mean(temp_ret_ch__degC.value), heat_dstr_nl_avg_abs__Pa)
                     # Compute flow resistance: pump head loss [m] per volumetric flow rate squared [(dm³/s)²] 
-                    learned_value = (avg_water__kg_dm_3 * g__m_s_2 * pump_head__m) / (pump_speed_flow_ratio__kg_s_1_pct_1.value[0]**2)
+                    learned_value = (avg_water__kg_dm_3 * g__m_s_2 * pump_head__m) / (10 * flow_dstr_capacity__dm3_s_1.value[0]**2)
                 else:
                     learned_value = results.get(param.lower(), [np.nan])[0]
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value

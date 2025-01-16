@@ -36,7 +36,7 @@ from .nfh_utils import (
     floor_single_home_dwelling_nl_avg__m2,
     heat_dstr_nl_avg_abs__Pa,
     heat_tr_dstr_nl_avg__W_K_1, th_mass_dstr_nl_avg__Wh_K_1, 
-    max_dstr_flow_nl_avg__m3_h_1, pump_speed_flow_ratio_nl_avg__kg_s_1_pct_1, 
+    flow_ch_max__dm3_s_1, flow_dstr_capacity_nl_avg__dm3_s_1,
     temp_indoor_heating_season_nl_avg__degC, temp_outdoor_heating_season_nl_avg__degC, delta_temp_heating_season_nl_avg__K,
     P_nl_avg__Pa,
     wind_chill_nl_avg__K_s_m_1, aperture_inf_nl_avg__cm2,
