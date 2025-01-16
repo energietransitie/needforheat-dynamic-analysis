@@ -20,6 +20,8 @@ from pythermalcomfort.models import pmv_ppd
 
 from nfh_utils import *
 
+
+
 class BoilerEfficiency:
     def __init__(self, file_path):
         """
@@ -881,27 +883,15 @@ class Model():
                 pump_speed_flow_ratio__kg_s_1_pct_1 = m.FV(value=param_hints['pump_speed_flow_ratio__kg_s_1_pct_1'], name='pump_speed_flow_ratio__kg_s_1_pct_1')
                 pump_speed_flow_ratio__kg_s_1_pct_1.STATUS = 1  # Allow optimization
                 pump_speed_flow_ratio__kg_s_1_pct_1.FSTATUS = 1 # Use the initial value as a hint for the solver
-                
-                # Optional Calculation of Flow Resistance
-                
-                if not pd.isna(bldng_data['pump_head__m']):
-                    # Define pump head as fixed parameter
-                    pump_head__m = m.Param(value=bldng_data['pump_head__m'], name='pump_head__m')
-                    
-                    # Dynamic water density based on return temperature
-                    water__kg_dm3 = m.Intermediate(water_density__kg_dm_3(temp_ret_ch__degC, heat_dstr_nl_avg_abs__Pa), name='water_density__kg_dm3')
-                    
-                    # Compute flow resistance: pump head loss [m] per volumetric flow rate squared [(dm³/s)²] 
-                    flow_resistance_dstr__m_dm_6_s2 = m.Intermediate(
-                        (water__kg_dm3 * g__m_s_2 * pump_head__m) / (pump_speed_flow_ratio__kg_s_1_pct_1**2),
-                        name='flow_resistance_dstr__m_dm_6_s2'
-                    )
+
+                flow_dstr_pump_speed__pct = m.MV(value=df_learn[property_sources['flow_dstr_pump_speed__pct']].astype('float32').values, name='flow_dstr_pump_speed__pct')
+                flow_dstr_pump_speed__pct.STATUS = 0  # No optimization
+                flow_dstr_pump_speed__pct.FSTATUS = 1 # Use the measured values
             else:
                 pump_speed_flow_ratio__kg_s_1_pct_1 = m.Param(value=param_hints['pump_speed_flow_ratio__kg_s_1_pct_1'], name='pump_speed_flow_ratio__kg_s_1_pct_1')
 
         # Flow distribution (dynamic state variable)
         flow_dstr__dm3_s_1 = m.Var(value=1e-3, name='flow_dstr__dm3_s_1', lb=0) # Small nonzero initial value
-        flow_dstr__dm3_s_1.STATUS = 1  # Allow dynamic changes
         
         # Dynamic flow rate equation
         m.Equation(flow_dstr__dm3_s_1.dt() == pump_speed_flow_ratio__kg_s_1_pct_1 * flow_dstr_pump_speed__pct)
@@ -931,8 +921,6 @@ class Model():
         
         if m.options.APPSTATUS == 1:
             
-            print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
-
             # Load results
             try:
                 results = m.load_results()
@@ -954,46 +942,29 @@ class Model():
                 }, index=[0])
             
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
-            print(f"looping over params: {(learn_params - (predict_props or set()))}")
             for param in (learn_params - (predict_props or set())):
-                learned_value = results.get(param.lower(), [np.nan])[0]
-                print(f"results.get('{param.lower()}'), [np.nan])[0]: {learned_value}")
+                if (param == 'flow_dstr_resistance__m_dm_6_s2') and not pd.isna(bldng_data.get('pump_head__m', None)):
+                    # Calculation of Flow Resistance
+                    pump_head__m = bldng_data['pump_head__m']
+                    avg_water__kg_dm_3 = water_density__kg_dm_3(np.mean(temp_ret_ch__degC.value), heat_dstr_nl_avg_abs__Pa)
+                    # Compute flow resistance: pump head loss [m] per volumetric flow rate squared [(dm³/s)²] 
+                    learned_value = (avg_water__kg_dm_3 * g__m_s_2 * pump_head__m) / (pump_speed_flow_ratio__kg_s_1_pct_1.value[0]**2)
+                else:
+                    learned_value = results.get(param.lower(), [np.nan])[0]
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
                     df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
-    
+
             if predict_props is not None:
                 # Initialize a DataFrame for learned time-varying properties
                 df_predicted_properties = pd.DataFrame(index=df_learn.index)
             
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-                print(f"looping over predict_props: {(predict_props or set())}")
                 for prop in (predict_props or set()):
                     predicted_prop = f'predicted_{prop}'
-                    print(f"predicted_{prop}: results.get('{prop}'.lower(), [np.nan] = {results.get(prop.lower(), [np.nan])}")
                     df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
                     
-                    # If the property was measured, calculate and store MAE and RMSE
-                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
-                        df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
-                            df_learn[property_sources[prop]],  # Measured values
-                            df_predicted_properties[predicted_prop]  # Predicted values
-                        )
-                        df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
-                            df_learn[property_sources[prop]],  # Measured values
-                            df_predicted_properties[predicted_prop]  # Predicted values
-                        )
-                    
-                
-                    # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
-                    for param in (learn_params - (predict_props or set())):
-                        learned_value = results.get(param.lower(), [np.nan])[0]
-                        df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
-                        # If actual value exists, compute MAE
-                        if actual_params is not None and param in actual_params:
-                            df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
-        
                     # If the property was measured, calculate and store MAE and RMSE
                     if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
                         df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
@@ -1011,7 +982,6 @@ class Model():
 
         else:
             df_learned_parameters = pd.DataFrame()
-            print(f"NO Solution was found for id {id} from {start} to {end} with duration {duration}")
         
         m.cleanup()
 
