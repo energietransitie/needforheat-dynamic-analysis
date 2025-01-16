@@ -668,11 +668,11 @@ class Model():
         wind__m_s_1.FSTATUS = 1 # Use the measured values
     
         if 'aperture_inf_vent__cm2' in learn_params:
-            aperture_inf_vent__cm2 = m.FV(value=param_hints['aperture_inf_vent__cm2'], lb=0, ub=100000.0, name='aperture_inf_vent__cm2')
+            aperture_inf_vent__cm2 = m.FV(value=param_hints['aperture_inf__cm2'], lb=0, ub=100000.0, name='aperture_inf_vent__cm2')
             aperture_inf_vent__cm2.STATUS = 1  # Allow optimization
             aperture_inf_vent__cm2.FSTATUS = 1 # Use the initial value as a hint for the solver
         else:
-            aperture_inf_vent__cm2 = m.Param(value=param_hints['aperture_inf_vent__cm2'], name='aperture_inf_vent__cm2')
+            aperture_inf_vent__cm2 = m.Param(value=param_hints['aperture_inf__cm2'], name='aperture_inf_vent__cm2')
 
         air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf_vent__cm2 / cm2_m_2, name='air_inf__m3_s_1')        
         air_changes_inf__s_1 = m.Intermediate(air_inf__m3_s_1 / bldng__m3, name='air_changes_inf__s_1')
