@@ -259,6 +259,31 @@ pump_speed_flow_ratio_nl_avg__kg_s_1_pct_1 = (
     / 100
 )                                                             # convert to reasonable initial hint for pump speed ratio
 
+# Global variable for lazy initialization
+poly3_coeffs_dstr_water_density__kg_dm_3 = None
+
+def get_p3_dstr_water__kg_dm_3():
+    """
+    This function calculates and returns the polynomial coefficients for water density (kg/dm³) vs temperature (°C).
+    It only calculates the coefficients once, on the first call.
+    """
+    global poly3_coeffs_dstr_water_density__kg_dm_3
+
+    # Initialize and compute coefficients if not already done
+    if poly3_coeffs_dstr_water_density__kg_dm_3 is None:
+        # Generate temperature data (20°C to 80°C)
+        temps__degC = np.linspace(20, 80, 100)
+
+        # Compute water densities using CoolProp (kg/m³) and convert to kg/dm³
+        densities_kg_m3 = [PropsSI('D', 'T', T + temp_0__degC__K, 'P', heat_dstr_nl_avg_abs__Pa, 'Water') for T in temps__degC]
+        densities_kg_dm3 = np.array(densities_kg_m3) / 1000  # kg/dm³
+
+        # Fit a 3rd-order polynomial to the data
+        poly3_coeffs_dstr_water_density__kg_dm_3 = np.polyfit(temps__degC, densities_kg_dm3, 3)
+
+    # Return the polynomial coefficients
+    return poly3_coeffs_dstr_water_density__kg_dm_3
+
 
 # Dutch household related averages
 g_use_cooking_nl_avg__m3_a_1 = 65                             # derived from ISSO 82.3, kookgas aannames, for household_nl_avg__p = 2.2  

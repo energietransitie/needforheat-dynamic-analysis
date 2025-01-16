@@ -16,6 +16,7 @@ from .nfh_constants import (
     air_std__J_m_3_K_1, air_room__J_m_3_K_1,
     g__m_s_2,
     water_density__kg_dm_3, water_specific_heat_capacity__J_kg_1_K_1, water_volumetric_heat_capacity__J_dm_3_K_1, 
+    get_p3_dstr_water__kg_dm_3,
     steel__J_kg_1_K_1,
     O2ml_min_1_kg_1_p_1_MET_1, desk_work__MET, sedentary__MET, 
     metabolism__molCO2_molO2_1, adult_weight_nl_avg__kg,
