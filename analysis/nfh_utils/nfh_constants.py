@@ -152,7 +152,10 @@ co2_exhale_sedentary__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
                            )                                  # molar quantity of CO₂ exhaled by a sedentary person [µmol/(p⋅s)]
 
 # Average Dutch occupancy and internal heat gain
-household_nl_avg__p = 2.2                                     # average number of persons per Dutch household
+
+households_nl__0 = 8374404                                    # Source: CBS, 2024: https://opendata.cbs.nl/#/CBS/nl/dataset/71486ned/table?dl=B43AC
+households_nl__p = 17653766                                   # Source: CBS, 2024: https://opendata.cbs.nl/#/CBS/nl/dataset/71488ned/table?dl=B43B1
+household_nl_avg__p = households_nl__p/households_nl__0       # average number of persons per Dutch private household 
 asleep_at_home_nl_avg__h_d_1 = 8.6                            # average hours per day asleep for an average Dutch person (Source: TBO research of SCP)
 awake_at_home_nl_avg__h_d_1 = 7.7                             # average hours per day awake and at home for an average Dutch person (source: TBO research of SCP)
 at_home_nl_avg__h_d_1 = (asleep_at_home_nl_avg__h_d_1
@@ -165,8 +168,8 @@ occupancy_nl_avg__p = (household_nl_avg__p
                       at_home_nl_avg__h_d_1
                       / h_d_1
                      )
-heat_awake_int_nl_avg__W_p_1 = 105
-heat_asleep_int_nl_avg__W_p_1 = 77
+heat_awake_int_nl_avg__W_p_1 = 105                            # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
+heat_asleep_int_nl_avg__W_p_1 = 77                            # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
 
 heat_int_present_nl_avg__W_p_1 = np.average(
     np.array([heat_asleep_int_nl_avg__W_p_1, heat_awake_int_nl_avg__W_p_1]),
