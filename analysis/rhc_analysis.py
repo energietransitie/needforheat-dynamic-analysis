@@ -1017,7 +1017,7 @@ class Model():
         Returns:
         - GEKKO: The updated GEKKO model with added submodel.
         """
-        
+
         bldng__m3 = bldng_data['bldng__m3']
         
         ##################################################################################################################
@@ -1030,7 +1030,6 @@ class Model():
         g_use_ch_hhv__W.FSTATUS = 1 # Use the measured values
 
         e_use_ch__W = 0.0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
-        energy_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='energy_ch__W')
     
         eta_ch_hhv__W0 = m.MV(value=df_learn[property_sources['eta_ch_hhv__W0']].astype('float32').values, name='eta_ch_hhv__W0')
         eta_ch_hhv__W0.STATUS = 0  # No optimization
@@ -1042,6 +1041,10 @@ class Model():
         cop_ch__W0 = 1.0
         heat_e_ch__W = e_use_ch__W * cop_ch__W0
         
+        # Heat generation power input from gas (and electricity)
+        power_input_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='power_input_ch__W')
+
+        # Heating power output to heat distribution system
         heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
     
         if learn_params is None:
@@ -1377,7 +1380,7 @@ class Model():
                 'eta_ch_hhv__W0',
                 'e_use_ch__W',
                 'cop_ch__W0',
-                'energy_ch__W',
+                'power_input_ch__W',
                 'heat_sol__W',
                 'heat_int__W',
                 'heat_dstr__W',
@@ -2514,16 +2517,24 @@ class Simulator():
         # Heat gains from the heat generation system(s)
         ##################################################################################################################
     
-        # Calculate g25_3_use_boiler_lhv__kW based on fan_speed__pct
-        g25_3_use_boiler_lhv__kW = m.Var(value=0, name='g25_3_use_boiler_lhv__kW')
-        m.Equation(g25_3_use_boiler_lhv__kW == 
-                   Qnh_min_lhv__kW +
-                   fan_speed__pct / 100 * (Qnh_max_lhv__kW - Qnh_min_lhv__kW))
+        # Calculate g25_3_use_fan_lhv__W based on fan_speed__pct
+        g25_3_use_fan_lhv__W = m.Var(value=0, name='g25_3_use_fan_lhv__W')
+        m.Equation(g25_3_use_fan_lhv__W == 
+                   (
+                       Qnh_min_lhv__kW +
+                       (fan_speed__pct / 100) * (Qnh_max_lhv__kW - Qnh_min_lhv__kW)
+                   ) * W_kW_1
+                  )
 
-        # Calculate gas_load__pct
-        gas_load__pct = m.Var(value=0, name='gas_load__pct')
-        m.Equation(gas_load__pct == 
-                100 * g25_3_use_boiler_lhv__kW / Qnh_max_lhv__kW)
+        # Calculate g_use_fan_load__pct
+        g_use_fan_load__pct = m.Var(value=0, name='g_use_fan_load__pct')
+        m.Equation(g_use_fan_load__pct == 
+                   (
+                       g25_3_use_fan_lhv__W /
+                       (Qnh_max_lhv__kW * W_kW_1) *
+                       100
+                   )
+                  )
 
         # Gas calorific conversion factor
         gas_std_hhv__J_m_3 = m.MV(
@@ -2560,14 +2571,14 @@ class Simulator():
 
         # Boiler gas input power at actual conditions
         g_use_ch_hhv__W = m.Var(value=0, name='g_use_ch_hhv__W')
-        m.Equation(g_use_ch_hhv__W == g25_3_use_boiler_lhv__kW * 1e3 * 
+        m.Equation(g_use_ch_hhv__W == g25_3_use_fan_lhv__W * 
                 gas_calorific_factor_g25_3_lhv_to_actual_hhv__J0 * 
                 gas_pressure_factor_ref_to_actual__J0 * 
                 gas_temp_factor_ref_to_actual__J0)
 
         # Boiler efficiency central heating
         eta_ch_hhv__W0 = m.Var(value=0, name='eta_ch_hhv__W0')
-        m.Equation(eta_ch_hhv__W0 == boiler_efficiency_hhv(gas_load__pct, temp_ret_ch__degC))
+        m.Equation(eta_ch_hhv__W0 == boiler_efficiency_hhv(g_use_fan_load__pct, temp_ret_ch__degC))
 
         heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0, name='heat_g_ch__W')
 
@@ -2576,10 +2587,11 @@ class Simulator():
         cop_ch__W0 = 1.0
         heat_e_ch__W = e_use_ch__W * cop_ch__W0
         
-        # Final heat gain from central heating
-        heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
+        # Heat generation power input from gas (and electricity)
+        power_input_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='power_input_ch__W')
 
-        energy_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='energy_ch__W')
+        # Heating power output to heat distribution system
+        heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
             
         ##################################################################################################################
         # Heat gains from the heat distribution system

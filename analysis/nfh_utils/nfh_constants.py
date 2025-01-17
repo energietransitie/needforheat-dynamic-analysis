@@ -13,9 +13,9 @@ s_d_1 = constants.day                                         # [s] per [d]
 s_a_1 = constants.year                                        # [s] per [a] 
 
 # Energy conversion factors
-J_kWh_1 = constants.kilo * s_h_1                              # [J] per [kWh]
+W_kW_1 = constants.kilo                                       # [W] per [kW]
+J_kWh_1 = W_kW_1 * s_h_1                                      # [J] per [kWh]
 J_MJ_1 = constants.mega                                       # [J] per [MJ]
-
 # Volumetric conversion factors
 dm3_m_3 = constants.deka**3                                   # [dm^3] per [m^3]
 ml_m_3 = (1/constants.milli) * dm3_m_3                        # [ml] per [m^3]
