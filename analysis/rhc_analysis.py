@@ -890,16 +890,16 @@ class Model():
                 flow_dstr__dm3_s_1.STATUS = 0  # No optimization
                 flow_dstr__dm3_s_1.FSTATUS = 1 # Use the measured values
 
+                # Pump speed that drives the flow in the heat distribution system
+                flow_dstr_pump_speed__pct = m.MV(value=df_learn[property_sources['flow_dstr_pump_speed__pct']].astype('float32').values, name='flow_dstr_pump_speed__pct')
+                flow_dstr_pump_speed__pct.STATUS = 0  # No optimization
+                flow_dstr_pump_speed__pct.FSTATUS = 1 # Use the measured values
+        
+                # Flow equation
+                m.Equation(flow_dstr__dm3_s_1 == flow_dstr_capacity__dm3_s_1 * flow_dstr_pump_speed__pct/100)
             else:
                 flow_dstr_capacity__dm3_s_1 = m.Param(value=param_hints['flow_dstr_capacity__dm3_s_1'], name='flow_dstr_capacity__dm3_s_1')
 
-        # Pump speed that drives the flow in the heat distribution system
-        flow_dstr_pump_speed__pct = m.MV(value=df_learn[property_sources['flow_dstr_pump_speed__pct']].astype('float32').values, name='flow_dstr_pump_speed__pct')
-        flow_dstr_pump_speed__pct.STATUS = 0  # No optimization
-        flow_dstr_pump_speed__pct.FSTATUS = 1 # Use the measured values
-
-        # Flow equation
-        m.Equation(flow_dstr__dm3_s_1 == flow_dstr_capacity__dm3_s_1 * flow_dstr_pump_speed__pct/100)
 
 
         ##################################################################################################################
