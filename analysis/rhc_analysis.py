@@ -1514,6 +1514,21 @@ class Model():
                 results = None
                 print("load_results() not available.")
             
+            sim_arrays_mean = [
+                'g_use_ch_hhv__W',
+                'eta_ch_hhv__W0',
+                'e_use_ch__W',
+                'cop_ch__W0',
+                'power_input_ch__W',
+                'heat_sol__W',
+                'heat_int__W',
+                'heat_dstr__W',
+                'heat_loss_bldng_cond__W', 
+                'heat_loss_bldng_inf__W', 
+                'heat_loss_bldng_vent__W',
+                'indoor_outdoor_delta__K'
+            ]
+    
             if any(item is not None for item in [learn_params, predict_props, properties_mean, sim_arrays_mean]):
                 # Initialize DataFrame for learned thermal parameters (only for learning mode)
                 df_learned_parameters = pd.DataFrame({
@@ -1562,21 +1577,6 @@ class Model():
                         temp_column = df_learn[property_sources[prop]]  # Use column directly
             
                     df_learned_parameters.loc[0, result_col] = temp_column.mean()
-    
-            sim_arrays_mean = [
-                'g_use_ch_hhv__W',
-                'eta_ch_hhv__W0',
-                'e_use_ch__W',
-                'cop_ch__W0',
-                'power_input_ch__W',
-                'heat_sol__W',
-                'heat_int__W',
-                'heat_dstr__W',
-                'heat_loss_bldng_cond__W', 
-                'heat_loss_bldng_inf__W', 
-                'heat_loss_bldng_vent__W',
-                'indoor_outdoor_delta__K'
-            ]
     
             current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
             for var in sim_arrays_mean:
