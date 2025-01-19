@@ -1492,11 +1492,11 @@ class Model():
         if max_iter is not None:   # retrict if needed to avoid waiting an eternity for unsolvable learning scenarios
             m.options.MAX_ITER = max_iter
             print(f"Solving restricted to at most {max_iter} iterations")
-        print(f"Start learning building model parameters for id {id} from {start} to {end} with duration {duration}")
+        # print(f"Start learning building model parameters for id {id} from {start} to {end} with duration {duration}")
         m.solve(disp=False)
 
         if m.options.APPSTATUS == 1:
-            print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
+            # print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
             
             ##################################################################################################################
             # Store results of the learning process
@@ -1933,7 +1933,7 @@ class Model():
         
         if m.options.APPSTATUS == 1:
             
-            print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
+            # print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
 
             # Load results
             try:
@@ -1944,7 +1944,7 @@ class Model():
                     json.dump(results, f, indent=4)
             except AttributeError:
                 results = None
-                print("load_results() not available.")
+                # print("load_results() not available.")
             
             if any(item is not None for item in [learn_params, predict_props]):
                 # Initialize DataFrame for learned thermal parameters (only for learning mode)
@@ -2159,7 +2159,7 @@ class Model():
         
         if m.options.APPSTATUS == 1:
             
-            print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
+            # print(f"A solution was found for id {id} from {start} to {end} with duration {duration}")
 
             # Load results
             try:
