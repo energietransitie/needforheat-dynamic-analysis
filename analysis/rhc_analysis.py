@@ -1509,7 +1509,7 @@ class Model():
                 filename = 'gekko_results_building.json'
                 with open(filename, 'w') as f:
                     json.dump(results, f, indent=4)
-                print(f"Loaded results saved to {filename}")
+                # print(f"Loaded results saved to {filename}")
             except AttributeError:
                 results = None
                 print("load_results() not available.")
