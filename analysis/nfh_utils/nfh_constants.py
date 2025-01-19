@@ -134,7 +134,7 @@ co2_outdoor_eu_avg_2022__ppm = 415                            # Yearly average C
 # Metabolic conversion factors
 O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
 desk_work__MET = 1.5                                          # Metabolic Equivalent of Task [MET] for desk work
-sedentary__MET = 1.2                                          # Metabolic Equivalent of Task [MET] for sedentary activities according to NEN-EN 1521:2007
+sedentary__MET = 1.2                                          # Metabolic Equivalent of Task [MET] for sedentary activities according to NEN-EN 15251:2007
 metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
 adult_weight_nl_avg__kg = 77.5                                # average weight of Dutch adult [kg]
 O2umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
