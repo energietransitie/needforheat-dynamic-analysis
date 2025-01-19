@@ -756,9 +756,10 @@ class Model():
                 df_predicted_properties = pd.DataFrame(index=df_learn.index)
             
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-                for prop in (predict_props or set()):
+                current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
+                for prop in (predict_props or set()) & set(current_locals.keys()):
                     predicted_prop = f'predicted_{prop}'
-                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
+                    df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
                     
                     # If the property was measured, calculate and store MAE and RMSE
                     if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
@@ -967,10 +968,11 @@ class Model():
                 df_predicted_properties = pd.DataFrame(index=df_learn.index)
             
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-                for prop in (predict_props or set()):
+                current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
+                for prop in (predict_props or set()) & set(current_locals.keys()):
                     predicted_prop = f'predicted_{prop}'
-                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
-                    
+                    df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
+            
                     # If the property was measured, calculate and store MAE and RMSE
                     if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
                         df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
@@ -1551,10 +1553,11 @@ class Model():
                 df_predicted_properties = pd.DataFrame(index=df_learn.index)
             
                 # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-                for prop in (predict_props or set()):
+                current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
+                for prop in (predict_props or set()) & set(current_locals.keys()):
                     predicted_prop = f'predicted_{prop}'
-                    df_predicted_properties.loc[:,predicted_prop] = results.get(prop.lower(), [np.nan])
-                    
+                    df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
+            
                     # If the property was measured, calculate and store MAE and RMSE
                     if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
                         df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
