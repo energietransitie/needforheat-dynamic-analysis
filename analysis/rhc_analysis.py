@@ -760,6 +760,22 @@ class Model():
                 for prop in (predict_props or set()) & set(current_locals.keys()):
                     predicted_prop = f'predicted_{prop}'
                     df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
+
+
+                    ##### additional debug 
+                    # Count rows in df_results_per_period where all values in the subset of columns are non-NaN
+                    valid_source_rows = array_length = len(np.asarray(current_locals[prop].value))
+                    
+                    # Count non-NaN values in the target column of df_predicted_properties
+                    non_nan_target_values = df_predicted_properties[predicted_prop].notna().sum()
+                    
+                    # Compare the counts
+                    if valid_source_rows == non_nan_target_values:
+                        print("Counts match: Target non-NaN values correspond to valid source rows.")
+                    else:
+                        print("Counts do not match:")
+                        print(f"Valid source rows: {valid_source_rows}, Target non-NaN values: {non_nan_target_values}")
+                    #####
                     
                     # If the property was measured, calculate and store MAE and RMSE
                     if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
@@ -955,9 +971,149 @@ class Model():
                     pump_head__m = bldng_data['pump_head__m']
                     avg_water__kg_dm_3 = water_density__kg_dm_3(np.mean(temp_ret_ch__degC.value), heat_dstr_nl_avg_abs__Pa)
                     # Compute flow resistance: pump head loss [m] per volumetric flow rate squared [(dm³/s)²] 
-                    learned_value = (avg_water__kg_dm_3 * g__m_s_2 * pump_head__m) / (10 * flow_dstr_capacity__dm3_s_1.value[0]**2)
+                    learned_value = (avg_water__kg_dm_3 * g__m_s_2 * pump_head__m) / (flow_dstr_capacity__dm3_s_1.value[0]**2 / dm3_m3)
                 else:
                     learned_value = results.get(param.lower(), [np.nan])[0]
+                df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
+                # If actual value exists, compute MAE
+                if actual_params is not None and param in actual_params:
+                    df_learned_parameters.loc[0, f'mae_{param}'] = abs(learned_value - actual_params[param])
+
+            if predict_props is not None:
+                # Initialize a DataFrame for learned time-varying properties
+                df_predicted_properties = pd.DataFrame(index=df_learn.index)
+            
+                # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+                current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
+                for prop in (predict_props or set()) & set(current_locals.keys()):
+                    predicted_prop = f'predicted_{prop}'
+                    df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
+            
+                    # If the property was measured, calculate and store MAE and RMSE
+                    if prop in property_sources.keys() and property_sources[prop] in set(df_learn.columns):
+                        df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+                        df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                            df_learn[property_sources[prop]],  # Measured values
+                            df_predicted_properties[predicted_prop]  # Predicted values
+                        )
+            
+            if any(item is not None for item in [learn_params, predict_props]):
+                # Set MultiIndex on the DataFrame (id, start, end)
+                df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
+
+        else:
+            df_learned_parameters = pd.DataFrame()
+        
+        m.cleanup()
+
+        return df_learned_parameters, df_predicted_properties
+
+    
+    def heat_distribution_flow(
+        df_learn,
+        bldng_data: Dict = None,
+        property_sources: Dict = None,
+        param_hints: Dict = None,
+        learn_params: Set[str] = {
+                                  'flow_dstr_capacity__dm3_s_1', 
+                                 },
+        actual_params: Dict = None,
+        predict_props: Set[str] = None        
+    ) -> Tuple[pd.DataFrame, pd.DataFrame]:
+
+        logging.info(f"learn heat distribution flow for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
+
+        id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
+        duration = timedelta(seconds=duration__s)
+
+        # Extract pump head from building data
+        pump_head__m = bldng_data['pump_head__m']                     # Pump head for this specific building
+        
+        ##################################################################################################################
+        # GEKKO Model - Initialize
+        ##################################################################################################################
+        m = GEKKO(remote=False)
+        
+        # m.time not needed for IMODE=2
+        
+        ##################################################################################################################
+        # Input data for learning
+        ##################################################################################################################
+        flow_dstr__dm3_s_1 = m.MV(value=df_prep['flow_dstr__dm3_s_1'].astype('float32').values, name='flow_dstr__dm3_s_1')
+        flow_dstr__dm3_s_1.STATUS = 0  # No optimization
+        flow_dstr__dm3_s_1.FSTATUS = 1 # Use the measured values
+        
+        flow_dstr_pump_speed__pct = m.MV(value=df_prep[property_sources['flow_dstr_pump_speed__pct']].astype('float32').values, name='flow_dstr_pump_speed__pct')
+        flow_dstr_pump_speed__pct.STATUS = 0  # No optimization
+        flow_dstr_pump_speed__pct.FSTATUS = 1 # Use the measured values
+        
+        ##################################################################################################################
+        # Variables to learn
+        ##################################################################################################################
+        flow_dstr_capacity__dm3_s_1 = m.FV(value=param_hints['flow_dstr_capacity__dm3_s_1'], lb=0.01, ub=10.0, name='flow_dstr_capacity__dm3_s_1')  # Estimated flow at 100%
+        flow_dstr_capacity__dm3_s_1.STATUS = 1  # Allow optimization
+        flow_dstr_capacity__dm3_s_1.FSTATUS = 1 # Use hint
+        
+        flow_dstr_resistance__Pa_dm_6_s2 = m.FV(value=param_hints['flow_dstr_resistance__Pa_dm_6_s2'], lb=0.01, ub=100.0, name='flow_dstr_resistance__Pa_dm_6_s2')  # Flow resistance
+        flow_dstr_resistance__Pa_dm_6_s2.STATUS = 1  # Allow optimization
+        flow_dstr_resistance__Pa_dm_6_s2.FSTATUS = 1 # Use hint
+        
+        flow_dstr_exponent = m.FV(value=1.0, lb=0.5, ub=2.0, name='flow_dstr_exponent')  # Exponent to capture nonlinearity
+        flow_dstr_exponent.STATUS = 1  # Allow optimization
+        flow_dstr_exponent.FSTATUS = 1 # Use hint        
+
+        ##################################################################################################################
+        # Equation to estimate flow
+        ##################################################################################################################
+        # Pump head and flow resistance relationship
+        pump_head__Pa = (water_density__kg_dm_3(20, heat_dstr_nl_avg_abs__Pa) * dm3_m_3 * g__m_s_2 * pump_head__m)
+        
+        # Flow model equation: flow = capacity * (pump_speed / 100) ^ exponent
+        m.Equation(flow_dstr__dm3_s_1 == flow_dstr_capacity__dm3_s_1 * (flow_dstr_pump_speed__pct / 100) ** flow_dstr_exponent)
+        
+        # Optional: Add resistance relationship to check for consistency
+        m.Equation(flow_dstr_resistance__Pa_dm_6_s2 == pump_head__Pa / flow_dstr_capacity__dm3_s_1**2 / ))
+        
+        ##################################################################################################################
+        # Solve the optimization problem
+        ##################################################################################################################
+        m.options.IMODE = 2  # Steady-state optimization
+        m.options.SOLVER = 3  # IPOPT solver
+        
+        m.solve(disp=True)
+
+        ##################################################################################################################
+        # Store results of the learning process
+        ##################################################################################################################
+        
+        if m.options.APPSTATUS == 1:
+            
+            # Load results
+            try:
+                results = m.load_results()
+                # DEBUG Save results to the local directory
+                filename = 'gekko_results_dstr.json'
+                with open(filename, 'w') as f:
+                    json.dump(results, f, indent=4)
+            except AttributeError:
+                results = None
+                print("load_results() not available.")
+            
+            if any(item is not None for item in [learn_params, predict_props]):
+                # Initialize DataFrame for learned thermal parameters (only for learning mode)
+                df_learned_parameters = pd.DataFrame({
+                    'id': id, 
+                    'start': start,
+                    'end': end,
+                    'duration': duration,
+                }, index=[0])
+            
+            # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
+            for param in (learn_params - (predict_props or set())):
+                learned_value = results.get(param.lower(), [np.nan])[0]
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
