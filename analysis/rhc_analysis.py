@@ -633,7 +633,7 @@ class Model():
         duration = timedelta(seconds=duration__s)
         
         bldng__m3 = bldng_data['bldng__m3']
-        floors__m2 = bldng_data['floors__m2']
+        usable_area__m2 = bldng_data['usable_area__m2']
         
         logging.info(f"learn ventilation rate for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
 
@@ -670,7 +670,7 @@ class Model():
         # Ventilation-induced CO₂ concentration loss indoors
         ventilation__dm3_s_1 = m.MV(value=param_hints['ventilation_default__dm3_s_1'],
                                     lb=0.0, 
-                                    ub=param_hints['ventilation_max__dm3_s_1_m_2'] * floors__m2,
+                                    ub=param_hints['ventilation_max__dm3_s_1_m_2'] * usable_area__m2,
                                     name='ventilation__dm3_s_1'
                                    )
         ventilation__dm3_s_1.STATUS = 1  # Allow optimization
@@ -1019,6 +1019,7 @@ class Model():
         param_hints: Dict = None,
         learn_params: Set[str] = {
                                   'flow_dstr_capacity__dm3_s_1', 
+                                  'flow_dstr_resistance__Pa_dm_6_s2'
                                  },
         actual_params: Dict = None,
         predict_props: Set[str] = None        
@@ -1075,7 +1076,7 @@ class Model():
         m.Equation(flow_dstr__dm3_s_1 == flow_dstr_capacity__dm3_s_1 * (flow_dstr_pump_speed__pct / 100) ** flow_dstr_exponent)
         
         # Optional: Add resistance relationship to check for consistency
-        m.Equation(flow_dstr_resistance__Pa_dm_6_s2 == pump_head__Pa / flow_dstr_capacity__dm3_s_1**2 / ))
+        m.Equation(flow_dstr_resistance__Pa_dm_6_s2 == pump_head__Pa / flow_dstr_capacity__dm3_s_1**2)
         
         ##################################################################################################################
         # Solve the optimization problem
@@ -2570,7 +2571,7 @@ class Simulator():
         
         # retrieve building-specific constants
         bldng__m3 = bldng_data['bldng__m3']
-        floors__m2 = bldng_data['floors__m2']
+        usable_area__m2 = bldng_data['usable_area__m2']
 
         # retrieve boiler-specific constants
         thermostat_hysteresis__K = bldng_data['thermostat_hysteresis__K']
@@ -2589,7 +2590,7 @@ class Simulator():
 
         used_params = {
             'bldng__m3',
-            'floors__m2',
+            'usable_area__m2',
             'thermostat_hysteresis__K',
             'fan_max_ch_rotations__min_1',
             'fan_min_ch_rotations__min_1', 
