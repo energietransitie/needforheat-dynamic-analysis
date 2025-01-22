@@ -966,14 +966,7 @@ class Model():
             
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
-                if (param == 'flow_dstr_resistance__Pa_dm_6_s2') and not pd.isna(bldng_data.get('pump_head_max__m', None)):
-                    # Calculation of Flow Resistance
-                    pump_head_max__m = bldng_data['pump_head_max__m']
-                    avg_water__kg_dm_3 = water_density__kg_dm_3(np.mean(temp_ret_ch__degC.value), heat_dstr_nl_avg_abs__Pa)
-                    # Compute flow resistance: pump head loss [m] per volumetric flow rate squared [(dm³/s)²] 
-                    learned_value = (avg_water__kg_dm_3 * g__m_s_2 * pump_head_max__m) / (flow_dstr_capacity__dm3_s_1.value[0]**2 / dm3_m3)
-                else:
-                    learned_value = results.get(param.lower(), [np.nan])[0]
+                learned_value = results.get(param.lower(), [np.nan])[0]
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
                 # If actual value exists, compute MAE
                 if actual_params is not None and param in actual_params:
@@ -1183,9 +1176,9 @@ class Model():
         temp_outdoor__degC.STATUS = 0  # No optimization
         temp_outdoor__degC.FSTATUS = 1 # Use the measured values
     
-        indoor_outdoor_delta__K = m.Intermediate(temp_indoor__degC - temp_outdoor__degC, name='indoor_outdoor_delta__K')
+        delta_t_indoor_outdoor__K = m.Intermediate(temp_indoor__degC - temp_outdoor__degC, name='delta_t_indoor_outdoor__K')
     
-        heat_loss_bldng_cond__W = m.Intermediate(heat_tr_bldng_cond__W_K_1 * indoor_outdoor_delta__K, name='heat_loss_bldng_cond__W')
+        heat_loss_bldng_cond__W = m.Intermediate(heat_tr_bldng_cond__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_cond__W')
     
         ##################################################################################################################
         # Infiltration and ventilation heat losses
@@ -1209,7 +1202,7 @@ class Model():
     
         air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2, name='air_inf__m3_s_1')
         heat_tr_bldng_inf__W_K_1 = m.Intermediate(air_inf__m3_s_1 * air_room__J_m_3_K_1, name='heat_tr_bldng_inf__W_K_1')
-        heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * indoor_outdoor_delta__K, name='heat_loss_bldng_inf__W')
+        heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_inf__W')
     
         if learn_params is None or (property_sources['ventilation__dm3_s_1'] in df_learn.columns and df_learn[property_sources['ventilation__dm3_s_1']].notna().all()):
             ventilation__dm3_s_1 = m.MV(value=df_learn[property_sources['ventilation__dm3_s_1']].astype('float32').values, name='ventilation__dm3_s_1')
@@ -1218,7 +1211,7 @@ class Model():
             
             air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3), name='air_changes_vent__s_1')
             heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1, name='heat_tr_bldng_vent__W_K_1')
-            heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * indoor_outdoor_delta__K, name='heat_loss_bldng_vent__W')
+            heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_vent__W')
         else:
             heat_tr_bldng_vent__W_K_1 = m.Var(0, name='heat_tr_bldng_vent__W_K_1')
             heat_loss_bldng_vent__W = m.Var(0, name='heat_loss_bldng_vent__W')
@@ -1430,9 +1423,9 @@ class Model():
         temp_outdoor__degC.STATUS = 0  # No optimization
         temp_outdoor__degC.FSTATUS = 1 # Use the measured values
     
-        indoor_outdoor_delta__K = m.Intermediate(temp_indoor__degC - temp_outdoor__degC, name='indoor_outdoor_delta__K')
+        delta_t_indoor_outdoor__K = m.Intermediate(temp_indoor__degC - temp_outdoor__degC, name='delta_t_indoor_outdoor__K')
     
-        heat_loss_bldng_cond__W = m.Intermediate(heat_tr_bldng_cond__W_K_1 * indoor_outdoor_delta__K, name='heat_loss_bldng_cond__W')
+        heat_loss_bldng_cond__W = m.Intermediate(heat_tr_bldng_cond__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_cond__W')
     
         ##################################################################################################################
         # Infiltration and ventilation heat losses
@@ -1456,7 +1449,7 @@ class Model():
     
         air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2, name='air_inf__m3_s_1')
         heat_tr_bldng_inf__W_K_1 = m.Intermediate(air_inf__m3_s_1 * air_room__J_m_3_K_1, name='heat_tr_bldng_inf__W_K_1')
-        heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * indoor_outdoor_delta__K, name='heat_loss_bldng_inf__W')
+        heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_inf__W')
     
         if learn_params is None or (property_sources['ventilation__dm3_s_1'] in df_learn.columns and df_learn[property_sources['ventilation__dm3_s_1']].notna().all()):
             ventilation__dm3_s_1 = m.MV(value=df_learn[property_sources['ventilation__dm3_s_1']].astype('float32').values, name='ventilation__dm3_s_1')
@@ -1465,7 +1458,7 @@ class Model():
             
             air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3), name='air_changes_vent__s_1')
             heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1, name='heat_tr_bldng_vent__W_K_1')
-            heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * indoor_outdoor_delta__K, name='heat_loss_bldng_vent__W')
+            heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_vent__W')
         else:
             heat_tr_bldng_vent__W_K_1 = 0
             heat_loss_bldng_vent__W = 0
@@ -1544,7 +1537,7 @@ class Model():
                 'heat_loss_bldng_cond__W', 
                 'heat_loss_bldng_inf__W', 
                 'heat_loss_bldng_vent__W',
-                'indoor_outdoor_delta__K'
+                'delta_t_indoor_outdoor__K'
             ]
     
             if any(item is not None for item in [learn_params, predict_props, properties_mean, sim_arrays_mean]):
@@ -1644,9 +1637,9 @@ class Model():
             property_sources: Dict = None,
             param_hints: Dict = None,
             learn_params: Set[str] = {'fan_rotations_max_gain__pct_min_1',
-                                      'error_threshold_temp_delta_flow_flowset__K',
+                                      'error_threshold_delta_t_flow_flowset__K',
                                       'flow_dstr_pump_speed_max_gain__pct_min_1',
-                                      'error_threshold_temp_delta_flow_ret__K',
+                                      'error_threshold_delta_t_flow_ret__K',
                                      },
             actual_params: Dict = None,
             predict_props: Set[str] = {'fan_speed__pct', 'flow_dstr_pump_speed__pct'},
@@ -1710,13 +1703,13 @@ class Model():
         ##################################################################################################################
 
         # Error between supply temperature and setpoint fo the supply temperature
-        error_temp_delta_flow_flowset__K = m.Var(value=0.0, name='error_temp_delta_flow_flowset__K')  # Initialize with a default value
-        m.Equation(error_temp_delta_flow_flowset__K == temp_flow_ch_set__degC - temp_flow_ch__degC)
+        error_delta_t_flow_flowset__K = m.Var(value=0.0, name='error_delta_t_flow_flowset__K')  # Initialize with a default value
+        m.Equation(error_delta_t_flow_flowset__K == temp_flow_ch_set__degC - temp_flow_ch__degC)
 
         # Error in 'delta-T' (difference between supply and return temperature)
-        desired_temp_delta_flow_ret__K = m.Param(value=bldng_data['desired_temp_delta_flow_ret__K'], name='desired_temp_delta_flow_ret__K') 
-        error_temp_delta_flow_ret__K = m.Var(value=0.0, name='error_temp_delta_flow_ret__K')  # Initialize with a default value
-        m.Equation(error_temp_delta_flow_ret__K == desired_temp_delta_flow_ret__K - (temp_flow_ch__degC - temp_ret_ch__degC))
+        desired_delta_t_flow_ret__K = m.Param(value=bldng_data['desired_delta_t_flow_ret__K'], name='desired_delta_t_flow_ret__K') 
+        error_delta_t_flow_ret__K = m.Var(value=0.0, name='error_delta_t_flow_ret__K')  # Initialize with a default value
+        m.Equation(error_delta_t_flow_ret__K == desired_delta_t_flow_ret__K - (temp_flow_ch__degC - temp_ret_ch__degC))
     
         ##################################################################################################################
         # Control  algorithm 
@@ -1825,7 +1818,7 @@ class Model():
                                                       upper=fan_rotations_max_gain__pct_min_1)
                 
                 m.Equation(fan_rotations_gain__pct_min_1 == 
-                           error_temp_delta_flow_flowset__K / error_threshold_temp_delta_flow_flowset__K * fan_rotations_max_gain__pct_min_1)
+                           error_delta_t_flow_flowset__K / error_threshold_delta_t_flow_flowset__K * fan_rotations_max_gain__pct_min_1)
         
                 m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
                 
@@ -1854,7 +1847,7 @@ class Model():
                 )
                 m.Equation(
                     flow_dstr_pump_speed_gain__pct_min_1 == 
-                    error_temp_delta_flow_ret__K / error_threshold_temp_delta_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1
+                    error_delta_t_flow_ret__K / error_threshold_delta_t_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1
                 )
         
                 m.Equation(flow_dstr_pump_speed__pct.dt() == flow_dstr_pump_speed_gain__pct_min_1)
@@ -1916,18 +1909,18 @@ class Model():
                # PID control equations for fan speed
                 m.Equation(
                     fan_speed__pct.dt() == (
-                        pid_parameters['fan']['p'] * error_temp_delta_flow_flowset__K +                   # Proportional term
-                        pid_parameters['fan']['i'] * m.integral(error_temp_delta_flow_flowset__K) +       # Integral term
-                        pid_parameters['fan']['d'] * error_temp_delta_flow_flowset__K.dt()                # Derivative term
+                        pid_parameters['fan']['p'] * error_delta_t_flow_flowset__K +                   # Proportional term
+                        pid_parameters['fan']['i'] * m.integral(error_delta_t_flow_flowset__K) +       # Integral term
+                        pid_parameters['fan']['d'] * error_delta_t_flow_flowset__K.dt()                # Derivative term
                     )
                 )
 
                 # PID control equations for pump speed
                 m.Equation(
                     flow_dstr_pump_speed__pct.dt() == (
-                        pid_parameters['pump']['p'] * error_temp_delta_flow_ret__K +                      # Proportional term
-                        pid_parameters['pump']['i'] * m.integral(error_temp_delta_flow_ret__K) +          # Integral term
-                        pid_parameters['pump']['d'] * error_temp_delta_flow_ret__K.dt()                   # Derivative term
+                        pid_parameters['pump']['p'] * error_delta_t_flow_ret__K +                      # Proportional term
+                        pid_parameters['pump']['i'] * m.integral(error_delta_t_flow_ret__K) +          # Integral term
+                        pid_parameters['pump']['d'] * error_delta_t_flow_ret__K.dt()                   # Derivative term
                     )
                 )
 
@@ -2088,8 +2081,8 @@ class Model():
         ##################################################################################################################
 
         # Error between thermostat setpoint and indoor temperature
-        error_temp_delta_indoor_set__K  = m.Var(value=0.0, name='error_temp_delta_indoor_set__K')  # Initialize with a default value
-        m.Equation(error_temp_delta_indoor_set__K == temp_set__degC - temp_indoor__degC)
+        error_delta_t_indoor_set__K  = m.Var(value=0.0, name='error_delta_t_indoor_set__K')  # Initialize with a default value
+        m.Equation(error_delta_t_indoor_set__K == temp_set__degC - temp_indoor__degC)
 
         ##################################################################################################################
         # Control  algorithm 
@@ -2151,9 +2144,9 @@ class Model():
                 # PID control equations for flow temperature setpoint 
                 m.Equation(
                     temp_flow_ch_set__degC.dt() == (
-                        pid_parameters['thermostat']['p'] * error_temp_delta_indoor_set__K +              # Proportional term
-                        pid_parameters['thermostat']['i'] * m.integral(error_temp_delta_indoor_set__K) +  # Integral term
-                        pid_parameters['thermostat']['d'] * error_temp_delta_indoor_set__K.dt()           # Derivative term
+                        pid_parameters['thermostat']['p'] * error_delta_t_indoor_set__K +              # Proportional term
+                        pid_parameters['thermostat']['i'] * m.integral(error_delta_t_indoor_set__K) +  # Integral term
+                        pid_parameters['thermostat']['d'] * error_delta_t_indoor_set__K.dt()           # Derivative term
                     )
                 )
 
@@ -2440,12 +2433,12 @@ class Simulator():
         Qnh_min_lhv__kW = bldng_data['Qnh_min_lhv__kW']
         Qnh_max_lhv__kW = bldng_data['Qnh_max_lhv__kW']
         overheat_hysteresis__K = bldng_data['overheat_hysteresis__K']
-        desired_temp_delta_flow_ret__K = bldng_data['desired_temp_delta_flow_ret__K']
+        desired_delta_t_flow_ret__K = bldng_data['desired_delta_t_flow_ret__K']
         
         post_pump_speed__pct = bldng_data['post_pump_run__pct']
-        error_threshold_temp_delta_flow_flowset__K = bldng_data['error_threshold_temp_delta_flow_flowset__K']
+        error_threshold_delta_t_flow_flowset__K = bldng_data['error_threshold_delta_t_flow_flowset__K']
         flow_dstr_pump_speed_max_gain__pct_min_1 = bldng_data['flow_dstr_pump_speed_max_gain__pct_min_1']
-        error_threshold_temp_delta_flow_ret__K = bldng_data['error_threshold_temp_delta_flow_ret__K']
+        error_threshold_delta_t_flow_ret__K = bldng_data['error_threshold_delta_t_flow_ret__K']
 
         used_params = {
             'bldng__m3',
@@ -2456,17 +2449,19 @@ class Simulator():
             'Qnh_min_lhv__kW',
             'Qnh_max_lhv__kW',
             'overheat_hysteresis__K', 
-            'desired_temp_delta_flow_ret__K',
+            'desired_delta_t_flow_ret__K',
             'post_pump_speed__pct',
-            'error_threshold_temp_delta_flow_flowset__K',
+            'error_threshold_delta_t_flow_flowset__K',
             'flow_dstr_pump_speed_max_gain__pct_min_1',
-            'error_threshold_temp_delta_flow_ret__K',
+            'error_threshold_delta_t_flow_ret__K',
             'learned_heat_tr_dstr__W_K_1',
             'learned_th_mass_dstr__Wh_K_1',
             'learned_heat_tr_bldng_cond__W_K_1',
             'learned_th_inert_bldng__h',
             'learned_aperture_sol__m2',
-            'learned_aperture_inf__cm2'
+            'learned_aperture_inf__cm2',
+            'flow_dstr_slope__dm3_s_1_pct_1',
+            'flow_dstr_intercept__dm3_s_1',
         }
 
         ##################################################################################################################
@@ -2507,8 +2502,8 @@ class Simulator():
         ##################################################################################################################
 
         # Error between thermostat setpoint and indoor temperature
-        error_temp_delta_indoor_set__K = m.Var(value=np.float32(0.0), name='error_temp_delta_indoor_set__K')  # Initialize with a default value
-        m.Equation(error_temp_delta_indoor_set__K == temp_set__degC - temp_indoor__degC)
+        error_delta_t_indoor_set__K = m.Var(value=np.float32(0.0), name='error_delta_t_indoor_set__K')  # Initialize with a default value
+        m.Equation(error_delta_t_indoor_set__K == temp_set__degC - temp_indoor__degC)
 
         ##################################################################################################################
         # Algorithmic control; this implements a simple ON/OFF thermostat with hysteresis
@@ -2556,21 +2551,21 @@ class Simulator():
         initial_temp_dstr__degC = (initial_temp_flow_ch__degC + initial_temp_ret_ch__degC) / 2
             
         # Define variables for the dynamic heat distribution model
-        temp_flow_ch__degC = m.Var(value=initial_temp_flow_ch__degC, name='temp_flow_ch__degC')
-        temp_ret_ch__degC = m.Var(value=initial_temp_ret_ch__degC, name='temp_ret_ch__degC')
-        temp_dstr__degC = m.Var(value=initial_temp_dstr__degC, name='temp_dstr__degC')
-
+        temp_flow_ch__degC = m.Var(value=initial_temp_flow_ch__degC, lb=0.0, ub=100.0, name='temp_flow_ch__degC')
+        temp_ret_ch__degC = m.Var(value=initial_temp_ret_ch__degC, lb=0.0, ub=100.0, name='temp_ret_ch__degC')
+        temp_dstr__degC = m.Var(value=initial_temp_dstr__degC, lb=0.0, ub=100.0, name='temp_dstr__degC')
+            
         ##################################################################################################################
         # Control targets: flow temperature and 'delta-T': difference between flow and return temperature
         ##################################################################################################################
 
         # Error between supply temperature and setpoint fo the supply temperature
-        error_temp_delta_flow_flowset__K = m.Var(value=np.float32(0.0), name='error_temp_delta_flow_flowset__K')  # Initialize with a default value
-        m.Equation(error_temp_delta_flow_flowset__K == temp_flow_ch_set__degC - temp_flow_ch__degC)
+        error_delta_t_flow_flowset__K = m.Var(value=np.float32(0.0), name='error_delta_t_flow_flowset__K')  # Initialize with a default value
+        m.Equation(error_delta_t_flow_flowset__K == temp_flow_ch_set__degC - temp_flow_ch__degC)
 
         # Error in 'delta-T' (difference between supply and return temperature)
-        error_temp_delta_flow_ret__K = m.Var(value=np.float32(0.0), name='error_temp_delta_flow_ret__K')  # Initialize with a default value
-        m.Equation(error_temp_delta_flow_ret__K == desired_temp_delta_flow_ret__K - (temp_flow_ch__degC - temp_ret_ch__degC))
+        error_delta_t_flow_ret__K = m.Var(value=np.float32(0.0), name='error_delta_t_flow_ret__K')  # Initialize with a default value
+        m.Equation(error_delta_t_flow_ret__K == desired_delta_t_flow_ret__K - (temp_flow_ch__degC - temp_ret_ch__degC))
     
         ##################################################################################################################
         # Boiler Control algorithm 
@@ -2670,7 +2665,7 @@ class Simulator():
                                               upper=fan_rotations_max_gain__pct_min_1)
         
         m.Equation(fan_rotations_gain__pct_min_1 == 
-                   error_temp_delta_flow_flowset__K / error_threshold_temp_delta_flow_flowset__K * fan_rotations_max_gain__pct_min_1)
+                   error_delta_t_flow_flowset__K / error_threshold_delta_t_flow_flowset__K * fan_rotations_max_gain__pct_min_1)
 
         m.Equation(fan_speed__pct.dt() == fan_rotations_gain__pct_min_1)
         
@@ -2699,7 +2694,7 @@ class Simulator():
         )
         m.Equation(
             flow_dstr_pump_speed_gain__pct_min_1 == 
-            error_temp_delta_flow_ret__K / error_threshold_temp_delta_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1
+            error_delta_t_flow_ret__K / error_threshold_delta_t_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1
         )
 
         m.Equation(flow_dstr_pump_speed__pct.dt() == flow_dstr_pump_speed_gain__pct_min_1)
@@ -2807,15 +2802,22 @@ class Simulator():
         # Use learned parameters
         heat_tr_dstr__W_K_1 =  m.Param(value=bldng_data['learned_heat_tr_dstr__W_K_1'], name='heat_tr_dstr__W_K_1')
         th_mass_dstr__Wh_K_1 =  m.Param(value=bldng_data['learned_th_mass_dstr__Wh_K_1'], name='th_mass_dstr__Wh_K_1')
+        flow_dstr_slope__dm3_s_1_pct_1 =  m.Param(value=bldng_data['flow_dstr_slope__dm3_s_1_pct_1'], name='flow_dstr_slope__dm3_s_1_pct_1')
+        flow_dstr_intercept__dm3_s_1 =  m.Param(value=bldng_data['flow_dstr_intercept__dm3_s_1'], name='flow_dstr_intercept__dm3_s_1')
 
-        # Define equations for the dynamic heat distribution model
+        # Equations for heat distribution flow
+        flow_dstr__dm3_s_1 = m.Intermediate(flow_dstr_intercept__dm3_s_1 + (flow_dstr_pump_speed__pct/100) * flow_dstr_slope__dm3_s_1_pct_1, name='flow_dstr__dm3_s_1')
+        delta_t_flow_ret__K = m.Intermdiate(temp_flow_ch__degC - temp_ret_ch__degC, lb=0.0, name='delta_t_flow_ret__K')
+        # vectorized_water_volumetric_heat_capacity__J_dm_3_K_1 = np.vectorize(water_volumetric_heat_capacity__J_dm_3_K_1)
+        flow_dstr_J_dm_3_K_1= m.Intermdiate(water_volumetric_heat_capacity__J_dm_3_K_1(temp_dstr__degC, heat_dstr_nl_avg_abs__Pa), name='flow_dstr_J_dm_3_K_1')
+        m.Equation(flow_dstr__dm3_s_1 == heat_ch__W / (flow_dstr_J_dm_3_K_1 * delta_t_flow_ret__K))
+
+        # Define equations for heat distribution system
         m.Equation(temp_dstr__degC == (temp_flow_ch__degC + temp_ret_ch__degC) / 2)
         heat_dstr__W = m.Intermediate(heat_tr_dstr__W_K_1 * (temp_dstr__degC - temp_indoor__degC), name='heat_dstr__W')
         th_mass_dstr__J_K_1 = m.Intermediate(th_mass_dstr__Wh_K_1 * s_h_1, name='th_mass_dstr__J_K_1')
         m.Equation(temp_dstr__degC.dt() == (heat_ch__W - heat_dstr__W) / th_mass_dstr__J_K_1)
-
-        #TODO: determine temp_flow_ch__degC and temp_ret_ch__degC based on additional equations
-    
+        
         ##################################################################################################################
         # Solar heat gains
         ##################################################################################################################
@@ -2870,9 +2872,9 @@ class Simulator():
         temp_outdoor__degC.STATUS = 0  # No optimization
         temp_outdoor__degC.FSTATUS = 1 # Use the measured values
     
-        indoor_outdoor_delta__K = m.Intermediate(temp_indoor__degC - temp_outdoor__degC, name='indoor_outdoor_delta__K')
+        delta_t_indoor_outdoor__K = m.Intermediate(temp_indoor__degC - temp_outdoor__degC, name='delta_t_indoor_outdoor__K')
     
-        heat_loss_bldng_cond__W = m.Intermediate(heat_tr_bldng_cond__W_K_1 * indoor_outdoor_delta__K, name='heat_loss_bldng_cond__W')
+        heat_loss_bldng_cond__W = m.Intermediate(heat_tr_bldng_cond__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_cond__W')
     
         ##################################################################################################################
         # Infiltration and ventilation heat losses
@@ -2886,7 +2888,7 @@ class Simulator():
     
         air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2, name='air_inf__m3_s_1')
         heat_tr_bldng_inf__W_K_1 = m.Intermediate(air_inf__m3_s_1 * air_room__J_m_3_K_1, name='heat_tr_bldng_inf__W_K_1')
-        heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * indoor_outdoor_delta__K, name='heat_loss_bldng_inf__W')
+        heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_inf__W')
     
         ventilation__dm3_s_1 = m.MV(value=df_learn[property_sources['ventilation__dm3_s_1']].astype('float32').values, name='ventilation__dm3_s_1')
         ventilation__dm3_s_1.STATUS = 0  # No optimization
@@ -2894,7 +2896,7 @@ class Simulator():
             
         air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3), name='air_changes_vent__s_1')
         heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1, name='heat_tr_bldng_vent__W_K_1')
-        heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * indoor_outdoor_delta__K, name='heat_loss_bldng_vent__W')
+        heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_vent__W')
 
         ##################################################################################################################
         ## Thermal inertia ##
