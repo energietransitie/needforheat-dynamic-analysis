@@ -966,12 +966,12 @@ class Model():
             
             # Loop over the learn_params set and store learned values and calculate MAE if actual value is available
             for param in (learn_params - (predict_props or set())):
-                if (param == 'flow_dstr_resistance__Pa_dm_6_s2') and not pd.isna(bldng_data.get('pump_head__m', None)):
+                if (param == 'flow_dstr_resistance__Pa_dm_6_s2') and not pd.isna(bldng_data.get('pump_head_max__m', None)):
                     # Calculation of Flow Resistance
-                    pump_head__m = bldng_data['pump_head__m']
+                    pump_head_max__m = bldng_data['pump_head_max__m']
                     avg_water__kg_dm_3 = water_density__kg_dm_3(np.mean(temp_ret_ch__degC.value), heat_dstr_nl_avg_abs__Pa)
                     # Compute flow resistance: pump head loss [m] per volumetric flow rate squared [(dm³/s)²] 
-                    learned_value = (avg_water__kg_dm_3 * g__m_s_2 * pump_head__m) / (flow_dstr_capacity__dm3_s_1.value[0]**2 / dm3_m3)
+                    learned_value = (avg_water__kg_dm_3 * g__m_s_2 * pump_head_max__m) / (flow_dstr_capacity__dm3_s_1.value[0]**2 / dm3_m3)
                 else:
                     learned_value = results.get(param.lower(), [np.nan])[0]
                 df_learned_parameters.loc[0, f'learned_{param}'] = learned_value
@@ -1031,7 +1031,7 @@ class Model():
         duration = timedelta(seconds=duration__s)
 
         # Extract pump head from building data
-        pump_head__m = bldng_data['pump_head__m']                     # Pump head for this specific building
+        pump_head_max__m = bldng_data['pump_head_max__m']                     # Pump head for this specific building
         
         ##################################################################################################################
         # GEKKO Model - Initialize
@@ -1070,7 +1070,7 @@ class Model():
         # Equation to estimate flow
         ##################################################################################################################
         # Pump head and flow resistance relationship
-        pump_head__Pa = (water_density__kg_dm_3(20, heat_dstr_nl_avg_abs__Pa) * dm3_m_3 * g__m_s_2 * pump_head__m)
+        pump_head__Pa = (water_density__kg_dm_3(20, heat_dstr_nl_avg_abs__Pa) * dm3_m_3 * g__m_s_2 * pump_head_max__m)
         
         # Flow model equation: flow = capacity * (pump_speed / 100) ^ exponent
         m.Equation(flow_dstr__dm3_s_1 == flow_dstr_capacity__dm3_s_1 * (flow_dstr_pump_speed__pct / 100) ** flow_dstr_exponent)
