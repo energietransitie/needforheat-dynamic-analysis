@@ -770,11 +770,11 @@ class Model():
                     non_nan_target_values = df_predicted_properties[predicted_prop].notna().sum()
                     
                     # Compare the counts
-                    if valid_source_rows == non_nan_target_values:
-                        print("Counts match: Target non-NaN values correspond to valid source rows.")
-                    else:
+                    if valid_source_rows != non_nan_target_values:
                         print("Counts do not match:")
                         print(f"Valid source rows: {valid_source_rows}, Target non-NaN values: {non_nan_target_values}")
+                    # else:
+                        # print("Counts match: Target non-NaN values correspond to valid source rows.")
                     #####
                     
                     # If the property was measured, calculate and store MAE and RMSE
