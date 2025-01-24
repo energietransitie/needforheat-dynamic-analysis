@@ -2889,14 +2889,17 @@ class Simulator():
         air_inf__m3_s_1 = m.Intermediate(wind__m_s_1 * aperture_inf__cm2 / cm2_m_2, name='air_inf__m3_s_1')
         heat_tr_bldng_inf__W_K_1 = m.Intermediate(air_inf__m3_s_1 * air_room__J_m_3_K_1, name='heat_tr_bldng_inf__W_K_1')
         heat_loss_bldng_inf__W = m.Intermediate(heat_tr_bldng_inf__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_inf__W')
-    
-        ventilation__dm3_s_1 = m.MV(value=df_learn[property_sources['ventilation__dm3_s_1']].astype('float32').values, name='ventilation__dm3_s_1')
-        ventilation__dm3_s_1.STATUS = 0  # No optimization
-        ventilation__dm3_s_1.FSTATUS = 1  # Use the measured values
+
+        if property_sources['ventilation__dm3_s_1'] in df_learn.columns:
+            ventilation__dm3_s_1 = m.MV(value=df_learn[property_sources['ventilation__dm3_s_1']].astype('float32').values, name='ventilation__dm3_s_1')
+            ventilation__dm3_s_1.STATUS = 0  # No optimization
+            ventilation__dm3_s_1.FSTATUS = 1  # Use the measured values
             
-        air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3), name='air_changes_vent__s_1')
-        heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1, name='heat_tr_bldng_vent__W_K_1')
-        heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_vent__W')
+            air_changes_vent__s_1 = m.Intermediate(ventilation__dm3_s_1 / (bldng__m3 * dm3_m_3), name='air_changes_vent__s_1')
+            heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1, name='heat_tr_bldng_vent__W_K_1')
+            heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_vent__W')
+        else:
+            heat_loss_bldng_vent__W = 0
 
         ##################################################################################################################
         ## Thermal inertia ##
