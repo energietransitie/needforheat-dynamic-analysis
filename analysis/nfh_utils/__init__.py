@@ -4,7 +4,7 @@ from .nfh_metrics import mae, rmse, rmae
 
 from .nfh_constants import (
     s_min_1, min_h_1, h_d_1, d_a_1, s_h_1, s_d_1, s_a_1,
-    J_kWh_1, J_MJ_1, ml_m_3, dm3_m_3, umol_mol_1,
+    W_kW_1, J_kWh_1, J_MJ_1, ml_m_3, dm3_m_3, umol_mol_1,
     cm2_m_2, temp_0__degC__K, P_std__Pa,
     R__m3_Pa_K_1_mol_1, 
     air_density__kg_m_3, air_specific_heat_capacity__J_kg__1_K_1, air_specific_heat_capacity__J_mol__1_K_1, air_volumetric_specific_heat_capacity__J_m__3_K_1,

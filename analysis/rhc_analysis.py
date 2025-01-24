@@ -1769,13 +1769,19 @@ class Model():
                 # Boolean state for post-pump run condition
                 in_post_pump_run_condition = m.Var(value=0, integer=True, name='in_post_pump_run_condition') 
         
+                # Define a memory variable to store the previous value
+                temp_flow_ch_set_prev__degC = m.Var(value=0, name='temp_flow_ch_set_prev__degC')
+                
+                # Differential equation to update the memory variable each timestep
+                m.Equation(temp_flow_ch_set_prev__degC.dt() == temp_flow_ch_set__degC - temp_flow_ch_set_prev__degC)
+        
                 # Define the post-pump run entry condition
-                temp_flow_ch_set_delayed = m.delay(temp_flow_ch_set__degC, 1)
                 post_pump_run_entry_condition = m.Var(value=0, name='post_pump_run_entry_condition')
-
-                # Logical condition: (delayed > 0.5) & (current == 0)
+        
+                # Logical condition: (current == 0) & (delayed > 0)
                 m.Equation(
-                    post_pump_run_entry_condition == ((temp_flow_ch_set_delayed >= 0.5) & (temp_flow_ch_set__degC == 0))
+                    post_pump_run_entry_condition == 
+                    (temp_flow_ch_set__degC == 0) * (temp_flow_ch_set_prev__degC > 0)
                 )
 
                 # Create a post-pump run timer
@@ -1814,8 +1820,8 @@ class Model():
                 
                 # Conditional fan speed gain based on flow error threshold, with an enforced maximum
                 fan_rotations_gain__pct_min_1 = m.Var(name='fan_rotations_gain__pct_min_1', 
-                                                      value=0, 
-                                                      upper=fan_rotations_max_gain__pct_min_1)
+                                                      value=0)
+                fan_rotations_gain__pct_min_1.upper=fan_rotations_max_gain__pct_min_1
                 
                 m.Equation(fan_rotations_gain__pct_min_1 == 
                            error_delta_t_flow_flowset__K / error_threshold_delta_t_flow_flowset__K * fan_rotations_max_gain__pct_min_1)
@@ -1842,9 +1848,9 @@ class Model():
                 # Conditional pump speed gain based on error threshold, with en enforced maximum
                 flow_dstr_pump_speed_gain__pct_min_1 = m.Var(
                     name='flow_dstr_pump_speed_gain__pct_min_1',
-                    value=0,
-                    upper=flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the max gain
-                )
+                    value=0)
+                flow_dstr_pump_speed_gain__pct_min_1.upper=flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the max gain
+                
                 m.Equation(
                     flow_dstr_pump_speed_gain__pct_min_1 == 
                     error_delta_t_flow_ret__K / error_threshold_delta_t_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1
@@ -2425,20 +2431,22 @@ class Simulator():
         bldng__m3 = bldng_data['bldng__m3']
         usable_area__m2 = bldng_data['usable_area__m2']
 
-        # retrieve boiler-specific constants
+        # retrieve thermostat-specific constants
         thermostat_hysteresis__K = bldng_data['thermostat_hysteresis__K']
+    
+        # retrieve boiler-specific constants
         fan_min_ch_rotations__min_1 = bldng_data['fan_min_ch_rotations__min_1']
         fan_max_ch_rotations__min_1 = bldng_data['fan_max_ch_rotations__min_1']
-        fan_rotations_max_gain__pct_min_1 = 100 * 1500 / (fan_max_ch_rotations__min_1 - fan_min_ch_rotations__min_1)
         Qnh_min_lhv__kW = bldng_data['Qnh_min_lhv__kW']
         Qnh_max_lhv__kW = bldng_data['Qnh_max_lhv__kW']
         overheat_hysteresis__K = bldng_data['overheat_hysteresis__K']
         desired_delta_t_flow_ret__K = bldng_data['desired_delta_t_flow_ret__K']
-        
         post_pump_speed__pct = bldng_data['post_pump_run__pct']
+        fan_rotations_max_gain__pct_min_1 = bldng_data['fan_rotations_max_gain__pct_min_1']
         error_threshold_delta_t_flow_flowset__K = bldng_data['error_threshold_delta_t_flow_flowset__K']
         flow_dstr_pump_speed_max_gain__pct_min_1 = bldng_data['flow_dstr_pump_speed_max_gain__pct_min_1']
         error_threshold_delta_t_flow_ret__K = bldng_data['error_threshold_delta_t_flow_ret__K']
+    
 
         used_params = {
             'bldng__m3',
@@ -2529,7 +2537,10 @@ class Simulator():
         ##################################################################################################################
 
         # calculated fan speed percentage between min (0 %) and max (100 %); use initial value during simulations
-        fan_speed__pct = m.Var(value=np.float32(df_learn[property_sources['fan_speed__pct']].iloc[0]), name='fan_speed__pct')
+        fan_speed__pct = m.Var(value=np.float32((df_learn[property_sources['fan_rotations__min_1']].iloc[0] - fan_min_ch_rotations__min_1)
+                                                /(fan_max_ch_rotations__min_1 - fan_min_ch_rotations__min_1)
+                                                * 100),
+                               name='fan_speed__pct')
 
         # hydronic pump speed in % of maximum pump speed; use initial value during simulations         
         flow_dstr_pump_speed__pct = m.Var(value=np.float32(df_learn[property_sources['flow_dstr_pump_speed__pct']].iloc[0]), name='flow_dstr_pump_speed__pct') 
@@ -2616,13 +2627,19 @@ class Simulator():
         # Boolean state for post-pump run condition
         in_post_pump_run_condition = m.Var(value=0, integer=True, name='in_post_pump_run_condition') 
 
+        # Define a memory variable to store the previous value
+        temp_flow_ch_set_prev__degC = m.Var(value=0, name='temp_flow_ch_set_prev__degC')
+        
+        # Differential equation to update the memory variable each timestep
+        m.Equation(temp_flow_ch_set_prev__degC.dt() == temp_flow_ch_set__degC - temp_flow_ch_set_prev__degC)
+
         # Define the post-pump run entry condition
-        temp_flow_ch_set_delayed = m.delay(temp_flow_ch_set__degC, 1)
         post_pump_run_entry_condition = m.Var(value=0, name='post_pump_run_entry_condition')
 
-        # Logical condition: (delayed > 0.5) & (current == 0)
+        # Logical condition: (current == 0) & (delayed > 0)
         m.Equation(
-            post_pump_run_entry_condition == ((temp_flow_ch_set_delayed >= 0.5) & (temp_flow_ch_set__degC == 0))
+            post_pump_run_entry_condition == 
+            (temp_flow_ch_set__degC == 0) * (temp_flow_ch_set_prev__degC > 0)
         )
 
         # Timer variable to track post-pump run duration
@@ -2661,8 +2678,8 @@ class Simulator():
         
         # Conditional fan speed gain based on flow error threshold, with an enforced maximum
         fan_rotations_gain__pct_min_1 = m.Var(name='fan_rotations_gain__pct_min_1', 
-                                              value=0, 
-                                              upper=fan_rotations_max_gain__pct_min_1)
+                                              value=0)
+        fan_rotations_gain__pct_min_1.upper=fan_rotations_max_gain__pct_min_1
         
         m.Equation(fan_rotations_gain__pct_min_1 == 
                    error_delta_t_flow_flowset__K / error_threshold_delta_t_flow_flowset__K * fan_rotations_max_gain__pct_min_1)
@@ -2689,9 +2706,9 @@ class Simulator():
         # Conditional pump speed gain based on error threshold, with en enforced maximum
         flow_dstr_pump_speed_gain__pct_min_1 = m.Var(
             name='flow_dstr_pump_speed_gain__pct_min_1',
-            value=0,
-            upper=flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the max gain
-        )
+            value=0)
+        flow_dstr_pump_speed_gain__pct_min_1.upper=flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the max gain
+        
         m.Equation(
             flow_dstr_pump_speed_gain__pct_min_1 == 
             error_delta_t_flow_ret__K / error_threshold_delta_t_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1
