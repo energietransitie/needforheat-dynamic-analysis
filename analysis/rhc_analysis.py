@@ -1591,9 +1591,9 @@ class Model():
                     df_learned_parameters.loc[0, result_col] = temp_column.mean()
     
             current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-            for var in sim_arrays_mean:
+            for prop in sim_arrays_mean:
                 # Create variable names dynamically
-                result_col = f"avg_{var}"
+                result_col = f"avg_{prop}"
                 mean_value = np.asarray(results.get(prop.lower(), [np.nan])).mean()
                 df_learned_parameters.loc[0, result_col] = mean_value
     
