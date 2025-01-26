@@ -1040,7 +1040,7 @@ class Model():
         g_use_ch_hhv__W.STATUS = 0  # No optimization
         g_use_ch_hhv__W.FSTATUS = 1 # Use the measured values
 
-        e_use_ch__W = 0.0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
+        # e_use_ch__W = 0.0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
     
         eta_ch_hhv__W0 = m.MV(value=df_learn[property_sources['eta_ch_hhv__W0']].astype('float32').values, name='eta_ch_hhv__W0')
         eta_ch_hhv__W0.STATUS = 0  # No optimization
@@ -1048,15 +1048,17 @@ class Model():
     
         heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0, name='heat_g_ch__W')
 
-        # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
-        cop_ch__W0 = 1.0
-        heat_e_ch__W = e_use_ch__W * cop_ch__W0
+        # # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
+        # cop_ch__W0 = 1.0
+        # heat_e_ch__W = e_use_ch__W * cop_ch__W0
         
         # Heat generation power input from gas (and electricity)
-        power_input_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='power_input_ch__W')
+        # power_input_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='power_input_ch__W')
+        power_input_ch__W = m.Intermediate(g_use_ch_hhv__W, name='power_input_ch__W')
 
         # Heating power output to heat distribution system
-        heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
+        # heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
+        heat_ch__W = m.Intermediate(heat_g_ch__W, name='heat_ch__W')
     
         if learn_params is None:
             # Simulation mode: Use initial measured value as the starting point
@@ -1280,6 +1282,8 @@ class Model():
             'temp_indoor__degC',
             'temp_outdoor__degC',
             'temp_flow_ch_max__degC',
+            'g_use_ch_hhv__W',
+            'eta_ch_hhv__W0',
             'heat_ch__W',
         }
             
@@ -1302,9 +1306,34 @@ class Model():
         ##################################################################################################################
     
         # Central heating gains
-        heat_ch__W = m.MV(value=df_learn[property_sources['heat_ch__W']].astype('float32').values, name='heat_ch__W')
-        heat_ch__W.STATUS = 0  # No optimization
-        heat_ch__W.FSTATUS = 1 # Use the measured values
+        g_use_ch_hhv__W = m.MV(value=df_learn[property_sources['g_use_ch_hhv__W']].astype('float32').values, name='g_use_ch_hhv__W')
+        g_use_ch_hhv__W.STATUS = 0  # No optimization
+        g_use_ch_hhv__W.FSTATUS = 1 # Use the measured values
+
+        # e_use_ch__W = 0.0  # TODO: add electricity use from heat pump here when hybrid or all-electic heat pumps must be simulated
+    
+        eta_ch_hhv__W0 = m.MV(value=df_learn[property_sources['eta_ch_hhv__W0']].astype('float32').values, name='eta_ch_hhv__W0')
+        eta_ch_hhv__W0.STATUS = 0  # No optimization
+        eta_ch_hhv__W0.FSTATUS = 1 # Use the measured values
+    
+        heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0, name='heat_g_ch__W')
+
+        # # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
+        # cop_ch__W0 = 1.0
+        # heat_e_ch__W = e_use_ch__W * cop_ch__W0
+        
+        # Heating power output to heat distribution system
+        # heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
+        heat_ch__W = m.Intermediate(heat_g_ch__W, name='heat_ch__W')
+
+        # Heat generation power input from gas (and electricity)
+        # power_input_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='power_input_ch__W')
+        power_input_ch__W = m.Intermediate(g_use_ch_hhv__W, name='power_input_ch__W')
+        
+        # # Central heating gains
+        # heat_ch__W = m.MV(value=df_learn[property_sources['heat_ch__W']].astype('float32').values, name='heat_ch__W')
+        # heat_ch__W.STATUS = 0  # No optimization
+        # heat_ch__W.FSTATUS = 1 # Use the measured values
 
         if learn_params is None:
             # Simulation mode: Use initial measured value as the starting point
@@ -1526,11 +1555,9 @@ class Model():
                 print("load_results() not available.")
             
             sim_arrays_mean = [
-                'g_use_ch_hhv__W',
-                'eta_ch_hhv__W0',
-                'e_use_ch__W',
-                'cop_ch__W0',
-                'power_input_ch__W',
+                # 'e_use_ch__W',
+                # 'cop_ch__W0',
+                'power_input_ch__W',            
                 'heat_sol__W',
                 'heat_int__W',
                 'heat_dstr__W',
@@ -1594,7 +1621,19 @@ class Model():
             for prop in sim_arrays_mean:
                 # Create variable names dynamically
                 result_col = f"avg_{prop}"
-                mean_value = np.asarray(results.get(prop.lower(), [np.nan])).mean()
+
+                # Determine the key to use
+                if prop in property_sources and property_sources[prop] in df_learn.columns:
+                    key = property_sources[prop].lower()
+                else:
+                    key = prop.lower()
+
+                # Check if the key exists in results
+                if key in results:
+                    mean_value = np.asarray(results[key]).mean()
+                else:
+                    mean_value = np.nan  # Assign NaN if the key is missing                
+
                 df_learned_parameters.loc[0, result_col] = mean_value
     
             # Calculate Carbon Case metrics
@@ -1603,11 +1642,11 @@ class Model():
                  * 
                  (co2_wtw_groningen_gas_std_nl_avg_2024__g__m_3 / gas_groningen_nl_avg_std_hhv__J_m_3)
                 )
-                +
-                (df_learned_parameters.loc[0, 'avg_e_use_ch__W'] 
-                 * 
-                 co2_wtw_e_onbekend_nl_avg_2024__g__kWh_1
-                )
+                # +
+                # (df_learned_parameters.loc[0, 'avg_e_use_ch__W'] 
+                #  * 
+                #  co2_wtw_e_onbekend_nl_avg_2024__g__kWh_1
+                # )
             )
             
             if any(item is not None for item in [learn_params, predict_props, properties_mean, sim_arrays_mean]):
@@ -2801,13 +2840,14 @@ class Simulator():
 
         heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0, name='heat_g_ch__W')
 
-        # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
-        e_use_ch__W = 0.0
-        cop_ch__W0 = 1.0
-        heat_e_ch__W = e_use_ch__W * cop_ch__W0
+        # # TODO: add heat gains from heat pump here when hybrid or all-electic heat pumps must be simulated
+        # e_use_ch__W = 0.0
+        # cop_ch__W0 = 1.0
+        # heat_e_ch__W = e_use_ch__W * cop_ch__W0
         
         # Heat generation power input from gas (and electricity)
-        power_input_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='power_input_ch__W')
+        # power_input_ch__W = m.Intermediate(g_use_ch_hhv__W + e_use_ch__W, name='power_input_ch__W')
+        power_input_ch__W = m.Intermediate(g_use_ch_hhv__W, name='power_input_ch__W')
 
         # Heating power output to heat distribution system
         heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
