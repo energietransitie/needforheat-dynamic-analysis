@@ -72,31 +72,31 @@ class BoilerEfficiency:
             temp_points = group.index.get_level_values('rounded_temp_ret__degC').unique()
             efficiency_values = group.unstack(level='rounded_temp_ret__degC').values
 
-            # Create interpolator
-            interpolator = RectBivariateSpline(load_points, temp_points, efficiency_values)
 
             # Determine valid ranges
             min_load__pct = load_points.min()
             max_load__pct = load_points.max()
             min_temp_ret__degC = temp_points.min()
             max_temp_ret__degC = temp_points.max()
+            
+            # Create interpolator
+            interpolator = RectBivariateSpline(
+                load_points,
+                temp_points,
+                efficiency_values, 
+                bbox=[min_load__pct, max_load__pct, min_temp_ret__degC, max_temp_ret__degC]
+            )
+
+            print(f"Interpolator parameters for {brand_model}")
+            print(f"get_knots() = {interpolator.get_knots()}")
+            print(f"get_coeffs() = {interpolator.get_coeffs()}")
+
 
             # Store interpolator and ranges
-            self.efficiency_hhv_interpolators[brand_model] = {
-                "interpolator": interpolator,
-                "min_load__pct": min_load__pct,
-                "max_load__pct": max_load__pct,
-                "min_temp_ret__degC": min_temp_ret__degC,
-                "max_temp_ret__degC": max_temp_ret__degC,
-            }
+            self.efficiency_hhv_interpolators[brand_model] = interpolator
 
         # Retrieve stored data
-        data = self.efficiency_hhv_interpolators[brand_model]
-        interpolator = data["interpolator"]
-        min_load__pct = data["min_load__pct"]
-        max_load__pct = data["max_load__pct"]
-        min_temp_ret__degC = data["min_temp_ret__degC"]
-        max_temp_ret__degC = data["max_temp_ret__degC"]
+        interpolator = self.efficiency_hhv_interpolators[brand_model]
 
         # Define strict interpolator
         def boiler_efficiency_hhv(
@@ -108,9 +108,6 @@ class BoilerEfficiency:
             using an interpolator. 
             
             If `load__pct` or `temp_ret__degC` is None, the function returns NaN. 
-            If `load__pct` or `temp_ret__degC` falls outside the defined min and max ranges, 
-            the values are clipped to the nearest bound, and a result is still calculated.
-        
             Parameters:
             - load__pct (float): Boiler load as a percentage. Expected range: [min_load__pct, max_load__pct].
             - temp_ret__degC (float): Return temperature in degrees Celsius. 
@@ -121,13 +118,8 @@ class BoilerEfficiency:
             """
             if load__pct is None or temp_ret__degC is None:
                 return np.nan
-        
-            # Clip values to their respective ranges
-            load__pct_clipped = np.clip(load__pct, min_load__pct, max_load__pct)
-            temp_ret__degC_clipped = np.clip(temp_ret__degC, min_temp_ret__degC, max_temp_ret__degC)
-        
-            # Perform interpolation with clipped values
-            return interpolator(load__pct_clipped, temp_ret__degC_clipped, grid=False).item()
+            # Perform interpolation
+            return interpolator.ev(load__pct, temp_ret__degC).item()
 
         return boiler_efficiency_hhv
 
