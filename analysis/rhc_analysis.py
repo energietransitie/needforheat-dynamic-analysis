@@ -72,7 +72,6 @@ class BoilerEfficiency:
             temp_points = group.index.get_level_values('rounded_temp_ret__degC').unique()
             efficiency_values = group.unstack(level='rounded_temp_ret__degC').values
 
-
             # Determine valid ranges
             min_load__pct = load_points.min()
             max_load__pct = load_points.max()
@@ -87,39 +86,40 @@ class BoilerEfficiency:
                 bbox=[min_load__pct, max_load__pct, min_temp_ret__degC, max_temp_ret__degC]
             )
 
-            print(f"Interpolator parameters for {brand_model}")
-            print(f"get_knots() = {interpolator.get_knots()}")
-            print(f"get_coeffs() = {interpolator.get_coeffs()}")
-
-
-            # Store interpolator and ranges
+            # Store interpolator
             self.efficiency_hhv_interpolators[brand_model] = interpolator
 
-        # Retrieve stored data
+        # Retrieve stored interpolator
         interpolator = self.efficiency_hhv_interpolators[brand_model]
 
-        # Define strict interpolator
-        def boiler_efficiency_hhv(
-            load__pct=None,
-            temp_ret__degC=None,
-        ):
+        # Define vectorized interpolator function
+        def boiler_efficiency_hhv(load__pct, temp_ret__degC):
             """
             Calculate the boiler efficiency on a higher heating value (HHV) basis 
             using an interpolator. 
-            
-            If `load__pct` or `temp_ret__degC` is None, the function returns NaN. 
+
+            Supports both scalar and NumPy array inputs.
+
             Parameters:
-            - load__pct (float): Boiler load as a percentage. Expected range: [min_load__pct, max_load__pct].
-            - temp_ret__degC (float): Return temperature in degrees Celsius. 
-                                      Expected range: [min_temp_ret__degC, max_temp_ret__degC].
-        
+            - load__pct (float or np.ndarray): Boiler load as a percentage. Expected range: [min_load__pct, max_load__pct].
+            - temp_ret__degC (float or np.ndarray): Return temperature in degrees Celsius. 
+                                                    Expected range: [min_temp_ret__degC, max_temp_ret__degC].
+
             Returns:
-            - float: The interpolated boiler efficiency (HHV basis) or NaN if inputs are invalid.
+            - float or np.ndarray: The interpolated boiler efficiency (HHV basis) or NaN if inputs are invalid.
             """
             if load__pct is None or temp_ret__degC is None:
                 return np.nan
-            # Perform interpolation
-            return interpolator.ev(load__pct, temp_ret__degC).item()
+
+            # Ensure inputs are NumPy arrays for vectorized evaluation
+            load__pct = np.atleast_1d(load__pct)
+            temp_ret__degC = np.atleast_1d(temp_ret__degC)
+
+            # Perform batch interpolation
+            efficiency = interpolator.ev(load__pct, temp_ret__degC)
+
+            # Return a scalar if the input was scalar, otherwise return array
+            return efficiency if efficiency.size > 1 else efficiency.item()
 
         return boiler_efficiency_hhv
 
