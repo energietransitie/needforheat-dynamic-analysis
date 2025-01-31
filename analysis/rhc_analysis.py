@@ -33,7 +33,8 @@ class BoilerEfficiency:
         self.file_path = file_path
         self.df_boiler_efficiency = None
         self.efficiency_hhv_interpolators = {}
-
+        self.bspline_params = {}
+        
     def load_boiler_hhv_efficiency(self):
         """
         Lazy loading of the boiler HHV efficiency data from a Parquet file.
@@ -122,6 +123,30 @@ class BoilerEfficiency:
             return efficiency if efficiency.size > 1 else efficiency.item()
 
         return boiler_efficiency_hhv
+
+    def get_efficiency_hhv_bspline_params(self, brand_model):
+        """
+        Returns knots and coefficients based on scipy.interpolate.bisplrep for later use GEKKO's bspline() function.
+        """
+        df = self.load_boiler_hhv_efficiency()
+        
+        if brand_model not in self.bspline_params:
+            try:
+                boiler_data = df.loc[brand_model]
+                load_values = np.asarray(boiler_data.index.get_level_values('rounded_load__pct').unique().astype(float))
+                temp_values = np.asarray(boiler_data.index.get_level_values('rounded_temp_ret__degC').unique().astype(float))
+                efficiency_values = np.asarray(boiler_data.unstack(level='rounded_temp_ret__degC').values.astype(float))
+                
+                x, y = np.meshgrid(load_values, temp_values, indexing='ij')
+                x_flat, y_flat, z_flat = x.ravel(), y.ravel(), efficiency_values.ravel()
+                
+                tck = bisplrep(x_flat, y_flat, z_flat, kx=3, ky=3, s=None)
+                
+                self.bspline_params[brand_model] = (tck[0], tck[1], tck[2])
+            except KeyError:
+                raise ValueError(f"Boiler model {brand_model} not found in dataset.")
+        
+        return self.bspline_params[brand_model]
 
 
 class LearnError(Exception):
@@ -2477,6 +2502,11 @@ class Simulator():
         error_threshold_delta_t_flow_flowset__K = bldng_data['error_threshold_delta_t_flow_flowset__K']
         flow_dstr_pump_speed_max_gain__pct_min_1 = bldng_data['flow_dstr_pump_speed_max_gain__pct_min_1']
         error_threshold_delta_t_flow_ret__K = bldng_data['error_threshold_delta_t_flow_ret__K']
+        brand_model = bldng_data['brand_model']
+
+        # retrieve boiler-specific knots and coefficients for the boiler spline-based efficiency curve
+        x_knots, y_knots, coeffs = boiler_efficiency.get_efficiency_hhv_bspline_params(brand_model)
+
     
 
         used_params = {
@@ -2828,7 +2858,7 @@ class Simulator():
 
         # Boiler efficiency central heating
         eta_ch_hhv__W0 = m.Var(value=0, name='eta_ch_hhv__W0')
-        m.Equation(eta_ch_hhv__W0 == boiler_efficiency_hhv(g_use_fan_load__pct, temp_ret_ch__degC))
+        m.Equation(eta_ch_hhv__W0 == m.bspline(x_knots, y_knots, coeffs, g_use_fan_load__pct, temp_ret_ch__degC, data=False))
 
         heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0, name='heat_g_ch__W')
 
