@@ -3,7 +3,7 @@ from typing import List, Tuple, Dict, Set, Callable
 from enum import Enum
 import pandas as pd
 import numpy as np
-from scipy.interpolate import RectBivariateSpline
+from scipy.interpolate import RectBivariateSpline, bisplrep
 import math
 from gekko import GEKKO
 from tqdm.notebook import tqdm
