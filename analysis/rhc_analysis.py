@@ -198,7 +198,7 @@ class Learner():
         logging.info(f'longest_streak_query: {longest_streak_query}') 
         
         # Filter to the longest streak
-        df_longest_streak  = df_data.loc[(id,learn_period_start):(id,learn_period_end)].query(longest_streak_query)
+        df_longest_streak  = df_data.loc[(id,learn_period_start):(id,learn_period_end)].query(longest_streak_query, engine='python')
         timestamps = df_longest_streak.index.get_level_values('timestamp')
 
         # Log details about the filtered data
