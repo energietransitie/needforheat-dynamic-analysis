@@ -103,28 +103,56 @@ air_room__J_m_3_K_1 = air_volumetric_specific_heat_capacity__J_m__3_K_1(
 g__m_s_2 = constants.g                                        # Gravitational acceleration [m/s²] (https://en.wikipedia.org/wiki/Gravity_of_Earth#Conventional_value)
 
 def water_density__kg_dm_3(water_temp__degC, water_abs__Pa):
-    """Calculate water density based on temperature and pressure."""
-    if pd.isna(water_temp__degC) or pd.isna(water_abs__Pa):
-        return np.nan
-    else:
-        return PropsSI('D', 'T', water_temp__degC + temp_0__degC__K, 'P', water_abs__Pa, 'Water') / dm3_m_3  # kg/dm³
+    """Calculate water density [kg/dm³] based on temperature and pressure, handling NaN values."""
+    
+    water_temp__degC = np.atleast_1d(np.asarray(water_temp__degC, dtype=np.float64))
+    water_abs__Pa = np.atleast_1d(np.asarray(water_abs__Pa, dtype=np.float64))
+    water_temp__degC, water_abs__Pa = np.broadcast_arrays(water_temp__degC, water_abs__Pa)
 
-# Heat capacities
+    # Mask NaN values
+    mask = np.isnan(water_temp__degC) | np.isnan(water_abs__Pa)
+    density__kg_dm_3 = np.full_like(water_temp__degC, np.nan, dtype=np.float64)
+    
+    # Compute only for valid values
+    valid_idx = ~mask
+    density__kg_dm_3[valid_idx] = PropsSI('D', 'T', water_temp__degC[valid_idx] + temp_0__degC__K, 'P', water_abs__Pa[valid_idx], 'Water') / dm3_m_3  
+    
+    return density__kg_dm_3.item() if isinstance(density__kg_dm_3, np.ndarray) and density__kg_dm_3.shape in [(), (1,)] else density__kg_dm_3
+    
 def water_specific_heat_capacity__J_kg_1_K_1(water_temp__degC, water_abs__Pa):
-    """Calculate water specific heat capacity based on temperature and pressure."""
-    if pd.isna(water_temp__degC) or pd.isna(water_abs__Pa):
-        return np.nan
-    else:
-        return PropsSI('C', 'T', water_temp__degC + temp_0__degC__K, 'P', water_abs__Pa, 'Water')  # J/(kg·K)
+    """Calculate water specific heat capacity [J/(kg·K)] based on temperature and pressure, handling NaN values."""
+
+    water_temp__degC = np.atleast_1d(np.asarray(water_temp__degC, dtype=np.float64))
+    water_abs__Pa = np.atleast_1d(np.asarray(water_abs__Pa, dtype=np.float64))
+    water_temp__degC, water_abs__Pa = np.broadcast_arrays(water_temp__degC, water_abs__Pa)
+    
+    # Mask NaN values
+    mask = np.isnan(water_temp__degC) | np.isnan(water_abs__Pa)
+    specific_heat_capacity__J_kg_1_K_1 = np.full_like(water_temp__degC, np.nan, dtype=np.float64)
+    
+    # Compute only for valid values
+    valid_idx = ~mask
+    specific_heat_capacity__J_kg_1_K_1[valid_idx] = PropsSI('C', 'T', water_temp__degC[valid_idx] + temp_0__degC__K, 'P', water_abs__Pa[valid_idx], 'Water')
+    
+    return specific_heat_capacity__J_kg_1_K_1.item() if isinstance(specific_heat_capacity__J_kg_1_K_1, np.ndarray) and specific_heat_capacity__J_kg_1_K_1.shape in [(), (1,)] else specific_heat_capacity__J_kg_1_K_1
+    
 
 def water_volumetric_heat_capacity__J_dm_3_K_1(water_temp__degC, water_abs__Pa):
-    """Calculate water volumetric heat capacity (J/(dm³·K)) based on temperature and pressure."""
-    if pd.isna(water_temp__degC) or pd.isna(water_abs__Pa):
-        return np.nan
-    else:
-        specific_heat_capacity = water_specific_heat_capacity__J_kg_1_K_1(water_temp__degC, water_abs__Pa)
-        density = water_density__kg_dm_3(water_temp__degC, water_abs__Pa)
-        return specific_heat_capacity * density
+    """Calculate water volumetric heat capacity [J/(dm³·K)] based on temperature and pressure, handling NaN values."""
+    specific_heat_capacity__J_kg_1_K_1 = water_specific_heat_capacity__J_kg_1_K_1(water_temp__degC, water_abs__Pa)
+    density__kg_dm_3 = water_density__kg_dm_3(water_temp__degC, water_abs__Pa)
+    
+    # Compute volumetric heat capacity, ensuring NaNs propagate
+    volumetric_heat_capacity__J_dm_3_K_1 = specific_heat_capacity__J_kg_1_K_1 * density__kg_dm_3
+    return volumetric_heat_capacity__J_dm_3_K_1.item() if isinstance(volumetric_heat_capacity__J_dm_3_K_1, np.ndarray) and volumetric_heat_capacity__J_dm_3_K_1.shape in [(), (1,)] else volumetric_heat_capacity__J_dm_3_K_1
+
+
+water_volumetric_heat_capacity_coeffs = [
+    -0.0001536232549141614, 
+    0.014525365563243653, 
+    -1.9187480397472634, 
+    4210.138359837289
+]                                                             # coefficients for a cubic polynomial fit for typical radiator temperature (descending order)
 
 steel__J_kg_1_K_1 = 466                                       # source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
 
