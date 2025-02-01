@@ -2475,7 +2475,7 @@ class Simulator():
     def integrated_model(
             df_learn,
             bldng_data: Dict = None,
-            boiler_efficiency_hhv: Callable[[float, float], float] = None, 
+            boiler_efficiency: BoilerEfficiency = None, 
             property_sources: Dict = None,
             param_hints: Dict = None,
             learn_params: Set[str] = None,
@@ -2503,11 +2503,10 @@ class Simulator():
         flow_dstr_pump_speed_max_gain__pct_min_1 = bldng_data['flow_dstr_pump_speed_max_gain__pct_min_1']
         error_threshold_delta_t_flow_ret__K = bldng_data['error_threshold_delta_t_flow_ret__K']
         brand_model = bldng_data['brand_model']
-
+    
         # retrieve boiler-specific knots and coefficients for the boiler spline-based efficiency curve
         x_knots, y_knots, coeffs = boiler_efficiency.get_efficiency_hhv_bspline_params(brand_model)
-
-    
+        wvhc3, wvhc2, wvhc1, wvhc0 = water_volumetric_heat_capacity_coeffs
 
         used_params = {
             'bldng__m3',
@@ -2858,7 +2857,9 @@ class Simulator():
 
         # Boiler efficiency central heating
         eta_ch_hhv__W0 = m.Var(value=0, name='eta_ch_hhv__W0')
-        m.Equation(eta_ch_hhv__W0 == m.bspline(x_knots, y_knots, coeffs, g_use_fan_load__pct, temp_ret_ch__degC, data=False))
+        m.bspline(g_use_fan_load__pct, temp_ret_ch__degC, eta_ch_hhv__W0,
+                  x_knots, y_knots, coeffs,
+                  data=False)
 
         heat_g_ch__W = m.Intermediate(g_use_ch_hhv__W * eta_ch_hhv__W0, name='heat_g_ch__W')
 
@@ -2872,7 +2873,8 @@ class Simulator():
         power_input_ch__W = m.Intermediate(g_use_ch_hhv__W, name='power_input_ch__W')
 
         # Heating power output to heat distribution system
-        heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
+        # heat_ch__W = m.Intermediate(heat_g_ch__W + heat_e_ch__W, name='heat_ch__W')
+        heat_ch__W = m.Intermediate(heat_g_ch__W, name='heat_ch__W')
             
         ##################################################################################################################
         # Heat gains from the heat distribution system
@@ -2886,9 +2888,11 @@ class Simulator():
 
         # Equations for heat distribution flow
         flow_dstr__dm3_s_1 = m.Intermediate(flow_dstr_intercept__dm3_s_1 + (flow_dstr_pump_speed__pct/100) * flow_dstr_slope__dm3_s_1_pct_1, name='flow_dstr__dm3_s_1')
-        delta_t_flow_ret__K = m.Intermdiate(temp_flow_ch__degC - temp_ret_ch__degC, lb=0.0, name='delta_t_flow_ret__K')
-        # vectorized_water_volumetric_heat_capacity__J_dm_3_K_1 = np.vectorize(water_volumetric_heat_capacity__J_dm_3_K_1)
-        flow_dstr_J_dm_3_K_1= m.Intermdiate(water_volumetric_heat_capacity__J_dm_3_K_1(temp_dstr__degC, heat_dstr_nl_avg_abs__Pa), name='flow_dstr_J_dm_3_K_1')
+        delta_t_flow_ret__K = m.Intermediate(temp_flow_ch__degC - temp_ret_ch__degC, name='delta_t_flow_ret__K')
+        m.Equation(delta_t_flow_ret__K >= 0)  # Enforcing lower bound constraint
+        # flow_dstr_J_dm_3_K_1= m.Intermediate(water_volumetric_heat_capacity__J_dm_3_K_1(temp_dstr__degC, heat_dstr_nl_avg_abs__Pa), name='flow_dstr_J_dm_3_K_1')
+        flow_dstr_J_dm_3_K_1 = m.Intermediate(wvhc3 * temp_dstr__degC**3 + wvhc2 * temp_dstr__degC**2 + wvhc1 * temp_dstr__degC + wvhc0, name='flow_dstr_J_dm_3_K_1')
+
         m.Equation(flow_dstr__dm3_s_1 == heat_ch__W / (flow_dstr_J_dm_3_K_1 * delta_t_flow_ret__K))
 
         # Define equations for heat distribution system
