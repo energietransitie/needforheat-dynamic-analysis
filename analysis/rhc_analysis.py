@@ -2625,7 +2625,11 @@ class Simulator():
         temp_flow_ch__degC = m.Var(value=initial_temp_flow_ch__degC, lb=0.0, ub=100.0, name='temp_flow_ch__degC')
         temp_ret_ch__degC = m.Var(value=initial_temp_ret_ch__degC, lb=0.0, ub=100.0, name='temp_ret_ch__degC')
         temp_dstr__degC = m.Var(value=initial_temp_dstr__degC, lb=0.0, ub=100.0, name='temp_dstr__degC')
-            
+
+        delta_t_flow_ret__K = m.Intermediate(temp_flow_ch__degC - temp_ret_ch__degC, name='delta_t_flow_ret__K')
+        m.Equation(delta_t_flow_ret__K >= 0)  # Enforcing lower bound constraint
+
+        
         ##################################################################################################################
         # Control targets: flow temperature and 'delta-T': difference between flow and return temperature
         ##################################################################################################################
@@ -2635,18 +2639,22 @@ class Simulator():
         m.Equation(error_delta_t_flow_flowset__K == temp_flow_ch_set__degC - temp_flow_ch__degC)
 
         # Error in 'delta-T' (difference between supply and return temperature)
+
         error_delta_t_flow_ret__K = m.Var(value=np.float32(0.0), name='error_delta_t_flow_ret__K')  # Initialize with a default value
-        m.Equation(error_delta_t_flow_ret__K == desired_delta_t_flow_ret__K - (temp_flow_ch__degC - temp_ret_ch__degC))
+        m.Equation(error_delta_t_flow_ret__K == desired_delta_t_flow_ret__K - delta_t_flow_ret__K)
     
         ##################################################################################################################
         # Boiler Control algorithm 
         ##################################################################################################################
 
         # Define variables to hold the rate of fan and pump speed changes
-        # Rate of change for fan speed
+        # Fan speed gain, with an enforced maximum
         fan_rotations_gain__pct_min_1 = m.Var(value=np.float32(0.0), name='fan_rotations_gain__pct_min_1')
-        # Rate of change for pump speed
+        fan_rotations_gain__pct_min_1.upper=fan_rotations_max_gain__pct_min_1 # Enforce the max gain
+    
+        # Pump speed gain based, with en enforced maximum
         flow_dstr_pump_speed_gain__pct_min_1 = m.Var(value=np.float32(0.0),name='flow_dstr_pump_speed_gain__pct_min_1')
+        flow_dstr_pump_speed_gain__pct_min_1.upper=flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the max gain
 
         ##################################################################################################################
         # Cooldown mode definitions 
@@ -2736,11 +2744,6 @@ class Simulator():
         # Fan speed definitions 
         ##################################################################################################################
         
-        # Conditional fan speed gain based on flow error threshold, with an enforced maximum
-        fan_rotations_gain__pct_min_1 = m.Var(name='fan_rotations_gain__pct_min_1', 
-                                              value=0)
-        fan_rotations_gain__pct_min_1.upper=fan_rotations_max_gain__pct_min_1
-        
         m.Equation(fan_rotations_gain__pct_min_1 == 
                    error_delta_t_flow_flowset__K / error_threshold_delta_t_flow_flowset__K * fan_rotations_max_gain__pct_min_1)
 
@@ -2763,12 +2766,6 @@ class Simulator():
         # Pump speed definitions 
         ##################################################################################################################
 
-        # Conditional pump speed gain based on error threshold, with en enforced maximum
-        flow_dstr_pump_speed_gain__pct_min_1 = m.Var(
-            name='flow_dstr_pump_speed_gain__pct_min_1',
-            value=0)
-        flow_dstr_pump_speed_gain__pct_min_1.upper=flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the max gain
-        
         m.Equation(
             flow_dstr_pump_speed_gain__pct_min_1 == 
             error_delta_t_flow_ret__K / error_threshold_delta_t_flow_ret__K * flow_dstr_pump_speed_max_gain__pct_min_1
@@ -2888,8 +2885,6 @@ class Simulator():
 
         # Equations for heat distribution flow
         flow_dstr__dm3_s_1 = m.Intermediate(flow_dstr_intercept__dm3_s_1 + (flow_dstr_pump_speed__pct/100) * flow_dstr_slope__dm3_s_1_pct_1, name='flow_dstr__dm3_s_1')
-        delta_t_flow_ret__K = m.Intermediate(temp_flow_ch__degC - temp_ret_ch__degC, name='delta_t_flow_ret__K')
-        m.Equation(delta_t_flow_ret__K >= 0)  # Enforcing lower bound constraint
         # flow_dstr_J_dm_3_K_1= m.Intermediate(water_volumetric_heat_capacity__J_dm_3_K_1(temp_dstr__degC, heat_dstr_nl_avg_abs__Pa), name='flow_dstr_J_dm_3_K_1')
         flow_dstr_J_dm_3_K_1 = m.Intermediate(wvhc3 * temp_dstr__degC**3 + wvhc2 * temp_dstr__degC**2 + wvhc1 * temp_dstr__degC + wvhc0, name='flow_dstr_J_dm_3_K_1')
 
@@ -2982,7 +2977,8 @@ class Simulator():
             heat_tr_bldng_vent__W_K_1 = m.Intermediate(air_changes_vent__s_1 * bldng__m3 * air_room__J_m_3_K_1, name='heat_tr_bldng_vent__W_K_1')
             heat_loss_bldng_vent__W = m.Intermediate(heat_tr_bldng_vent__W_K_1 * delta_t_indoor_outdoor__K, name='heat_loss_bldng_vent__W')
         else:
-            heat_loss_bldng_vent__W = 0
+            heat_tr_bldng_vent__W_K_1 = m.Var(0, name='heat_tr_bldng_vent__W_K_1')
+            heat_loss_bldng_vent__W = m.Var(0, name='heat_loss_bldng_vent__W')
 
         ##################################################################################################################
         ## Thermal inertia ##
@@ -3006,7 +3002,7 @@ class Simulator():
         ##################################################################################################################
         m.options.IMODE = 4        # Do not learn, but only simulate using learned parameters passed via bldng_data
         m.options.EV_TYPE = 2      # RMSE
-        m.solve(disp=False)
+        m.solve(disp=True)
 
         ##################################################################################################################
         # Store results of the simulation process
