@@ -1740,6 +1740,9 @@ class Model():
         temp_ret_ch__degC.STATUS = 0  # No optimization
         temp_ret_ch__degC.FSTATUS = 1 # Use the measured values
 
+        # 'delta-T' for flow and return: difference between supply and return temperature
+        delta_t_flow_ret__K = m.Intermediate(temp_flow_ch__degC - temp_ret_ch__degC, name='delta_t_flow_ret__K')
+
         ##################################################################################################################
         # Fan speed and pump speed
         ##################################################################################################################
@@ -1758,14 +1761,12 @@ class Model():
         # Control targets: flow temperature and 'delta-T': difference between flow and return temperature
         ##################################################################################################################
 
-        # Error between supply temperature and setpoint fo the supply temperature
-        error_delta_t_flow_flowset__K = m.Var(value=0.0, name='error_delta_t_flow_flowset__K')  # Initialize with a default value
-        m.Equation(error_delta_t_flow_flowset__K == temp_flow_ch_set__degC - temp_flow_ch__degC)
+        # Error between supply temperature and setpoint for the supply temperature
+        error_delta_t_flow_flowset__K = m.Intermediate(temp_flow_ch_set__degC - temp_flow_ch__degC, name='error_delta_t_flow_flowset__K')
 
         # Error in 'delta-T' (difference between supply and return temperature)
-        desired_delta_t_flow_ret__K = m.Param(value=bldng_data['desired_delta_t_flow_ret__K'], name='desired_delta_t_flow_ret__K') 
-        error_delta_t_flow_ret__K = m.Var(value=0.0, name='error_delta_t_flow_ret__K')  # Initialize with a default value
-        m.Equation(error_delta_t_flow_ret__K == desired_delta_t_flow_ret__K - (temp_flow_ch__degC - temp_ret_ch__degC))
+        error_delta_t_flow_ret__K = m.Intermediate(desired_delta_t_flow_ret__K - delta_t_flow_ret__K, name='error_delta_t_flow_ret__K')
+
     
         ##################################################################################################################
         # Control  algorithm 
@@ -2139,12 +2140,11 @@ class Model():
         temp_indoor__degC.FSTATUS = 1 # Use the measured values
 
         ##################################################################################################################
-        # Control targets: 'delta-T': difference between indoor setpoint and indoor temperature
+        # Control target: 'delta-T': difference between indoor setpoint and indoor temperature
         ##################################################################################################################
 
-        # Error between thermostat setpoint and indoor temperature
-        error_delta_t_indoor_set__K  = m.Var(value=0.0, name='error_delta_t_indoor_set__K')  # Initialize with a default value
-        m.Equation(error_delta_t_indoor_set__K == temp_set__degC - temp_indoor__degC)
+        # Difference between thermostat setpoint and indoor temperature
+        delta_t_indoor_set__K = m.Intermediate(temp_set__degC - temp_indoor__degC, name='delta_t_indoor_set__K')
 
         ##################################################################################################################
         # Control  algorithm 
@@ -2167,17 +2167,24 @@ class Model():
                 hysteresis_upper_margin__K = m.Intermediate(temp_set__degC + thermostat_hysteresis__K/2, name='hysteresis_upper_margin__K')
                 hysteresis_lower_margin__K = m.Intermediate(temp_set__degC - thermostat_hysteresis__K/2, name='hysteresis_lower_margin__K')
         
+                # Binary state variable: 1 for ON, 0 for OFF
+                heating_state = m.Var(value=0, integer=True, name='heating_state')
+                
+                # Logic to turn heating ON or OFF
                 m.Equation(
-                    temp_flow_ch_set__degC == m.if3(
-                        temp_indoor__degC - hysteresis_upper_margin__K,     # Positive if above upper margin (OFF)
-                        0,                                                  # turn heating OFF
+                    heating_state == m.if3(
+                        temp_indoor__degC - hysteresis_upper_margin__K,
+                        0,  # turn OFF
                         m.if3(
-                            hysteresis_lower_margin__K - temp_indoor__degC, # Positive if below lower margin (ON)
-                            temp_flow_ch_max__degC,                         # turn heating ON
-                            temp_flow_ch_set__degC                          # Maintain current state
+                            hysteresis_lower_margin__K - temp_indoor__degC,
+                            1,  # turn ON
+                            heating_state  # maintain the previous state
                         )
                     )
                 )
+                
+                # Compute the flow temperature based on heating state
+                temp_flow_ch_set__degC = m.Intermediate(heating_state * temp_flow_ch_max__degC, name='temp_flow_ch_set__degC')
 
             case Model.ControlMode.PID:
                 ##################################################################################################################
@@ -2206,9 +2213,9 @@ class Model():
                 # PID control equations for flow temperature setpoint 
                 m.Equation(
                     temp_flow_ch_set__degC.dt() == (
-                        pid_parameters['thermostat']['p'] * error_delta_t_indoor_set__K +              # Proportional term
-                        pid_parameters['thermostat']['i'] * m.integral(error_delta_t_indoor_set__K) +  # Integral term
-                        pid_parameters['thermostat']['d'] * error_delta_t_indoor_set__K.dt()           # Derivative term
+                        pid_parameters['thermostat']['p'] * delta_t_indoor_set__K +              # Proportional term
+                        pid_parameters['thermostat']['i'] * m.integral(delta_t_indoor_set__K) +  # Integral term
+                        pid_parameters['thermostat']['d'] * delta_t_indoor_set__K.dt()           # Derivative term
                     )
                 )
 
@@ -2536,6 +2543,7 @@ class Simulator():
         # Initialize GEKKO model
         ##################################################################################################################
         m = GEKKO(remote=False)
+
         id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
         m.time = np.arange(0, duration__s, step__s)
 
@@ -2561,17 +2569,12 @@ class Simulator():
         temp_flow_ch_max__degC.STATUS = 0  # No optimization
         temp_flow_ch_max__degC.FSTATUS = 1 # Use the measured values
         
-        temp_flow_ch_set__degC = m.Var(value=np.float32(0.0), name='temp_flow_ch_set__degC') 
-        temp_flow_ch_set__degC.lower = 0  # Minimum value
-        m.Equation(temp_flow_ch_set__degC <= temp_flow_ch_max__degC) # constraint to enforce the maximum limit dynamically
-
         ##################################################################################################################
         # Control targets: 'delta-T': difference between indoor setpoint and indoor temperature
         ##################################################################################################################
 
-        # Error between thermostat setpoint and indoor temperature
-        error_delta_t_indoor_set__K = m.Var(value=np.float32(0.0), name='error_delta_t_indoor_set__K')  # Initialize with a default value
-        m.Equation(error_delta_t_indoor_set__K == temp_set__degC - temp_indoor__degC)
+        # Difference between thermostat setpoint and indoor temperature
+        delta_t_indoor_set__K = m.Intermediate(temp_set__degC - temp_indoor__degC, name='delta_t_indoor_set__K')
 
         ##################################################################################################################
         # Algorithmic control; this implements a simple ON/OFF thermostat with hysteresis
@@ -2580,20 +2583,27 @@ class Simulator():
         hysteresis_upper_margin__K = m.Intermediate(temp_set__degC + thermostat_hysteresis__K/2, name='hysteresis_upper_margin__K')
         hysteresis_lower_margin__K = m.Intermediate(temp_set__degC - thermostat_hysteresis__K/2, name='hysteresis_lower_margin__K')
 
+        # Binary state variable: 1 for ON, 0 for OFF
+        heating_state = m.Var(value=0, integer=True, name='heating_state')
+        
+        # Logic to turn heating ON or OFF
         m.Equation(
-            temp_flow_ch_set__degC == m.if3(
-                temp_indoor__degC - hysteresis_upper_margin__K,     # Positive if above upper margin (OFF)
-                0,                                                  # turn heating OFF
+            heating_state == m.if3(
+                temp_indoor__degC - hysteresis_upper_margin__K,
+                0,  # turn OFF
                 m.if3(
-                    hysteresis_lower_margin__K - temp_indoor__degC, # Positive if below lower margin (ON)
-                    temp_flow_ch_max__degC,                         # turn heating ON
-                    temp_flow_ch_set__degC                          # Maintain current state
+                    hysteresis_lower_margin__K - temp_indoor__degC,
+                    1,  # turn ON
+                    heating_state  # maintain the previous state
                 )
             )
         )
+        
+        # Compute the flow temperature based on heating state
+        temp_flow_ch_set__degC = m.Intermediate(heating_state * temp_flow_ch_max__degC, name='temp_flow_ch_set__degC')
 
         ##################################################################################################################
-        # Fan speed and pump speed
+        # Boiler Fan speed and pump speed
         ##################################################################################################################
 
         # calculated fan speed percentage between min (0 %) and max (100 %); use initial value during simulations
@@ -2606,7 +2616,7 @@ class Simulator():
         flow_dstr_pump_speed__pct = m.Var(value=np.float32(df_learn[property_sources['flow_dstr_pump_speed__pct']].iloc[0]), name='flow_dstr_pump_speed__pct') 
 
         ##################################################################################################################
-        # Flow and return temperature
+        # Heate Distribution System Flow and Return Temperature
         ##################################################################################################################
         if (pd.notna(df_learn[property_sources['temp_flow_ch__degC']].iloc[0]) and 
             pd.notna(df_learn[property_sources['temp_ret_ch__degC']].iloc[0])
@@ -2626,6 +2636,7 @@ class Simulator():
         temp_ret_ch__degC = m.Var(value=initial_temp_ret_ch__degC, lb=0.0, ub=100.0, name='temp_ret_ch__degC')
         temp_dstr__degC = m.Var(value=initial_temp_dstr__degC, lb=0.0, ub=100.0, name='temp_dstr__degC')
 
+        # 'delta-T' for flow and return: difference between supply and return temperature
         delta_t_flow_ret__K = m.Intermediate(temp_flow_ch__degC - temp_ret_ch__degC, name='delta_t_flow_ret__K')
         m.Equation(delta_t_flow_ret__K >= 0)  # Enforcing lower bound constraint
 
@@ -2634,14 +2645,11 @@ class Simulator():
         # Control targets: flow temperature and 'delta-T': difference between flow and return temperature
         ##################################################################################################################
 
-        # Error between supply temperature and setpoint fo the supply temperature
-        error_delta_t_flow_flowset__K = m.Var(value=np.float32(0.0), name='error_delta_t_flow_flowset__K')  # Initialize with a default value
-        m.Equation(error_delta_t_flow_flowset__K == temp_flow_ch_set__degC - temp_flow_ch__degC)
+        # Error between supply temperature and setpoint for the supply temperature
+        error_delta_t_flow_flowset__K = m.Intermediate(temp_flow_ch_set__degC - temp_flow_ch__degC, name='error_delta_t_flow_flowset__K')
 
         # Error in 'delta-T' (difference between supply and return temperature)
-
-        error_delta_t_flow_ret__K = m.Var(value=np.float32(0.0), name='error_delta_t_flow_ret__K')  # Initialize with a default value
-        m.Equation(error_delta_t_flow_ret__K == desired_delta_t_flow_ret__K - delta_t_flow_ret__K)
+        error_delta_t_flow_ret__K = m.Intermediate(desired_delta_t_flow_ret__K - delta_t_flow_ret__K, name='error_delta_t_flow_ret__K')
     
         ##################################################################################################################
         # Boiler Control algorithm 
@@ -2653,7 +2661,7 @@ class Simulator():
         fan_rotations_gain__pct_min_1.upper=fan_rotations_max_gain__pct_min_1 # Enforce the max gain
     
         # Pump speed gain based, with en enforced maximum
-        flow_dstr_pump_speed_gain__pct_min_1 = m.Var(value=np.float32(0.0),name='flow_dstr_pump_speed_gain__pct_min_1')
+        flow_dstr_pump_speed_gain__pct_min_1 = m.Var(value=np.float32(0.0), name='flow_dstr_pump_speed_gain__pct_min_1')
         flow_dstr_pump_speed_gain__pct_min_1.upper=flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the max gain
 
         ##################################################################################################################
@@ -2668,9 +2676,9 @@ class Simulator():
         cooldown_condition = m.Var(value=0, name='cooldown_condition')  # Initialize hysteresis state variable
         
         # Define the overheating and cooldown conditions
-        overheat_condition = temp_flow_ch__degC - (temp_flow_ch_set__degC + overheat_upper_margin_temp_flow__K)
-        cooldown_exit_condition = (temp_flow_ch_set__degC + cooldown_margin_temp_flow__K) - temp_flow_ch__degC
-        no_heat_demand_condition = 0.5 - temp_flow_ch_set__degC
+        overheat_condition = m.Intermediate(temp_flow_ch__degC - (temp_flow_ch_set__degC + overheat_upper_margin_temp_flow__K), name='overheat_condition')
+        cooldown_exit_condition = m.Intermediate((temp_flow_ch_set__degC + cooldown_margin_temp_flow__K) - temp_flow_ch__degC, name='cooldown_exit_condition')
+        no_heat_demand_condition = m.Intermediate(0.5 - temp_flow_ch_set__degC, name='no_heat_demand_condition')
         
         # Cooldown state transitions
         m.Equation(
@@ -3002,8 +3010,30 @@ class Simulator():
         ##################################################################################################################
         m.options.IMODE = 4        # Do not learn, but only simulate using learned parameters passed via bldng_data
         m.options.EV_TYPE = 2      # RMSE
-        m.solve(disp=True)
+        m.options.DIAGLEVEL = 4
 
+        debug_path = m.path # TODO: remove after debug
+        print(f"Solver debug directory: {debug_path}") # TODO: remove after debug
+        
+        # Attempt solving the model
+        try:
+            m.solve(disp=True)
+        except Exception as e:
+            print(f"Error during solve: {e}")
+
+        ##### TODO: remove after debug        
+        available_files = os.listdir(debug_path)
+        key_debug_files = ['gk0x.log', 'apm_model.apm', 'infeasibilities.txt']
+        
+        # Display contents of key debug files
+        for file in available_files:
+            if file in key_debug_files:
+                print(f"\nContents of {file}:\n")
+                file_path = os.path.join(debug_path, file)
+                with open(file_path, 'r') as f:
+                    print(f.read())
+        ##### 
+        
         ##################################################################################################################
         # Store results of the simulation process
         ##################################################################################################################
@@ -3020,30 +3050,31 @@ class Simulator():
             'duration': timedelta(seconds=duration__s),
         }, index=[0])
 
-        for param in used_params & current_locals.keys():
-            used_value = current_locals[param].value[0]
-            df_learned_parameters.loc[0, f'learned_{param}'] = used_value
-            # If actual value exists, compute MAE
-            if actual_params is not None and param in actual_params:
-                df_learned_parameters.loc[0, f'mae_{param}'] = abs(used_value - actual_params[param])
-        
-        # Store learned time-varying data in DataFrame and calculate MAE and RMSE
-        current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
-        for prop in (predict_props or set()) & set(current_locals.keys()):
-            predicted_prop = f'predicted_{prop}'
-            df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
+        if m.options.APPSTATUS == 1:
+            current_locals = locals() # current_locals is valid in list comprehensions and for loops, locals() is not. 
+            for param in used_params & current_locals.keys():
+                used_value = current_locals[param].value[0]
+                df_learned_parameters.loc[0, f'learned_{param}'] = used_value
+                # If actual value exists, compute MAE
+                if actual_params is not None and param in actual_params:
+                    df_learned_parameters.loc[0, f'mae_{param}'] = abs(used_value - actual_params[param])
             
-            # If the property was measured, calculate and store MAE and RMSE
-            if prop in property_sources.keys() and property_sources[prop] in df_learn.columns:
-                df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_predicted_properties[predicted_prop]  # Predicted values
-                )
-                df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
-                    df_learn[property_sources[prop]],  # Measured values
-                    df_predicted_properties[predicted_prop]  # Predicted values
-                )
-
+            # Store learned time-varying data in DataFrame and calculate MAE and RMSE
+            for prop in (predict_props or set()) & set(current_locals.keys()):
+                predicted_prop = f'predicted_{prop}'
+                df_predicted_properties.loc[:,predicted_prop] = np.asarray(current_locals[prop].value)
+                
+                # If the property was measured, calculate and store MAE and RMSE
+                if prop in property_sources.keys() and property_sources[prop] in df_learn.columns:
+                    df_learned_parameters.loc[0, f'mae_{prop}'] = mae(
+                        df_learn[property_sources[prop]],  # Measured values
+                        df_predicted_properties[predicted_prop]  # Predicted values
+                    )
+                    df_learned_parameters.loc[0, f'rmse_{prop}'] = rmse(
+                        df_learn[property_sources[prop]],  # Measured values
+                        df_predicted_properties[predicted_prop]  # Predicted values
+                    )
+    
         # Set MultiIndex on the DataFrame (id, start, end)
         df_learned_parameters.set_index(['id', 'start', 'end', 'duration'], inplace=True)
 
