@@ -1800,7 +1800,7 @@ class Model():
                 
                 # Define the overheating and cooldown conditions
                 overheat_condition = temp_flow_ch__degC - (temp_flow_ch_set__degC + overheat_upper_margin_temp_flow__K)
-                cooldown_exit_condition = (temp_flow_ch_set__degC + cooldown_margin_temp_flow__K) - temp_flow_ch__degC
+                cooldown_exit_condition = (temp_flow_ch_set__degC - cooldown_margin_temp_flow__K) - temp_flow_ch__degC
                 no_heat_demand_condition = 0.5 - temp_flow_ch_set__degC
                 
                 # Cooldown state transitions
@@ -1878,7 +1878,8 @@ class Model():
                 # Conditional fan speed gain based on flow error threshold, with an enforced maximum
                 fan_rotations_gain__pct_min_1 = m.Var(name='fan_rotations_gain__pct_min_1', 
                                                       value=0)
-                fan_rotations_gain__pct_min_1.upper=fan_rotations_max_gain__pct_min_1
+                fan_rotations_gain__pct_min_1.upper=fan_rotations_max_gain__pct_min_1 # Enforce the max gain
+                fan_rotations_gain__pct_min_1.lower=-fan_rotations_max_gain__pct_min_1 # Enforce the min gain (=max loss)
                 
                 m.Equation(fan_rotations_gain__pct_min_1 == 
                            error_delta_t_flow_flowset__K / error_threshold_delta_t_flow_flowset__K * fan_rotations_max_gain__pct_min_1)
@@ -1889,10 +1890,10 @@ class Model():
                 m.Equation(
                     fan_speed__pct == m.if3(
                         no_heat_demand_condition,     # Condition: temp_flow_ch_set__degC == 0 (< 0.5)
-                        0,                            # Action: set fan speed to 0
+                        0,                            # Action: set fan speed to 0 %
                         m.if3(                        # Else:
                             cooldown_condition,            # Condition: cooldown_condition == True
-                            0,                             # Action: set fan speed also to 0
+                            0,                             # Action: set fan speed also to 0 %
                             fan_speed__pct                 # Else: Keep the calculated fan speed
                         )
                     )
@@ -1907,6 +1908,7 @@ class Model():
                     name='flow_dstr_pump_speed_gain__pct_min_1',
                     value=0)
                 flow_dstr_pump_speed_gain__pct_min_1.upper=flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the max gain
+                flow_dstr_pump_speed_gain__pct_min_1.lower=-flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the min gain (=max loss)
                 
                 m.Equation(
                     flow_dstr_pump_speed_gain__pct_min_1 == 
@@ -2659,10 +2661,12 @@ class Simulator():
         # Fan speed gain, with an enforced maximum
         fan_rotations_gain__pct_min_1 = m.Var(value=np.float32(0.0), name='fan_rotations_gain__pct_min_1')
         fan_rotations_gain__pct_min_1.upper=fan_rotations_max_gain__pct_min_1 # Enforce the max gain
+        fan_rotations_gain__pct_min_1.lower=-fan_rotations_max_gain__pct_min_1 # Enforce the min gain
     
         # Pump speed gain based, with en enforced maximum
         flow_dstr_pump_speed_gain__pct_min_1 = m.Var(value=np.float32(0.0), name='flow_dstr_pump_speed_gain__pct_min_1')
         flow_dstr_pump_speed_gain__pct_min_1.upper=flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the max gain
+        flow_dstr_pump_speed_gain__pct_min_1.lower=-flow_dstr_pump_speed_max_gain__pct_min_1  # Enforce the min gain
 
         ##################################################################################################################
         # Cooldown mode definitions 
@@ -2677,7 +2681,7 @@ class Simulator():
         
         # Define the overheating and cooldown conditions
         overheat_condition = m.Intermediate(temp_flow_ch__degC - (temp_flow_ch_set__degC + overheat_upper_margin_temp_flow__K), name='overheat_condition')
-        cooldown_exit_condition = m.Intermediate((temp_flow_ch_set__degC + cooldown_margin_temp_flow__K) - temp_flow_ch__degC, name='cooldown_exit_condition')
+        cooldown_exit_condition = m.Intermediate((temp_flow_ch_set__degC - cooldown_margin_temp_flow__K) - temp_flow_ch__degC, name='cooldown_exit_condition')
         no_heat_demand_condition = m.Intermediate(0.5 - temp_flow_ch_set__degC, name='no_heat_demand_condition')
         
         # Cooldown state transitions
@@ -2761,7 +2765,7 @@ class Simulator():
         m.Equation(
             fan_speed__pct == m.if3(
                 no_heat_demand_condition,     # Condition: temp_flow_ch_set__degC == 0 (< 0.5)
-                0,                            # Action: set fan speed to 0
+                0,                            # Action: set fan speed to 0 %
                 m.if3(                        # Else:
                     cooldown_condition,            # Condition: cooldown_condition == True
                     0,                             # Action: set fan speed also to 0
@@ -2790,7 +2794,7 @@ class Simulator():
                     post_pump_speed__pct,       # Action:  use building-specific post-pump speed
                     m.if3(                      # Else:
                         no_heat_demand_condition,      # Condition: temp_flow_ch_set__degC == 0 (< 0.5)
-                        0,                             # Action: set pump speed set to 0
+                        0,                             # Action: set pump speed set to 0 %
                         flow_dstr_pump_speed__pct      # Else: retain the current pump speed
                     )
                 )
