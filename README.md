@@ -92,9 +92,6 @@ After installing JupyterLab, you can execute `.ipynb` notebooks from the `exampl
 > The exact workflow for using these features efficiently is **work in progress**. More information will follow soon.
 
 ## Status
-This repository documents the final state of the REDUCEDHEATCARB project and remains actively maintained.
-
-## Status
 Project is: _in progress_
 
 ## License
