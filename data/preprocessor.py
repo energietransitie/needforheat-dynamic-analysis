@@ -313,11 +313,12 @@ class Preprocessor:
     @staticmethod
     def add_filtered_flow_ret_ch_temperatures(df_prop: pd.DataFrame) -> pd.DataFrame:
         """
-        Create a valid temperature mask to selectively copy flow and return temperatures while filtering out DHW interference.
+        Create a valid temperature mask to selectively copy flow and return temperatures while filtering out DHW interference
+        and excluding periods when the pump speed is zero.
         
         This function identifies periods where the boiler is burning for DHW and propagates the mask forward until 
         the boiler resumes burning for CH (central heating). The procedure ensures that DHW masking does not carry 
-        over across 'id' boundaries.
+        over across 'id' boundaries. Additionally, it excludes data points where the pump speed is zero.
     
         Parameters:
         -----------
@@ -350,6 +351,7 @@ class Preprocessor:
             # Step 1: Identify DHW production periods
             dhw_status_mask = group['boiler_status_burning_dhw__bool']
             high_pump_mask = (group['flow_dstr_pump_speed__pct'] == 100) & ~group['boiler_status_burning_ch__bool']
+            low_pump_mask = group['flow_dstr_pump_speed__pct'] == 0
             temp_spike_mask = (group['temp_flow__degC'].diff() > 5) | (group['temp_ret__degC'].diff() > 5)
             
             dhw_start_mask = (dhw_status_mask.fillna(False) | high_pump_mask.fillna(False) | temp_spike_mask.fillna(False))
@@ -387,7 +389,10 @@ class Preprocessor:
             # Convert valid_mask to a boolean Series
             valid_mask = pd.Series(valid_mask, index=group.index)
             
-            # Step 3: Selectively copy flow and return temperatures
+            # Step 3: Exclude periods when pump speed is zero
+            valid_mask &= ~low_pump_mask
+
+            # Step 4: Selectively copy flow and return temperatures
             df_prop.loc[group.index, 'temp_flow_ch__degC'] = group['temp_flow__degC'].where(valid_mask)
             df_prop.loc[group.index, 'temp_ret_ch__degC'] = group['temp_ret__degC'].where(valid_mask)
         

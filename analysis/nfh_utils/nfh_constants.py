@@ -1,37 +1,77 @@
 import numpy as np
+import pandas as pd
+from CoolProp.CoolProp import PropsSI
+from scipy import constants
 
 # Time conversion factors
-s_min_1 = 60                                                  # [s] per [min]
-min_h_1 = 60                                                  # [min] per [h]
-h_d_1 = 24                                                    # [h] per [d]
-d_a_1 = 365.25                                                # [d] per [a]]
-s_h_1 = s_min_1 * min_h_1                                     # [s] per [h]
-s_d_1 = (h_d_1 * s_h_1)                                       # [s] per [d]
-s_a_1 = (d_a_1 * s_d_1)                                       # [s] per [a] 
+s_min_1 = constants.minute                                    # [s] per [min]
+min_h_1 = constants.hour/constants.minute                     # [min] per [h]
+h_d_1 = constants.day/constants.hour                          # [h] per [d]
+d_a_1 = constants.year/constants.day                          # [d] per [a]]
+s_h_1 = constants.hour                                        # [s] per [h]
+s_d_1 = constants.day                                         # [s] per [d]
+s_a_1 = constants.year                                        # [s] per [a] 
 
 # Energy conversion factors
-J_kWh_1 = 1000 * s_h_1                                        # [J] per [kWh]
-J_MJ_1 = 1e6                                                  # [J] per [MJ]
-
+W_kW_1 = constants.kilo                                       # [W] per [kW]
+J_kWh_1 = W_kW_1 * s_h_1                                      # [J] per [kWh]
+J_MJ_1 = constants.mega                                       # [J] per [MJ]
 # Volumetric conversion factors
-ml_m_3 = 1e3 * 1e3                                            # [ml] per [m^3]
-dm3_m_3 = 1e3                                                 # [m^3] per [m^3]
+dm3_m_3 = constants.deka**3                                   # [dm^3] per [m^3]
+ml_m_3 = (1/constants.milli) * dm3_m_3                        # [ml] per [m^3]
 
 # Pressure conversion factors
-Pa_mbar_1 = 1e2                                               # [Pa] per [mbar]
+Pa_mbar_1 = constants.milli * constants.bar                   # [Pa] per [mbar]
 
 # Molar conversion factors
-umol_mol_1 = 1e6                                              # [µmol] per [mol]
+umol_mol_1 = 1/constants.micro                                # [µmol] per [mol]
 
 # Area conversion factors
-cm2_m_2 = 1e2 * 1e2                                           # [cm^2] per [m^2]
+cm2_m_2 = 1/(constants.centi * constants.centi)               # [cm^2] per [m^2]
 
 # Temperature conversion
-temp_0__degC__K = 273.15                                      # 0 [°C] = 273.15 [K]
+temp_0__degC__K = constants.zero_Celsius                      # 0 [°C] = 273.15 [K]
   
-# Gas conversion factors
-P_std__Pa = 101325                                            # standard gas pressure [Pa]
-R__m3_Pa_K_1_mol_1 = 8.3145                                   # gas constant [m^3⋅Pa⋅K^-1⋅mol^-1)]
+# Gas conversion factors and fuctions for air
+P_std__Pa = constants.atm                                     # standard gas pressure [Pa]
+R__m3_Pa_K_1_mol_1 = PropsSI('GAS_CONSTANT', 'Air')           # gas constant [m^3⋅Pa⋅K^-1⋅mol^-1)]
+
+# Air density
+def air_density__kg_m_3(air_temp__degC, air_abs__Pa):
+    """Calculate air density based on temperature and pressure."""
+    if pd.isna(air_temp__degC) or pd.isna(air_abs__Pa):
+        return np.nan
+    else:
+        return PropsSI('D', 'T', air_temp__degC + temp_0__degC__K, 'P', air_abs__Pa, 'Air')  # kg/m³
+
+# Air specific heat capacity (mass-based)
+def air_specific_heat_capacity__J_kg__1_K_1(air_temp__degC, air_abs__Pa):
+    """Calculate air specific heat capacity at constant pressure based on temperature and pressure."""
+    if pd.isna(air_temp__degC) or pd.isna(air_abs__Pa):
+        return np.nan
+    else:
+        return PropsSI('C', 'T', air_temp__degC + temp_0__degC__K, 'P', air_abs__Pa, 'Air')  # J/(kg·K)
+
+# Air molar specific heat capacity
+def air_specific_heat_capacity__J_mol__1_K_1(air_temp__degC, air_abs__Pa):
+    """Calculate air molar specific heat capacity based on temperature and pressure."""
+    if pd.isna(air_temp__degC) or pd.isna(air_abs__Pa):
+        return np.nan
+    else:
+        cp_mass = air_specific_heat_capacity__J_kg__1_K_1(air_temp__degC, air_abs__Pa)  # J/(kg·K)
+        molar_mass = PropsSI('M', 'T', air_temp__degC + temp_0__degC__K, 'P', air_abs__Pa, 'Air')  # kg/mol
+        return cp_mass * molar_mass  # J/(mol·K)
+
+# Air volumetric specific heat capacity
+def air_volumetric_specific_heat_capacity__J_m__3_K_1(air_temp__degC, air_abs__Pa):
+    """Calculate air volumetric specific heat capacity based on temperature and pressure."""
+    if pd.isna(air_temp__degC) or pd.isna(air_abs__Pa):
+        return np.nan
+    else:
+        cp_mass = air_specific_heat_capacity__J_kg__1_K_1(air_temp__degC, air_abs__Pa)  # J/(kg·K)
+        density = air_density__kg_m_3(air_temp__degC, air_abs__Pa)  # kg/m³
+        return cp_mass * density  # J/(m³·K)
+    
 temp_room_std__degC = 20.0                                    # standard room temperature [°C]
 temp_gas_std__degC = 0.0                                      # standard gas temperature [°C]
 temp_gas_ref__degC = 15.0                                     # gas temperature for reference conditions, according to EN 437:2021 (E) [°C]
@@ -43,29 +83,77 @@ gas_room__mol_m_3 = (P_std__Pa
                )                                              # molar quantity of an ideal gas under room conditions [mol⋅m^-3]
 gas_std__mol_m_3 = (P_std__Pa 
                 / (R__m3_Pa_K_1_mol_1 * temp_gas_std__K)
-               )                                              # molar quantity of an ideal gas under standard conditions [mol⋅m^-3] 
-air_std__J_mol_K = 29.07                                      # molar specific heat of air at constant pressure [J/mol⋅K] at typical room conditions
-air_room__J_mol_K = 29.19                                     # molar specific heat of air at constant pressure [J/mol⋅K] at typical room conditions
+               )    
+air_std__J_mol_K = air_specific_heat_capacity__J_mol__1_K_1(
+    temp_gas_std__degC, P_std__Pa
+)                                                             # molar specific heat of air [J/mol⋅K] at constant pressure at standard conditions
+air_room__J_mol_K = air_specific_heat_capacity__J_mol__1_K_1(
+    temp_room_std__degC, P_std__Pa
+)                                                             # molar specific heat of air [J/mol⋅K] at constant pressure at room conditions
 
-air_std__J_m_3_K_1 = (air_std__J_mol_K 
-                      * (P_std__Pa 
-                         / 
-                         (R__m3_Pa_K_1_mol_1 
-                          * 
-                          temp_gas_std__K)
-                        )
-                     )                                         # volumetric specific heat of air at standard conditions
+air_std__J_m_3_K_1 = air_volumetric_specific_heat_capacity__J_m__3_K_1(
+    temp_gas_std__degC, P_std__Pa
+)                                                            # volumetric specific heat of air [J/(m³⋅K)] at standard conditions
 
-air_room__J_m_3_K_1 = (air_room__J_mol_K 
-                      * (P_std__Pa 
-                         / 
-                         (R__m3_Pa_K_1_mol_1 
-                          * 
-                          temp_room_std__K)
-                        )
-                     )                                        # volumetric specific heat of air at standard conditions
-# Heat capacities
-water__J_kg_1_K_1 = 4181                                      # NB at 25 degC; source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
+air_room__J_m_3_K_1 = air_volumetric_specific_heat_capacity__J_m__3_K_1(
+    temp_room_std__degC, P_std__Pa
+)                                                             # volumetric specific heat of air [J/(m³⋅K)] at standard conditions
+
+# Gravitational acceleration on earth
+g__m_s_2 = constants.g                                        # Gravitational acceleration [m/s²] (https://en.wikipedia.org/wiki/Gravity_of_Earth#Conventional_value)
+
+def water_density__kg_dm_3(water_temp__degC, water_abs__Pa):
+    """Calculate water density [kg/dm³] based on temperature and pressure, handling NaN values."""
+    
+    water_temp__degC = np.atleast_1d(np.asarray(water_temp__degC, dtype=np.float64))
+    water_abs__Pa = np.atleast_1d(np.asarray(water_abs__Pa, dtype=np.float64))
+    water_temp__degC, water_abs__Pa = np.broadcast_arrays(water_temp__degC, water_abs__Pa)
+
+    # Mask NaN values
+    mask = np.isnan(water_temp__degC) | np.isnan(water_abs__Pa)
+    density__kg_dm_3 = np.full_like(water_temp__degC, np.nan, dtype=np.float64)
+    
+    # Compute only for valid values
+    valid_idx = ~mask
+    density__kg_dm_3[valid_idx] = PropsSI('D', 'T', water_temp__degC[valid_idx] + temp_0__degC__K, 'P', water_abs__Pa[valid_idx], 'Water') / dm3_m_3  
+    
+    return density__kg_dm_3.item() if isinstance(density__kg_dm_3, np.ndarray) and density__kg_dm_3.shape in [(), (1,)] else density__kg_dm_3
+    
+def water_specific_heat_capacity__J_kg_1_K_1(water_temp__degC, water_abs__Pa):
+    """Calculate water specific heat capacity [J/(kg·K)] based on temperature and pressure, handling NaN values."""
+
+    water_temp__degC = np.atleast_1d(np.asarray(water_temp__degC, dtype=np.float64))
+    water_abs__Pa = np.atleast_1d(np.asarray(water_abs__Pa, dtype=np.float64))
+    water_temp__degC, water_abs__Pa = np.broadcast_arrays(water_temp__degC, water_abs__Pa)
+    
+    # Mask NaN values
+    mask = np.isnan(water_temp__degC) | np.isnan(water_abs__Pa)
+    specific_heat_capacity__J_kg_1_K_1 = np.full_like(water_temp__degC, np.nan, dtype=np.float64)
+    
+    # Compute only for valid values
+    valid_idx = ~mask
+    specific_heat_capacity__J_kg_1_K_1[valid_idx] = PropsSI('C', 'T', water_temp__degC[valid_idx] + temp_0__degC__K, 'P', water_abs__Pa[valid_idx], 'Water')
+    
+    return specific_heat_capacity__J_kg_1_K_1.item() if isinstance(specific_heat_capacity__J_kg_1_K_1, np.ndarray) and specific_heat_capacity__J_kg_1_K_1.shape in [(), (1,)] else specific_heat_capacity__J_kg_1_K_1
+    
+
+def water_volumetric_heat_capacity__J_dm_3_K_1(water_temp__degC, water_abs__Pa):
+    """Calculate water volumetric heat capacity [J/(dm³·K)] based on temperature and pressure, handling NaN values."""
+    specific_heat_capacity__J_kg_1_K_1 = water_specific_heat_capacity__J_kg_1_K_1(water_temp__degC, water_abs__Pa)
+    density__kg_dm_3 = water_density__kg_dm_3(water_temp__degC, water_abs__Pa)
+    
+    # Compute volumetric heat capacity, ensuring NaNs propagate
+    volumetric_heat_capacity__J_dm_3_K_1 = specific_heat_capacity__J_kg_1_K_1 * density__kg_dm_3
+    return volumetric_heat_capacity__J_dm_3_K_1.item() if isinstance(volumetric_heat_capacity__J_dm_3_K_1, np.ndarray) and volumetric_heat_capacity__J_dm_3_K_1.shape in [(), (1,)] else volumetric_heat_capacity__J_dm_3_K_1
+
+
+water_volumetric_heat_capacity_coeffs = [
+    -0.0001536232549141614, 
+    0.014525365563243653, 
+    -1.9187480397472634, 
+    4210.138359837289
+]                                                             # coefficients for a cubic polynomial fit for typical radiator temperature (descending order)
+
 steel__J_kg_1_K_1 = 466                                       # source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
 
 # CO₂ concentration averages
@@ -74,7 +162,7 @@ co2_outdoor_eu_avg_2022__ppm = 415                            # Yearly average C
 # Metabolic conversion factors
 O2ml_min_1_kg_1_p_1_MET_1 = 3.5                               # [mlO₂‧kg^-1‧min^-1] per [MET] 
 desk_work__MET = 1.5                                          # Metabolic Equivalent of Task [MET] for desk work
-sedentary__MET = 1.2                                          # Metabolic Equivalent of Task [MET] for sedentary activities according to NEN-EN 1521:2007
+sedentary__MET = 1.2                                          # Metabolic Equivalent of Task [MET] for sedentary activities according to NEN-EN 15251:2007
 metabolism__molCO2_molO2_1 = 0.894                            # ratio: moles of CO₂ produced by (aerobic) human metabolism per mole of O₂ consumed 
 adult_weight_nl_avg__kg = 77.5                                # average weight of Dutch adult [kg]
 O2umol_s_1_p_1_MET_1 = (O2ml_min_1_kg_1_p_1_MET_1
@@ -92,9 +180,12 @@ co2_exhale_sedentary__umol_p_1_s_1 = (metabolism__molCO2_molO2_1
                            )                                  # molar quantity of CO₂ exhaled by a sedentary person [µmol/(p⋅s)]
 
 # Average Dutch occupancy and internal heat gain
-household_nl_avg__p = 2.2                                     # average number of persons per Dutch household
-asleep_at_home_nl_avg__h_d_1 = 8.6                            # average hours per day asleep for an average Dutch person
-awake_at_home_nl_avg__h_d_1 = 7.7                             # average hours per day awake and at home for an average Dutch person
+
+households_nl__0 = 8374404                                    # Source: CBS, 2024: https://opendata.cbs.nl/#/CBS/nl/dataset/71486ned/table?dl=B43AC
+households_nl__p = 17653766                                   # Source: CBS, 2024: https://opendata.cbs.nl/#/CBS/nl/dataset/71488ned/table?dl=B43B1
+household_nl_avg__p = households_nl__p/households_nl__0       # average number of persons per Dutch private household 
+asleep_at_home_nl_avg__h_d_1 = 8.6                            # average hours per day asleep for an average Dutch person (Source: TBO research of SCP)
+awake_at_home_nl_avg__h_d_1 = 7.7                             # average hours per day awake and at home for an average Dutch person (source: TBO research of SCP)
 at_home_nl_avg__h_d_1 = (asleep_at_home_nl_avg__h_d_1
                          + 
                          awake_at_home_nl_avg__h_d_1
@@ -105,8 +196,8 @@ occupancy_nl_avg__p = (household_nl_avg__p
                       at_home_nl_avg__h_d_1
                       / h_d_1
                      )
-heat_awake_int_nl_avg__W_p_1 = 105
-heat_asleep_int_nl_avg__W_p_1 = 77
+heat_awake_int_nl_avg__W_p_1 = 105                            # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
+heat_asleep_int_nl_avg__W_p_1 = 77                            # derived from https://publications.tno.nl/publication/34635174/QGAWjF/TNO-2019-P10600.pdf
 
 heat_int_present_nl_avg__W_p_1 = np.average(
     np.array([heat_asleep_int_nl_avg__W_p_1, heat_awake_int_nl_avg__W_p_1]),
@@ -170,6 +261,7 @@ radiator_capacity_design__W_m_2 = 100                         # recommended radi
 design_temp_outdoor__degC = -10.0                             # outdoor design temperature
 design_temp_dstr_hi__degC = 70.0                              # design temperature for high temperature radiators
 heated_fraction_nl_avg__0 = 0.4                               # estimate of typical fraction of an average Dutch home that is heated
+heat_dstr_nl_avg_abs__Pa = (1 + 1.5) * P_std__Pa              # Typical absolute heat distribution system pressure [Pa]
 
 heat_tr_dstr_nl_avg__W_K_1 = (
     radiator_capacity_design__W_m_2
@@ -183,12 +275,40 @@ heat_dstr_water_nl_avg__kg = 100
 heat_dstr_steel_nl_avg__kg = 100
 th_mass_dstr_nl_avg__Wh_K_1 = (
     (
-        (heat_dstr_water_nl_avg__kg * water__J_kg_1_K_1)
+        (heat_dstr_water_nl_avg__kg * water_specific_heat_capacity__J_kg_1_K_1(25,heat_dstr_nl_avg_abs__Pa))
         +
         (heat_dstr_steel_nl_avg__kg * steel__J_kg_1_K_1)
     ) * heated_fraction_nl_avg__0
     / s_h_1
 )                                                             # thermal mass of the heat distribution system
+
+flow_ch_max__dm3_s_1 = 6.5 * dm3_m_3 / s_h_1                  # maximum flow of 6.5 [m³/h] (Grundfos UPM4 15-75 & 15-60; Wilo Yonos Para MS/6B-PWM1 & MS/78-PWM1)
+flow_dstr_capacity_nl_avg__dm3_s_1 = 0.40                     # typical flow capacity [L/s]
+
+# Global variable for lazy initialization
+poly3_coeffs_dstr_water_density__kg_dm_3 = None
+
+def get_p3_dstr_water__kg_dm_3():
+    """
+    This function calculates and returns the polynomial coefficients for water density (kg/dm³) vs temperature (°C).
+    It only calculates the coefficients once, on the first call.
+    """
+    global poly3_coeffs_dstr_water_density__kg_dm_3
+
+    # Initialize and compute coefficients if not already done
+    if poly3_coeffs_dstr_water_density__kg_dm_3 is None:
+        # Generate temperature data (20°C to 80°C)
+        temps__degC = np.linspace(20, 80, 100)
+
+        # Compute water densities using CoolProp (kg/m³) and convert to kg/dm³
+        densities_kg_m3 = [PropsSI('D', 'T', T + temp_0__degC__K, 'P', heat_dstr_nl_avg_abs__Pa, 'Water') for T in temps__degC]
+        densities_kg_dm3 = np.array(densities_kg_m3) / 1000  # kg/dm³
+
+        # Fit a 3rd-order polynomial to the data
+        poly3_coeffs_dstr_water_density__kg_dm_3 = np.polyfit(temps__degC, densities_kg_dm3, 3)
+
+    # Return the polynomial coefficients
+    return poly3_coeffs_dstr_water_density__kg_dm_3
 
 
 # Dutch household related averages
