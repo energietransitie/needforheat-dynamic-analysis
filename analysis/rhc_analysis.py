@@ -518,7 +518,7 @@ class Model():
         id, start, end, step__s, duration__s  = Learner.get_time_info(df_learn) 
         
         bldng__m3 = bldng_data['bldng__m3']
-        floors__m2 = bldng_data['floors__m2']
+        usable_area__m2 = bldng_data['usable_area__m2']
         
         logging.info(f"learn ventilation rate for id {df_learn.index.get_level_values('id')[0]}, from  {df_learn.index.get_level_values('timestamp').min()} to {df_learn.index.get_level_values('timestamp').max()}")
 
@@ -554,7 +554,7 @@ class Model():
         # Ventilation-induced CO₂ concentration loss indoors
         ventilation__dm3_s_1 = m.MV(value=param_hints['ventilation_default__dm3_s_1'],
                                     lb=0.0, 
-                                    ub=param_hints['ventilation_max__dm3_s_1_m_2'] * floors__m2)
+                                    ub=param_hints['ventilation_max__dm3_s_1_m_2'] * usable_area__m2)
         ventilation__dm3_s_1.STATUS = 1  # Allow optimization
         ventilation__dm3_s_1.FSTATUS = 1 # Use the measured values
         
