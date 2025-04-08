@@ -154,6 +154,10 @@ water_volumetric_heat_capacity_coeffs = [
     4210.138359837289
 ]                                                             # coefficients for a cubic polynomial fit for typical radiator temperature (descending order)
 
+def water_volumetric_heat_capacity_poly__J_dm_3_K_1(water_temp__degC):
+    """Efficient polynomial approximation of water volumetric heat capacity [J/(dm³·K)] based on temperature."""
+    return np.polyval(water_volumetric_heat_capacity_coeffs, water_temp__degC)
+    
 steel__J_kg_1_K_1 = 466                                       # source: https://en.wikipedia.org/wiki/Table_of_specific_heat_capacities
 
 # CO₂ concentration averages
